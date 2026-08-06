@@ -38,3 +38,17 @@ test('unknown errors become a generic 500 without leaking the message', () => {
   assert.equal(res.body.error.code, 'INTERNAL_SERVER_ERROR');
   assert.notEqual(res.body.error.message.includes('secret internal detail'), true);
 });
+
+test('middleware errors with an exposed 4xx status are honored, not 500', () => {
+  // body-parser rejects malformed JSON with SyntaxError carrying status 400
+  const res = createRes();
+  const parseError = Object.assign(new SyntaxError('Unexpected token in JSON'), {
+    statusCode: 400,
+    status: 400,
+    expose: true,
+    type: 'entity.parse.failed',
+  });
+  errorHandler(parseError, {}, res, () => {});
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error.code, 'BAD_REQUEST');
+});

@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "node --test",
+    "test": "node --env-file=.env.test --test",
     "pretest": "node --env-file=.env.test src/db/migrate.js",
     "db:migrate": "node --env-file=.env src/db/migrate.js"
   },

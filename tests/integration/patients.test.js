@@ -199,6 +199,11 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
     ['44444444'],
   );
   assert.equal(rows[0].created_by, actorId);
+
+  // Clean up the actor FK rows so the auth suite's DELETE FROM users never
+  // races this patients row and trips the FK constraint.
+  await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
+  await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
 });
 
 test('a garbage Bearer token on the open route still creates with created_by null', async () => {

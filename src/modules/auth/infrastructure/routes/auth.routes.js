@@ -19,6 +19,7 @@ export function createAuthRouter({ repository, hasher, tokenService, guard = new
     const user = await registerUser.execute({
       username: req.body?.username,
       password: req.body?.password,
+      email: req.body?.email,
     });
     res.status(201).json(user.toJSON());
   });

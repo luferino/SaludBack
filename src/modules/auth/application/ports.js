@@ -78,3 +78,43 @@ export class TokenServicePort {
     throw new Error('TokenServicePort#verify is not implemented');
   }
 }
+
+export class ResetTokenRepositoryPort {
+  /**
+   * Persists a reset token. Enforces the per-user outstanding cap
+   * (design D4): issuing beyond the cap invalidates the oldest
+   * outstanding token.
+   * @param {{ userId: string, tokenHash: string, expiresAt: Date }} params
+   * @returns {Promise<import('../domain/password-reset-token.js').PasswordResetToken>} the persisted token
+   */
+  async create(_params) {
+    throw new Error('ResetTokenRepositoryPort#create is not implemented');
+  }
+
+  /**
+   * @param {string} tokenHash sha256 of the raw token (design D3)
+   * @returns {Promise<import('../domain/password-reset-token.js').PasswordResetToken|null>} null for unknown, used, or expired tokens (design D5)
+   */
+  async findValidByHash(_tokenHash) {
+    throw new Error('ResetTokenRepositoryPort#findValidByHash is not implemented');
+  }
+
+  /**
+   * Marks a token as used so it can never be consumed again.
+   * @param {string} id
+   * @returns {Promise<void>}
+   */
+  async markUsed(_id) {
+    throw new Error('ResetTokenRepositoryPort#markUsed is not implemented');
+  }
+}
+
+export class MailerPort {
+  /**
+   * @param {{ to: string, subject: string, text: string }} message
+   * @returns {Promise<void>}
+   */
+  async sendMail(_message) {
+    throw new Error('MailerPort#sendMail is not implemented');
+  }
+}

@@ -21,6 +21,25 @@ export class UserRepositoryPort {
   async create(_user) {
     throw new Error('UserRepositoryPort#create is not implemented');
   }
+
+  /**
+   * @param {string} email
+   * @returns {Promise<import('../domain/user.js').User|null>}
+   */
+  async findByEmail(_email) {
+    throw new Error('UserRepositoryPort#findByEmail is not implemented');
+  }
+
+  /**
+   * Replaces the stored password hash so the previous password stops
+   * working immediately.
+   * @param {string} userId
+   * @param {string} newPasswordHash
+   * @returns {Promise<void>}
+   */
+  async updatePassword(_userId, _newPasswordHash) {
+    throw new Error('UserRepositoryPort#updatePassword is not implemented');
+  }
 }
 
 export class PasswordHasherPort {

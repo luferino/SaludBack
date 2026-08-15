@@ -77,24 +77,34 @@ async function login(body) {
   return { status: res.status, body: await res.json() };
 }
 
-test('POST /auth/register creates an estudiante with a bcrypt hash', async () => {
-  const { status, body } = await register({ username: 'jperez', password: 'secret123' });
+test('POST /auth/register creates an estudiante with a bcrypt hash and email', async () => {
+  const { status, body } = await register({
+    username: 'jperez',
+    password: 'secret123',
+    email: 'jperez@example.com',
+  });
   assert.equal(status, 201);
   assert.equal(body.username, 'jperez');
   assert.equal(body.role, 'estudiante');
+  assert.equal(body.email, 'jperez@example.com');
   assert.equal(body.passwordHash, undefined);
 
-  const { rows } = await pool.query('SELECT password_hash FROM users WHERE username = $1', [
+  const { rows } = await pool.query('SELECT password_hash, email FROM users WHERE username = $1', [
     'jperez',
   ]);
   assert.equal(rows.length, 1);
   assert.notEqual(rows[0].password_hash, 'secret123');
   assert.match(rows[0].password_hash, /^\$2[aby]\$/);
+  assert.equal(rows[0].email, 'jperez@example.com');
 });
 
 test('POST /auth/register rejects a duplicate username with 409', async () => {
-  await register({ username: 'mperez', password: 'secret123' });
-  const { status, body } = await register({ username: 'mperez', password: 'otra-clave' });
+  await register({ username: 'mperez', password: 'secret123', email: 'mperez@example.com' });
+  const { status, body } = await register({
+    username: 'mperez',
+    password: 'otra-clave',
+    email: 'mperez-otro@example.com',
+  });
   assert.equal(status, 409);
   assert.equal(body.error.code, 'CONFLICT');
 
@@ -105,13 +115,32 @@ test('POST /auth/register rejects a duplicate username with 409', async () => {
   assert.equal(rows[0].n, 1);
 });
 
+test('POST /auth/register rejects a duplicate email with 409', async () => {
+  await register({ username: 'dperez', password: 'secret123', email: 'dup@example.com' });
+  const { status, body } = await register({
+    username: 'dperez-otro',
+    password: 'secret123',
+    email: 'dup@example.com',
+  });
+  assert.equal(status, 409);
+  assert.equal(body.error.code, 'CONFLICT');
+
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM users WHERE username = $1',
+    ['dperez-otro'],
+  );
+  assert.equal(rows[0].n, 0);
+});
+
 test('POST /auth/register rejects missing or empty fields with 400', async () => {
   const payloads = [
-    { password: 'secret123' },
-    { username: '', password: 'secret123' },
-    { username: '   ', password: 'secret123' },
-    { username: 'nuevo' },
-    { username: 'nuevo2', password: '' },
+    { password: 'secret123', email: 'a@example.com' },
+    { username: '', password: 'secret123', email: 'a@example.com' },
+    { username: '   ', password: 'secret123', email: 'a@example.com' },
+    { username: 'nuevo', email: 'a@example.com' },
+    { username: 'nuevo2', password: '', email: 'a@example.com' },
+    { username: 'nuevo3', password: 'secret123' },
+    { username: 'nuevo4', password: 'secret123', email: 'not-an-email' },
   ];
   for (const payload of payloads) {
     const { status, body } = await register(payload);
@@ -147,7 +176,7 @@ test('an attached guard rejects the request before the use case runs', async () 
 });
 
 test('POST /auth/login returns 200 with a token carrying role and permissions', async () => {
-  await register({ username: 'lperez', password: 'secret123' });
+  await register({ username: 'lperez', password: 'secret123', email: 'lperez@example.com' });
   const { status, body } = await login({ username: 'lperez', password: 'secret123' });
 
   assert.equal(status, 200);

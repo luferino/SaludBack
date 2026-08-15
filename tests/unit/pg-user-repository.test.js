@@ -26,6 +26,7 @@ test('findByUsername maps a database row to a User', async () => {
             username: 'jperez',
             password_hash: 'hashed-value',
             role: 'estudiante',
+            email: 'jperez@example.com',
             created_at: CREATED_AT,
           },
         ],
@@ -39,14 +40,46 @@ test('findByUsername maps a database row to a User', async () => {
   assert.equal(user.username, 'jperez');
   assert.equal(user.passwordHash, 'hashed-value');
   assert.equal(user.role, 'estudiante');
+  assert.equal(user.email, 'jperez@example.com');
   assert.equal(user.createdAt, CREATED_AT);
+});
+
+test('findByEmail returns null when no user matches', async () => {
+  const repo = new PgUserRepository(createFakePool(async () => ({ rows: [] })));
+  assert.equal(await repo.findByEmail('ghost@example.com'), null);
+});
+
+test('findByEmail maps a database row to a User', async () => {
+  const repo = new PgUserRepository(
+    createFakePool(async (text, params) => {
+      assert.match(text, /FROM users WHERE email = \$\d+/);
+      assert.deepEqual(params, ['jperez@example.com']);
+      return {
+        rows: [
+          {
+            id: 'uuid-1',
+            username: 'jperez',
+            password_hash: 'hashed-value',
+            role: 'estudiante',
+            email: 'jperez@example.com',
+            created_at: CREATED_AT,
+          },
+        ],
+      };
+    }),
+  );
+
+  const user = await repo.findByEmail('jperez@example.com');
+  assert.ok(user instanceof User);
+  assert.equal(user.id, 'uuid-1');
+  assert.equal(user.email, 'jperez@example.com');
 });
 
 test('create inserts the user and returns the persisted entity', async () => {
   const repo = new PgUserRepository(
     createFakePool(async (text, params) => {
       assert.match(text, /INSERT INTO users/);
-      assert.deepEqual(params, ['mperez', 'hashed-value', 'estudiante']);
+      assert.deepEqual(params, ['mperez', 'hashed-value', 'estudiante', 'mperez@example.com']);
       return {
         rows: [
           {
@@ -54,6 +87,7 @@ test('create inserts the user and returns the persisted entity', async () => {
             username: 'mperez',
             password_hash: 'hashed-value',
             role: 'estudiante',
+            email: 'mperez@example.com',
             created_at: CREATED_AT,
           },
         ],
@@ -62,11 +96,32 @@ test('create inserts the user and returns the persisted entity', async () => {
   );
 
   const user = await repo.create(
-    new User({ username: 'mperez', passwordHash: 'hashed-value', role: 'estudiante' }),
+    new User({
+      username: 'mperez',
+      passwordHash: 'hashed-value',
+      role: 'estudiante',
+      email: 'mperez@example.com',
+    }),
   );
   assert.equal(user.id, 'uuid-2');
   assert.equal(user.username, 'mperez');
+  assert.equal(user.email, 'mperez@example.com');
   assert.equal(user.createdAt, CREATED_AT);
+});
+
+test('updatePassword replaces the hash for the given user id', async () => {
+  let queries = 0;
+  const repo = new PgUserRepository(
+    createFakePool(async (text, params) => {
+      queries += 1;
+      assert.match(text, /UPDATE users SET password_hash = \$\d+ WHERE id = \$\d+/);
+      assert.deepEqual(params, ['uuid-2', 'new-hashed-value']);
+      return { rows: [] };
+    }),
+  );
+
+  await repo.updatePassword('uuid-2', 'new-hashed-value');
+  assert.equal(queries, 1);
 });
 
 test('toJSON never exposes the password hash', () => {
@@ -75,10 +130,12 @@ test('toJSON never exposes the password hash', () => {
     username: 'jperez',
     passwordHash: 'secret-hash',
     role: 'estudiante',
+    email: 'jperez@example.com',
     createdAt: CREATED_AT,
   });
   const json = user.toJSON();
   assert.equal(json.passwordHash, undefined);
   assert.equal(json.username, 'jperez');
+  assert.equal(json.email, 'jperez@example.com');
   assert.equal(JSON.stringify(user).includes('secret-hash'), false);
 });

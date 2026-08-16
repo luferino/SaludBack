@@ -1,6 +1,6 @@
 import process from 'node:process';
 
-const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
+const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET', 'CLIENT_URL'];
 
 function missingRequired() {
   return REQUIRED_ENV.filter((name) => !process.env[name]);
@@ -30,6 +30,9 @@ export const config = Object.freeze({
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '2h',
   bcryptCost: Number.parseInt(process.env.BCRYPT_COST ?? '12', 10),
+  clientUrl: process.env.CLIENT_URL,
+  resetTokenTtl: Number.parseInt(process.env.RESET_TOKEN_TTL ?? '15', 10),
+  resetTokenMaxOutstanding: Number.parseInt(process.env.RESET_TOKEN_MAX_OUTSTANDING ?? '3', 10),
 });
 
 export default config;

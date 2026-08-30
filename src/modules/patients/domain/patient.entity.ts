@@ -14,6 +14,8 @@ export class Patient {
   direccion: string;
   createdBy: string | null;
   createdAt: Date | string | null;
+  updatedBy: string | null;
+  updatedAt: Date | string | null;
 
   constructor({
     id = null,
@@ -27,6 +29,8 @@ export class Patient {
     direccion,
     createdBy = null,
     createdAt = null,
+    updatedBy = null,
+    updatedAt = null,
   }: {
     id?: string | null;
     documento: string;
@@ -39,6 +43,8 @@ export class Patient {
     direccion: string;
     createdBy?: string | null;
     createdAt?: Date | string | null;
+    updatedBy?: string | null;
+    updatedAt?: Date | string | null;
   } = {} as {
     id?: string | null;
     documento: string;
@@ -51,6 +57,8 @@ export class Patient {
     direccion: string;
     createdBy?: string | null;
     createdAt?: Date | string | null;
+    updatedBy?: string | null;
+    updatedAt?: Date | string | null;
   }) {
     this.id = id;
     this.documento = documento;
@@ -63,6 +71,8 @@ export class Patient {
     this.direccion = direccion;
     this.createdBy = createdBy;
     this.createdAt = createdAt;
+    this.updatedBy = updatedBy;
+    this.updatedAt = updatedAt;
   }
 
   /** Builds a new (not yet persisted) patient. */
@@ -104,7 +114,9 @@ export class Patient {
    * Serializes the patient for API responses. Explicit whitelist with
    * exactly the 11 PAT-006 contract keys; `created_by` is always present,
    * `null` when no actor recorded it. `fecha_nacimiento` serializes as
-   * `YYYY-MM-DD` without a time component.
+   * `YYYY-MM-DD` without a time component. The update audit columns
+   * (`updated_by`/`updated_at`, PAT-007) are internal bookkeeping and are
+   * never serialized (AUD-002).
    */
   toJSON(): {
     id: string | null;

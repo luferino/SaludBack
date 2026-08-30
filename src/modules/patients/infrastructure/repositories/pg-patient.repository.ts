@@ -14,10 +14,12 @@ interface PatientRow {
   direccion: string;
   created_by: string | null;
   created_at: Date | string;
+  updated_by: string | null;
+  updated_at: Date | string | null;
 }
 
 const PATIENT_COLUMNS =
-  'id, documento, nombres, apellidos, fecha_nacimiento, email, celular, sexo, direccion, created_by, created_at';
+  'id, documento, nombres, apellidos, fecha_nacimiento, email, celular, sexo, direccion, created_by, created_at, updated_by, updated_at';
 
 /**
  * PostgreSQL implementation of the PatientRepository port.
@@ -41,8 +43,8 @@ export class PgPatientRepository implements PatientRepositoryPort {
 
   async create(patient: Patient): Promise<Patient> {
     const { rows } = await this.pool.query<PatientRow>(
-      `INSERT INTO patients (documento, nombres, apellidos, fecha_nacimiento, email, celular, sexo, direccion, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO patients (documento, nombres, apellidos, fecha_nacimiento, email, celular, sexo, direccion, created_by, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING ${PATIENT_COLUMNS}`,
       [
         patient.documento,
@@ -54,6 +56,8 @@ export class PgPatientRepository implements PatientRepositoryPort {
         patient.sexo,
         patient.direccion,
         patient.createdBy,
+        patient.updatedBy,
+        patient.updatedAt,
       ],
     );
     return rowToPatient(rows[0]);
@@ -73,6 +77,8 @@ function rowToPatient(row: PatientRow): Patient {
     direccion: row.direccion,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
   });
 }
 

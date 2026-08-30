@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Guard, OpenGuard } from '../../src/modules/shared/application/guard.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import { Guard, OpenGuard } from '../../src/modules/shared/application/guard.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 test('OpenGuard allows any request (seam open by default)', async () => {
   const guard = new OpenGuard();

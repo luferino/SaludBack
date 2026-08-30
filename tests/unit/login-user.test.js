@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LoginUser } from '../../src/modules/auth/application/login-user.js';
-import { User } from '../../src/modules/auth/domain/user.js';
-import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.js';
-import { BadRequestError, UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import { LoginUser } from '../../src/modules/auth/application/login-user.usecase.ts';
+import { User } from '../../src/modules/auth/domain/user.entity.ts';
+import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
+import { BadRequestError, UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 const EXISTING_USER = new User({
   id: 'uuid-1',

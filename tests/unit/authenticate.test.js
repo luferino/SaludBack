@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 function createFakeTokenService(overrides = {}) {
   return {

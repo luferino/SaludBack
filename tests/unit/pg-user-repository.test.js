@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user-repository.js';
-import { User } from '../../src/modules/auth/domain/user.js';
+import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user.repository.ts';
+import { User } from '../../src/modules/auth/domain/user.entity.ts';
 
 function createFakePool(queryHandler) {
   return { query: queryHandler };

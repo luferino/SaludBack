@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
-import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token-service.js';
-import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.js';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
 
 const SECRET = 'unit-test-secret';
 const service = new JwtTokenService({ secret: SECRET, expiresIn: '2h' });

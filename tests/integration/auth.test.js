@@ -4,16 +4,16 @@ import { createHash } from 'node:crypto';
 import express from 'express';
 import pg from 'pg';
 import jwt from 'jsonwebtoken';
-import config from '../../src/config.js';
-import { createAuthRouter } from '../../src/modules/auth/infrastructure/routes/auth.routes.js';
-import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user-repository.js';
-import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token-repository.js';
-import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.js';
-import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token-service.js';
-import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.js';
-import { errorHandler } from '../../src/middleware/error-handler.js';
-import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import config from '../../src/config.ts';
+import { createAuthRouter } from '../../src/modules/auth/infrastructure/routes/auth.routes.ts';
+import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user.repository.ts';
+import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token.repository.ts';
+import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.service.ts';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -274,7 +274,7 @@ test('POST /auth/login rejects missing or empty fields with 400', async () => {
   }
 });
 
-test('protected route passes a valid token and exposes role and permissions', async () => {
+test('protected route passes a valid token and exposes role, permissions and sub', async () => {
   const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await tokenService.sign({
     sub: 'uuid-1',
@@ -291,7 +291,9 @@ test('protected route passes a valid token and exposes role and permissions', as
     headers: { authorization: `Bearer ${token}` },
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { auth: { role: 'estudiante', permissions: ['profile:read'] } });
+  assert.deepEqual(await res.json(), {
+    auth: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1' },
+  });
 
   await new Promise((resolve) => protectedServer.close(resolve));
 });

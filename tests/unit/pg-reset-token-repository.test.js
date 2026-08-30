@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token-repository.js';
-import { PasswordResetToken } from '../../src/modules/auth/domain/password-reset-token.js';
+import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token.repository.ts';
+import { PasswordResetToken } from '../../src/modules/auth/domain/password-reset-token.entity.ts';
 
 function createFakePool(queryHandler) {
   return { query: queryHandler };

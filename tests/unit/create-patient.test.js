@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CreatePatient } from '../../src/modules/pacientes/application/create-patient.js';
-import { Patient } from '../../src/modules/pacientes/domain/patient.js';
-import { BadRequestError, ConflictError } from '../../src/modules/shared/domain/errors.js';
+import { CreatePatient } from '../../src/modules/patients/application/create-patient.usecase.ts';
+import { Patient } from '../../src/modules/patients/domain/patient.entity.ts';
+import { BadRequestError, ConflictError } from '../../src/modules/shared/domain/errors.ts';
 
 function createFakeRepository(overrides = {}) {
   const calls = { findByDocumento: [], create: [] };

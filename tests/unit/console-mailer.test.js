@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConsoleMailer } from '../../src/modules/auth/infrastructure/services/console-mailer.js';
+import { ConsoleMailer } from '../../src/modules/auth/infrastructure/services/console-mailer.service.ts';
 
 test('sendMail prints recipient, subject and the reset link to stdout', async () => {
   const lines = [];

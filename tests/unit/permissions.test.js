@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ROLE_PERMISSIONS, permissionsForRole } from '../../src/modules/auth/domain/permissions.js';
+import { ROLE_PERMISSIONS, permissionsForRole } from '../../src/modules/auth/domain/permissions.ts';
 
 test('estudiante role maps to a non-empty permissions array', () => {
   const permissions = ROLE_PERMISSIONS.estudiante;

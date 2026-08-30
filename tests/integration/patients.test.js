@@ -2,12 +2,12 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import pg from 'pg';
-import config from '../../src/config.js';
-import { createPatientRouter } from '../../src/modules/pacientes/infrastructure/routes/patient.routes.js';
-import { PgPatientRepository } from '../../src/modules/pacientes/infrastructure/repositories/pg-patient-repository.js';
-import { errorHandler } from '../../src/middleware/error-handler.js';
-import { Guard } from '../../src/modules/shared/application/guard.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import config from '../../src/config.ts';
+import { createPatientRouter } from '../../src/modules/patients/infrastructure/routes/patient.routes.ts';
+import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
+import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { Guard } from '../../src/modules/shared/application/guard.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -183,27 +183,30 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
   await new Promise((resolve) => actorServer.once('listening', resolve));
   const url = `http://127.0.0.1:${actorServer.address().port}`;
 
-  const res = await fetch(`${url}/patients`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444444' }),
-  });
-  const body = await res.json();
-  assert.equal(res.status, 201);
-  assert.equal(body.created_by, actorId);
+  try {
+    const res = await fetch(`${url}/patients`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444444' }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 201);
+    assert.equal(body.created_by, actorId);
 
-  await new Promise((resolve) => actorServer.close(resolve));
-
-  const { rows } = await pool.query(
-    'SELECT created_by FROM patients WHERE documento = $1',
-    ['44444444'],
-  );
-  assert.equal(rows[0].created_by, actorId);
-
-  // Clean up the actor FK rows so the auth suite's DELETE FROM users never
-  // races this patients row and trips the FK constraint.
-  await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
-  await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
+    const { rows } = await pool.query(
+      'SELECT created_by FROM patients WHERE documento = $1',
+      ['44444444'],
+    );
+    assert.equal(rows[0].created_by, actorId);
+  } finally {
+    // Always release the server handle and clean up the actor FK rows, even
+    // when an assertion throws, so the node:test process cannot hang on an
+    // open handle and the auth suite's DELETE FROM users never races this
+    // patient row and trips the FK constraint.
+    await new Promise((resolve) => actorServer.close(resolve));
+    await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
+    await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
+  }
 });
 
 test('a garbage Bearer token on the open route still creates with created_by null', async () => {

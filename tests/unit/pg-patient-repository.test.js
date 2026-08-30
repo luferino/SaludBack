@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PgPatientRepository } from '../../src/modules/pacientes/infrastructure/repositories/pg-patient-repository.js';
-import { Patient } from '../../src/modules/pacientes/domain/patient.js';
+import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
+import { Patient } from '../../src/modules/patients/domain/patient.entity.ts';
 
 function createFakePool(queryHandler) {
   return { query: queryHandler };

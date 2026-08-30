@@ -274,7 +274,7 @@ test('POST /auth/login rejects missing or empty fields with 400', async () => {
   }
 });
 
-test('protected route passes a valid token and exposes role, permissions and sub', async () => {
+test('protected route passes a valid token and exposes role, permissions, sub and userId', async () => {
   const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await tokenService.sign({
     sub: 'uuid-1',
@@ -292,7 +292,7 @@ test('protected route passes a valid token and exposes role, permissions and sub
   });
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), {
-    auth: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1' },
+    auth: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1', userId: 'uuid-1' },
   });
 
   await new Promise((resolve) => protectedServer.close(resolve));

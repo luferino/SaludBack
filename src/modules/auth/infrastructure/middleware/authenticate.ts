@@ -7,17 +7,19 @@ export interface AuthenticatedRequest extends Request {
     role: string;
     permissions: string[];
     sub?: string;
+    userId?: string;
   };
 }
 
 /**
  * Token-verification middleware. Reads a Bearer token from the
  * Authorization header, verifies it through the injected TokenService and
- * exposes `req.auth = { role, permissions, sub }` to downstream handlers,
- * where `sub` is the verified token subject (user id) when present.
- * Missing, malformed, expired or otherwise invalid tokens are converted
- * to an {@link UnauthorizedError} so the error handler responds 401 and
- * the protected handler never runs.
+ * exposes `req.auth = { role, permissions, sub, userId }` to downstream
+ * handlers, where `sub`/`userId` are the verified token subject (user id)
+ * when the token carries a `sub` claim. When the token has no `sub` claim
+ * both fields stay absent (AUTH-002). Missing, malformed, expired or
+ * otherwise invalid tokens are converted to an {@link UnauthorizedError}
+ * so the error handler responds 401 and the protected handler never runs.
  */
 export function authenticate(tokenService: TokenServicePort) {
   return async function authenticateMiddleware(
@@ -41,8 +43,7 @@ export function authenticate(tokenService: TokenServicePort) {
       };
       if (typeof decoded.sub === 'string') {
         authReq.auth.sub = decoded.sub;
-      } else if (typeof decoded.userId === 'string') {
-        authReq.auth.sub = decoded.userId;
+        authReq.auth.userId = decoded.sub;
       }
       return next();
     } catch {

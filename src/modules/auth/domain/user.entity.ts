@@ -9,6 +9,9 @@ export class User {
   role: string;
   email: string | null;
   createdAt: Date | string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  updatedAt: Date | string | null;
 
   constructor({
     id = null,
@@ -17,6 +20,9 @@ export class User {
     role,
     email = null,
     createdAt = null,
+    createdBy = null,
+    updatedBy = null,
+    updatedAt = null,
   }: {
     id?: string | null;
     username: string;
@@ -24,6 +30,9 @@ export class User {
     role: string;
     email?: string | null;
     createdAt?: Date | string | null;
+    createdBy?: string | null;
+    updatedBy?: string | null;
+    updatedAt?: Date | string | null;
   } = {} as {
     id?: string | null;
     username: string;
@@ -31,6 +40,9 @@ export class User {
     role: string;
     email?: string | null;
     createdAt?: Date | string | null;
+    createdBy?: string | null;
+    updatedBy?: string | null;
+    updatedAt?: Date | string | null;
   }) {
     this.id = id;
     this.username = username;
@@ -38,6 +50,9 @@ export class User {
     this.role = role;
     this.email = email;
     this.createdAt = createdAt;
+    this.createdBy = createdBy;
+    this.updatedBy = updatedBy;
+    this.updatedAt = updatedAt;
   }
 
   /** Builds a new (not yet persisted) user. */
@@ -56,7 +71,10 @@ export class User {
   }
 
   /**
-   * Serializes the user for API responses, excluding the password hash.
+   * Serializes the user for API responses with an explicit whitelist:
+   * the password hash and every audit column (created_by/updated_by/
+   * updated_at — UAC-001, AUD-002) are internal bookkeeping and never
+   * leave the entity. `createdAt` stays part of the public contract.
    */
   toJSON(): {
     id: string | null;
@@ -65,7 +83,12 @@ export class User {
     email: string | null;
     createdAt: Date | string | null;
   } {
-    const { passwordHash: _, ...publicUser } = this;
-    return publicUser;
+    return {
+      id: this.id,
+      username: this.username,
+      role: this.role,
+      email: this.email,
+      createdAt: this.createdAt,
+    };
   }
 }

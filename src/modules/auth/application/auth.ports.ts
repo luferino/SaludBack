@@ -10,6 +10,12 @@ import type { PasswordResetToken } from '../domain/password-reset-token.entity.j
 
 export interface UserRepositoryPort {
   findByUsername(username: string): Promise<User | null>;
+  /**
+   * Persists a new user. Rows carry the audit columns
+   * (created_by/updated_by/updated_at — UAC-001) on the User entity;
+   * registration records `created_by` NULL because no admin flow exists
+   * (AUD-003), and creation leaves both `updated_*` columns NULL.
+   */
   create(user: User): Promise<User>;
   findByEmail(email: string): Promise<User | null>;
   updatePassword(userId: string, newPasswordHash: string): Promise<void>;

@@ -9,9 +9,13 @@ interface UserRow {
   role: string;
   email: string | null;
   created_at: Date | string;
+  created_by: string | null;
+  updated_by: string | null;
+  updated_at: Date | string | null;
 }
 
-const USER_COLUMNS = 'id, username, password_hash, role, email, created_at';
+const USER_COLUMNS =
+  'id, username, password_hash, role, email, created_at, created_by, updated_by, updated_at';
 
 /**
  * PostgreSQL implementation of the UserRepository port.
@@ -43,10 +47,18 @@ export class PgUserRepository implements UserRepositoryPort {
 
   async create(user: User): Promise<User> {
     const { rows } = await this.pool.query<UserRow>(
-      `INSERT INTO users (username, password_hash, role, email)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO users (username, password_hash, role, email, created_by, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${USER_COLUMNS}`,
-      [user.username, user.passwordHash, user.role, user.email],
+      [
+        user.username,
+        user.passwordHash,
+        user.role,
+        user.email,
+        user.createdBy,
+        null,
+        null,
+      ],
     );
     return rowToUser(rows[0]);
   }
@@ -67,5 +79,8 @@ function rowToUser(row: UserRow): User {
     role: row.role,
     email: row.email,
     createdAt: row.created_at,
+    createdBy: row.created_by,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
   });
 }

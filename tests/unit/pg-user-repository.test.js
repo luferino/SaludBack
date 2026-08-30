@@ -28,6 +28,9 @@ test('findByUsername maps a database row to a User', async () => {
             role: 'estudiante',
             email: 'jperez@example.com',
             created_at: CREATED_AT,
+            created_by: null,
+            updated_by: null,
+            updated_at: null,
           },
         ],
       };
@@ -42,6 +45,9 @@ test('findByUsername maps a database row to a User', async () => {
   assert.equal(user.role, 'estudiante');
   assert.equal(user.email, 'jperez@example.com');
   assert.equal(user.createdAt, CREATED_AT);
+  assert.equal(user.createdBy, null, 'no admin flow: created_by is NULL');
+  assert.equal(user.updatedBy, null, 'creation leaves updated_by NULL');
+  assert.equal(user.updatedAt, null, 'creation leaves updated_at NULL');
 });
 
 test('findByEmail returns null when no user matches', async () => {
@@ -63,6 +69,9 @@ test('findByEmail maps a database row to a User', async () => {
             role: 'estudiante',
             email: 'jperez@example.com',
             created_at: CREATED_AT,
+            created_by: null,
+            updated_by: null,
+            updated_at: null,
           },
         ],
       };
@@ -79,7 +88,15 @@ test('create inserts the user and returns the persisted entity', async () => {
   const repo = new PgUserRepository(
     createFakePool(async (text, params) => {
       assert.match(text, /INSERT INTO users/);
-      assert.deepEqual(params, ['mperez', 'hashed-value', 'estudiante', 'mperez@example.com']);
+      assert.deepEqual(params, [
+        'mperez',
+        'hashed-value',
+        'estudiante',
+        'mperez@example.com',
+        null,
+        null,
+        null,
+      ]);
       return {
         rows: [
           {
@@ -89,6 +106,9 @@ test('create inserts the user and returns the persisted entity', async () => {
             role: 'estudiante',
             email: 'mperez@example.com',
             created_at: CREATED_AT,
+            created_by: null,
+            updated_by: null,
+            updated_at: null,
           },
         ],
       };
@@ -107,6 +127,7 @@ test('create inserts the user and returns the persisted entity', async () => {
   assert.equal(user.username, 'mperez');
   assert.equal(user.email, 'mperez@example.com');
   assert.equal(user.createdAt, CREATED_AT);
+  assert.equal(user.createdBy, null);
 });
 
 test('updatePassword replaces the hash for the given user id', async () => {
@@ -124,7 +145,7 @@ test('updatePassword replaces the hash for the given user id', async () => {
   assert.equal(queries, 1);
 });
 
-test('toJSON never exposes the password hash', () => {
+test('toJSON never exposes the password hash or any audit column (UAC-001)', () => {
   const user = new User({
     id: 'uuid-3',
     username: 'jperez',
@@ -132,10 +153,18 @@ test('toJSON never exposes the password hash', () => {
     role: 'estudiante',
     email: 'jperez@example.com',
     createdAt: CREATED_AT,
+    createdBy: 'actor-1',
+    updatedBy: 'actor-2',
+    updatedAt: new Date('2026-08-06T12:00:00Z'),
   });
   const json = user.toJSON();
   assert.equal(json.passwordHash, undefined);
   assert.equal(json.username, 'jperez');
   assert.equal(json.email, 'jperez@example.com');
   assert.equal(JSON.stringify(user).includes('secret-hash'), false);
+  // Audit columns are internal: none of the snake_case or camelCase keys leak.
+  assert.deepEqual(Object.keys(json).sort(), ['createdAt', 'email', 'id', 'role', 'username']);
+  assert.equal('created_by' in json, false);
+  assert.equal('updated_by' in json, false);
+  assert.equal('updated_at' in json, false);
 });

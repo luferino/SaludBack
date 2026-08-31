@@ -130,6 +130,48 @@ test('create inserts the user and returns the persisted entity', async () => {
   assert.equal(user.createdBy, null);
 });
 
+test('create accepts an optional client and routes the INSERT through it, not the pool', async () => {
+  let poolCalls = 0;
+  const repo = new PgUserRepository(
+    createFakePool(async () => {
+      poolCalls += 1;
+      throw new Error('must not touch the pool when a client is given');
+    }),
+  );
+  const clientCalls = [];
+  const client = {
+    async query(text, params) {
+      clientCalls.push([text, params]);
+      return {
+        rows: [
+          {
+            id: 'uuid-2',
+            username: 'mperez',
+            password_hash: 'hashed-value',
+            role: 'estudiante',
+            email: null,
+            created_at: CREATED_AT,
+            created_by: null,
+            updated_by: null,
+            updated_at: null,
+          },
+        ],
+      };
+    },
+  };
+
+  const user = await repo.create(
+    new User({ username: 'mperez', passwordHash: 'hashed-value', role: 'estudiante', email: null }),
+    client,
+  );
+
+  assert.equal(poolCalls, 0);
+  assert.equal(clientCalls.length, 1);
+  assert.match(clientCalls[0][0], /INSERT INTO users/);
+  assert.deepEqual(clientCalls[0][1], ['mperez', 'hashed-value', 'estudiante', null, null, null, null]);
+  assert.equal(user.id, 'uuid-2');
+});
+
 test('updatePassword replaces the hash for the given user id', async () => {
   let queries = 0;
   const repo = new PgUserRepository(

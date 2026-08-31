@@ -1,5 +1,6 @@
 import type { User } from '../domain/user.entity.js';
 import type { PasswordResetToken } from '../domain/password-reset-token.entity.js';
+import type { Queryable } from '../../shared/application/unit-of-work.js';
 
 /**
  * Ports for the auth module. Use cases depend on these interfaces only;
@@ -14,9 +15,11 @@ export interface UserRepositoryPort {
    * Persists a new user. Rows carry the audit columns
    * (created_by/updated_by/updated_at — UAC-001) on the User entity;
    * registration records `created_by` NULL because no admin flow exists
-   * (AUD-003), and creation leaves both `updated_*` columns NULL.
+   * (AUD-003), and creation leaves both `updated_*` columns NULL. An
+   * optional `client` lets alta-en-uno flows create the account inside
+   * the same transaction as the profile row (defaults to the pool).
    */
-  create(user: User): Promise<User>;
+  create(user: User, client?: Queryable): Promise<User>;
   findByEmail(email: string): Promise<User | null>;
   updatePassword(userId: string, newPasswordHash: string): Promise<void>;
 }

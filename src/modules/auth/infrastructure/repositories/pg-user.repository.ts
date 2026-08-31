@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { User } from '../../domain/user.entity.js';
 import type { UserRepositoryPort } from '../../application/auth.ports.js';
+import type { Queryable } from '../../../shared/application/unit-of-work.js';
 
 interface UserRow {
   id: string;
@@ -45,8 +46,9 @@ export class PgUserRepository implements UserRepositoryPort {
     return rows.length === 0 ? null : rowToUser(rows[0]);
   }
 
-  async create(user: User): Promise<User> {
-    const { rows } = await this.pool.query<UserRow>(
+  async create(user: User, client?: Queryable): Promise<User> {
+    const db = client ?? this.pool;
+    const { rows } = await db.query<UserRow>(
       `INSERT INTO users (username, password_hash, role, email, created_by, updated_by, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${USER_COLUMNS}`,

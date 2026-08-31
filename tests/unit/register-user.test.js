@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RegisterUser } from '../../src/modules/auth/application/register-user.js';
-import { User } from '../../src/modules/auth/domain/user.js';
-import { BadRequestError, ConflictError } from '../../src/modules/shared/domain/errors.js';
+import { RegisterUser } from '../../src/modules/auth/application/register-user.usecase.ts';
+import { User } from '../../src/modules/auth/domain/user.entity.ts';
+import { BadRequestError, ConflictError } from '../../src/modules/shared/domain/errors.ts';
 
 class FakeHasher {
   async hash(plain) {

@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { ResetPassword } from '../../src/modules/auth/application/reset-password.js';
-import { PasswordResetToken } from '../../src/modules/auth/domain/password-reset-token.js';
-import { BadRequestError } from '../../src/modules/shared/domain/errors.js';
+import { ResetPassword } from '../../src/modules/auth/application/reset-password.usecase.ts';
+import { PasswordResetToken } from '../../src/modules/auth/domain/password-reset-token.entity.ts';
+import { BadRequestError } from '../../src/modules/shared/domain/errors.ts';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');

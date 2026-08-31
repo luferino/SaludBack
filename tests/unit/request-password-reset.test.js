@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { RequestPasswordReset } from '../../src/modules/auth/application/request-password-reset.js';
-import { User } from '../../src/modules/auth/domain/user.js';
-import { BadRequestError } from '../../src/modules/shared/domain/errors.js';
+import { RequestPasswordReset } from '../../src/modules/auth/application/request-password-reset.usecase.ts';
+import { User } from '../../src/modules/auth/domain/user.entity.ts';
+import { BadRequestError } from '../../src/modules/shared/domain/errors.ts';
 
 const GENERIC_BODY = { message: 'If the account exists, a password reset link has been sent' };
 const CLIENT_URL = 'https://app.example.com/reset';

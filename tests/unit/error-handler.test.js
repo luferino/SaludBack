@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { errorHandler } from '../../src/middleware/error-handler.js';
-import { BadRequestError, ConflictError, UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { BadRequestError, ConflictError, UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 function createRes() {
   const state = {};

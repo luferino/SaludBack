@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 
 function createFakeTokenService(overrides = {}) {
   return {
@@ -24,16 +24,46 @@ function createContext({ headers = {} } = {}) {
   return { req, res, next, state };
 }
 
-test('valid Bearer token exposes role and permissions on req.auth', async () => {
+test('valid Bearer token exposes role, permissions, sub and userId on req.auth', async () => {
   const { req, res, next, state } = createContext({
     headers: { authorization: 'Bearer valid-token' },
   });
-  const middleware = authenticate(createFakeTokenService());
+  const middleware = authenticate(
+    createFakeTokenService({
+      decoded: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1' },
+    }),
+  );
 
   await middleware(req, res, next);
 
   assert.equal(state.calls.length, 1);
   assert.equal(state.calls[0], undefined); // next() with no error
+  assert.deepEqual(req.auth, {
+    role: 'estudiante',
+    permissions: ['profile:read'],
+    sub: 'uuid-1',
+    userId: 'uuid-1',
+  });
+});
+
+test('a token without a sub claim leaves both sub and userId absent', async () => {
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer no-sub-token' },
+  });
+  // A decoded userId claim must NOT be promoted: the spec pins that the
+  // subject is exposed only when the token actually carries `sub`.
+  const middleware = authenticate(
+    createFakeTokenService({
+      decoded: { role: 'estudiante', permissions: ['profile:read'], userId: 'stale-id' },
+    }),
+  );
+
+  await middleware(req, res, next);
+
+  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls[0], undefined);
+  assert.equal(req.auth.sub, undefined);
+  assert.equal(req.auth.userId, undefined);
   assert.deepEqual(req.auth, { role: 'estudiante', permissions: ['profile:read'] });
 });
 

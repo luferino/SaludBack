@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.js';
+import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.service.ts';
 
 const hasher = new BcryptHasher(4); // low cost keeps tests fast
 

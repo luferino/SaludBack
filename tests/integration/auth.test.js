@@ -4,16 +4,18 @@ import { createHash } from 'node:crypto';
 import express from 'express';
 import pg from 'pg';
 import jwt from 'jsonwebtoken';
-import config from '../../src/config.js';
-import { createAuthRouter } from '../../src/modules/auth/infrastructure/routes/auth.routes.js';
-import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user-repository.js';
-import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token-repository.js';
-import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.js';
-import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token-service.js';
-import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.js';
-import { errorHandler } from '../../src/middleware/error-handler.js';
-import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.js';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.js';
+import config from '../../src/config.ts';
+import { createAuthRouter } from '../../src/modules/auth/infrastructure/routes/auth.routes.ts';
+import { PgUserRepository } from '../../src/modules/auth/infrastructure/repositories/pg-user.repository.ts';
+import { PgResetTokenRepository } from '../../src/modules/auth/infrastructure/repositories/pg-reset-token.repository.ts';
+import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.service.ts';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.ts';
+import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
+import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
+import { cleanDb } from './helpers/clean-db.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -75,16 +77,22 @@ let server;
 let baseUrl;
 
 before(async () => {
-  await pool.query('DELETE FROM password_reset_tokens');
-  await pool.query('DELETE FROM users');
+  await cleanDb(pool);
   server = buildApp(new OpenGuard()).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await pool.end();
+  try {
+    await new Promise((resolve) => server.close(resolve));
+  } finally {
+    try {
+      await cleanDb(pool);
+    } finally {
+      await pool.end();
+    }
+  }
 });
 
 async function register(body) {
@@ -201,6 +209,30 @@ test('POST /auth/register rejects missing or empty fields with 400', async () =>
   }
 });
 
+test('POST /auth/register records NULL audit actors and creates no students row (REG-001 UAC-001)', async () => {
+  const { status, body } = await register({
+    username: 'audit-user',
+    password: 'secret123',
+    email: 'audit-user@example.com',
+  });
+  assert.equal(status, 201);
+
+  const { rows } = await pool.query(
+    'SELECT created_by, updated_by, updated_at FROM users WHERE username = $1',
+    ['audit-user'],
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].created_by, null, 'registration records NULL created_by (UAC-001)');
+  assert.equal(rows[0].updated_by, null);
+  assert.equal(rows[0].updated_at, null);
+
+  const { rows: students } = await pool.query(
+    'SELECT count(*)::int AS n FROM students WHERE user_id = $1',
+    [body.id],
+  );
+  assert.equal(students[0].n, 0, 'registration is account-only: no students row (REG-001)');
+});
+
 test('an attached guard rejects the request before the use case runs', async () => {
   class AdminGuard extends Guard {
     async authorize() {
@@ -242,6 +274,24 @@ test('POST /auth/login returns 200 with a token carrying role and permissions', 
   assert.ok(decoded.permissions.length > 0);
 });
 
+test('POST /auth/login issues a teacher token with role, permissions and sub claims (AUTH-001)', async () => {
+  const hasher = new BcryptHasher(config.bcryptCost);
+  const passwordHash = await hasher.hash('teacherpass1');
+  const { rows: [teacher] } = await pool.query(
+    `INSERT INTO users (username, password_hash, role, email)
+     VALUES ('tclaims', $1, 'teacher', 'tclaims@example.com') RETURNING id`,
+    [passwordHash],
+  );
+
+  const { status, body } = await login({ username: 'tclaims', password: 'teacherpass1' });
+  assert.equal(status, 200);
+
+  const decoded = jwt.decode(body.token);
+  assert.equal(decoded.role, 'teacher');
+  assert.deepEqual(decoded.permissions, [...ROLE_PERMISSIONS.teacher], 'derived from ROLE_PERMISSIONS');
+  assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
+});
+
 test('POST /auth/login rejects an unknown username with a generic 401', async () => {
   const { status, body } = await login({ username: 'ghost', password: 'whatever' });
   assert.equal(status, 401);
@@ -274,7 +324,7 @@ test('POST /auth/login rejects missing or empty fields with 400', async () => {
   }
 });
 
-test('protected route passes a valid token and exposes role and permissions', async () => {
+test('protected route passes a valid token and exposes role, permissions, sub and userId', async () => {
   const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await tokenService.sign({
     sub: 'uuid-1',
@@ -291,7 +341,9 @@ test('protected route passes a valid token and exposes role and permissions', as
     headers: { authorization: `Bearer ${token}` },
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { auth: { role: 'estudiante', permissions: ['profile:read'] } });
+  assert.deepEqual(await res.json(), {
+    auth: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1', userId: 'uuid-1' },
+  });
 
   await new Promise((resolve) => protectedServer.close(resolve));
 });

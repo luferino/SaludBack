@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PgPatientRepository } from '../../src/modules/pacientes/infrastructure/repositories/pg-patient-repository.js';
-import { Patient } from '../../src/modules/pacientes/domain/patient.js';
+import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
+import { Patient } from '../../src/modules/patients/domain/patient.entity.ts';
 
 function createFakePool(queryHandler) {
   return { query: queryHandler };
@@ -24,6 +24,8 @@ function patientRow(overrides = {}) {
     direccion: 'Av. Siempre Viva 742',
     created_by: null,
     created_at: CREATED_AT,
+    updated_by: null,
+    updated_at: null,
     ...overrides,
   };
 }
@@ -55,6 +57,8 @@ test('findByDocumento queries by documento and maps a row to a Patient', async (
   assert.equal(patient.direccion, 'Av. Siempre Viva 742');
   assert.equal(patient.createdBy, null);
   assert.equal(patient.createdAt, CREATED_AT);
+  assert.equal(patient.updatedBy, null, 'creation leaves updated_by NULL (PAT-007)');
+  assert.equal(patient.updatedAt, null, 'creation leaves updated_at NULL (PAT-007)');
 });
 
 test('create inserts the patient and returns the persisted entity', async () => {
@@ -70,6 +74,8 @@ test('create inserts the patient and returns the persisted entity', async () => 
         '+5491100000000',
         'F',
         'Av. Siempre Viva 742',
+        null,
+        null,
         null,
       ]);
       return { rows: [patientRow({ id: 'uuid-2', created_by: 'actor-1' })] };
@@ -108,6 +114,8 @@ test('toJSON returns exactly the 11 PAT-006 contract keys with a normalized date
     direccion: 'Calle Falsa 123',
     createdBy: null,
     createdAt: CREATED_AT,
+    updatedBy: 'actor-9',
+    updatedAt: new Date('2026-08-12T12:00:00Z'),
   });
 
   const json = patient.toJSON();
@@ -126,4 +134,7 @@ test('toJSON returns exactly the 11 PAT-006 contract keys with a normalized date
   ]);
   assert.equal(json.created_by, null);
   assert.equal(json.fecha_nacimiento, '1990-04-12');
+  // AUD-002: update audit is internal and never serialized.
+  assert.equal('updated_by' in json, false);
+  assert.equal('updated_at' in json, false);
 });

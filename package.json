@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx --env-file=.env src/index.ts",
     "build": "tsc",
-    "test": "node --import tsx --env-file=.env.test --test",
+    "test": "node --import tsx --env-file=.env.test --test --test-concurrency=1",
     "pretest": "tsx --env-file=.env.test src/db/migrate.ts",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts"
   },

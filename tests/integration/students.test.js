@@ -9,6 +9,7 @@ import { PgUserRepository } from '../../src/modules/auth/infrastructure/reposito
 import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.service.ts';
 import { PgUnitOfWork } from '../../src/modules/shared/infrastructure/pg-unit-of-work.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { cleanDb } from './helpers/clean-db.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -57,18 +58,22 @@ before(async () => {
   // Own cleanup: students must be gone before users (FK students.user_id -> users.id).
   // Full FK-order hardening across files is PR 4; this keeps the shared test DB
   // clean so auth.test.js's `DELETE FROM users` never trips on leftover rows.
-  await pool.query('DELETE FROM students');
-  await pool.query("DELETE FROM users WHERE username LIKE 'stu-%'");
+  await cleanDb(pool);
   server = buildApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await pool.query('DELETE FROM students');
-  await pool.query("DELETE FROM users WHERE username LIKE 'stu-%'");
-  await pool.end();
+  try {
+    await new Promise((resolve) => server.close(resolve));
+  } finally {
+    try {
+      await cleanDb(pool);
+    } finally {
+      await pool.end();
+    }
+  }
 });
 
 async function createStudent(payload, options = {}) {

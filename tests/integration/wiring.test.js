@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import config from '../../src/config.ts';
 import { createApp } from '../../src/app.ts';
+import { cleanDb } from './helpers/clean-db.js';
 
 /**
  * End-to-end wiring coverage (PR 4, task 4.1): the REAL app factory used by
@@ -27,11 +28,7 @@ async function post(path, body, options = {}) {
 
 before(async () => {
   // FK-safe cleanup (shared DB; students/teachers/patients/tokens before users).
-  await pool.query('DELETE FROM students');
-  await pool.query('DELETE FROM teachers');
-  await pool.query('DELETE FROM patients');
-  await pool.query('DELETE FROM password_reset_tokens');
-  await pool.query('DELETE FROM users');
+  await cleanDb(pool);
 
   const app = createApp(pool);
   server = app.listen(0);
@@ -44,11 +41,7 @@ after(async () => {
     await new Promise((resolve) => server.close(resolve));
   } finally {
     try {
-      await pool.query('DELETE FROM students');
-      await pool.query('DELETE FROM teachers');
-      await pool.query('DELETE FROM patients');
-      await pool.query('DELETE FROM password_reset_tokens');
-      await pool.query('DELETE FROM users');
+      await cleanDb(pool);
     } finally {
       await pool.end();
     }

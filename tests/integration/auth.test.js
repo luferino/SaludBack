@@ -14,6 +14,7 @@ import { authenticate } from '../../src/modules/auth/infrastructure/middleware/a
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.ts';
 import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
+import { cleanDb } from './helpers/clean-db.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -75,16 +76,22 @@ let server;
 let baseUrl;
 
 before(async () => {
-  await pool.query('DELETE FROM password_reset_tokens');
-  await pool.query('DELETE FROM users');
+  await cleanDb(pool);
   server = buildApp(new OpenGuard()).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await pool.end();
+  try {
+    await new Promise((resolve) => server.close(resolve));
+  } finally {
+    try {
+      await cleanDb(pool);
+    } finally {
+      await pool.end();
+    }
+  }
 });
 
 async function register(body) {

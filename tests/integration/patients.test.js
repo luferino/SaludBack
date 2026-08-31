@@ -8,6 +8,7 @@ import { PgPatientRepository } from '../../src/modules/patients/infrastructure/r
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { Guard } from '../../src/modules/shared/application/guard.ts';
 import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
+import { cleanDb } from './helpers/clean-db.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -54,15 +55,22 @@ let server;
 let baseUrl;
 
 before(async () => {
-  await pool.query('DELETE FROM patients');
+  await cleanDb(pool);
   server = buildApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await pool.end();
+  try {
+    await new Promise((resolve) => server.close(resolve));
+  } finally {
+    try {
+      await cleanDb(pool);
+    } finally {
+      await pool.end();
+    }
+  }
 });
 
 async function createPatient(payload, options = {}) {
@@ -199,13 +207,7 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
     );
     assert.equal(rows[0].created_by, actorId);
   } finally {
-    // Always release the server handle and clean up the actor FK rows, even
-    // when an assertion throws, so the node:test process cannot hang on an
-    // open handle and the auth suite's DELETE FROM users never races this
-    // patient row and trips the FK constraint.
     await new Promise((resolve) => actorServer.close(resolve));
-    await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
-    await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
   }
 });
 

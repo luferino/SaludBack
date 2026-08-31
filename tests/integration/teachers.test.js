@@ -9,6 +9,8 @@ import { PgUserRepository } from '../../src/modules/auth/infrastructure/reposito
 import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcrypt-hasher.service.ts';
 import { PgUnitOfWork } from '../../src/modules/shared/infrastructure/pg-unit-of-work.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { cleanDb } from './helpers/clean-db.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
@@ -214,7 +216,7 @@ test('POST /teachers rejects missing required fields and bad email with 400 and 
   assert.equal(rows[0].n, 0);
 });
 
-test('a stub middleware exposing req.auth.sub populates created_by (TEA-004 AUD-003)', async () => {
+test('the REAL authenticate middleware maps a signed token sub to created_by (TEA-004 AUD-003)', async () => {
   const actorId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
   await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
   await pool.query(
@@ -222,14 +224,22 @@ test('a stub middleware exposing req.auth.sub populates created_by (TEA-004 AUD-
     [actorId, 'tea-actor', 'not-a-real-hash', 'teacher'],
   );
 
+  const tokenService = new JwtTokenService({
+    secret: config.jwtSecret,
+    expiresIn: config.jwtExpiresIn,
+  });
+  const token = await tokenService.sign({
+    sub: actorId,
+    username: 'tea-actor',
+    role: 'teacher',
+    permissions: [],
+  });
+
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
-    req.auth = { sub: actorId };
-    next();
-  });
   app.use(
     '/teachers',
+    authenticate(tokenService),
     createTeacherRouter({
       repository: new PgTeacherRepository(pool),
       userRepository: new PgUserRepository(pool),
@@ -246,7 +256,10 @@ test('a stub middleware exposing req.auth.sub populates created_by (TEA-004 AUD-
   try {
     const res = await fetch(`${url}/teachers`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         username: 'tea-act-1',
         password: 'secret123',
@@ -263,6 +276,25 @@ test('a stub middleware exposing req.auth.sub populates created_by (TEA-004 AUD-
       ['tea-act-1'],
     );
     assert.equal(rows[0].created_by, actorId);
+
+    // Malformed token through the REAL middleware: rejected with 401 and the
+    // handler never runs (open-route 201 + NULL stays covered by the test
+    // below — PAT-004/TEA-004 invalid-token scenario).
+    const malformed = await fetch(`${url}/teachers`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer not.a.jwt',
+      },
+      body: JSON.stringify({
+        username: 'tea-act-2',
+        password: 'secret123',
+        nombres: 'Ana',
+        apellidos: 'Lopez',
+      }),
+    });
+    assert.equal(malformed.status, 401);
+    assert.equal(await countUsers('tea-act-2'), 0);
   } finally {
     await new Promise((resolve) => actorServer.close(resolve));
   }

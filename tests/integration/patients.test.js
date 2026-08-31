@@ -6,6 +6,8 @@ import config from '../../src/config.ts';
 import { createPatientRouter } from '../../src/modules/patients/infrastructure/routes/patient.routes.ts';
 import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
+import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { Guard } from '../../src/modules/shared/application/guard.ts';
 import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 import { cleanDb } from './helpers/clean-db.js';
@@ -170,7 +172,7 @@ test('an attached guard rejects the request before the use case runs', async () 
   assert.equal(await countPatients('33333333'), 0);
 });
 
-test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 verified token)', async () => {
+test('the REAL authenticate middleware maps a signed token sub to created_by (PAT-004)', async () => {
   const actorId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
   await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
   await pool.query(
@@ -178,13 +180,24 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
     [actorId, 'smoke-doctor', 'not-a-real-hash', 'admin'],
   );
 
+  const tokenService = new JwtTokenService({
+    secret: config.jwtSecret,
+    expiresIn: config.jwtExpiresIn,
+  });
+  const token = await tokenService.sign({
+    sub: actorId,
+    username: 'smoke-doctor',
+    role: 'admin',
+    permissions: [],
+  });
+
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
-    req.auth = { sub: actorId };
-    next();
-  });
-  app.use('/patients', createPatientRouter({ repository: new PgPatientRepository(pool) }));
+  app.use(
+    '/patients',
+    authenticate(tokenService),
+    createPatientRouter({ repository: new PgPatientRepository(pool) }),
+  );
   app.use(errorHandler);
 
   const actorServer = app.listen(0);
@@ -194,7 +207,10 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
   try {
     const res = await fetch(`${url}/patients`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444444' }),
     });
     const body = await res.json();
@@ -206,8 +222,27 @@ test('a stub middleware exposing req.auth.sub populates created_by (PAT-004 veri
       ['44444444'],
     );
     assert.equal(rows[0].created_by, actorId);
+
+    // A malformed token through the REAL middleware is rejected with 401 and
+    // the handler never runs (PAT-004 verified-token path is covered above;
+    // the open-route 201 + NULL path is the next test).
+    const malformed = await fetch(`${url}/patients`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer not.a.jwt',
+      },
+      body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444445' }),
+    });
+    assert.equal(malformed.status, 401);
+    assert.equal(await countPatients('44444445'), 0);
   } finally {
+    // Always release the server handle and clean up the actor FK rows, even
+    // when an assertion throws, so the node:test process cannot hang on an
+    // open handle and no suite's `DELETE FROM users` ever trips on the FK.
     await new Promise((resolve) => actorServer.close(resolve));
+    await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
+    await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
   }
 });
 

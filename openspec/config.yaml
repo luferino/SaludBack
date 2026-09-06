@@ -1,0 +1,39 @@
+schema: spec-driven
+
+context: |
+  Project: SaludBack - health-domain backend API. First planned feature: login (auth).
+  Runtime: Node.js 24.11.0, ESM syntax (no "type": "module"; Node 24 auto-detects ESM).
+  Package manager: pnpm 10.20.0. Web framework: Express ^5.2.1. DB: PostgreSQL via pg ^8.22.0 (driver only, no DB code yet).
+  Architecture: Clean Architecture (domain / application / infrastructure) with multi-role support - intended, not yet implemented.
+  Current code: bare scaffold - src/index.js (hello-world Express), src/config.js (empty), src/modules/pacientes/ (empty).
+  Conventions: Spanish naming (commits, README, module dirs like "pacientes"). Auth plan: roles, starting with "estudiante"; username+password login; user registration performed by admin (student cannot self-register - validation missing).
+
+testing:
+  strict_tdd: false
+  framework: node:test (recommended, built-in) or vitest
+  command: ""
+  coverage: none
+  note: "No test runner installed. package.json test script is a placeholder: `echo \"Error: no test specified\" && exit 1`."
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

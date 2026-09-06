@@ -108,16 +108,14 @@ is `null` without a verified token.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "codalumno", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "codalumno", "email", "celular", "created_by", "created_at" }`
-- `400` — missing required field; `codalumno` not purely alphanumeric
-  (`^[A-Za-z0-9]+$`); `email` present but not a valid `local@domain` address;
+- `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
+  `password` under 10 chars or without a letter+digit; `codalumno` not purely
+  alphanumeric (`^[A-Za-z0-9]+$`); `email` present but not a valid address;
   `409` — duplicate `codalumno`
 
 ```bash
 curl.exe -X POST http://localhost:3000/students -H "Content-Type: application/json" -d '{"username":"jperez","password":"secret12345","nombres":"Juan","apellidos":"Perez","codalumno":"20240123","email":"jperez@example.com"}'
 ```
-
-> Note: this flow runs its own local validation — it does NOT yet enforce the
-> shared auth rules for `username`/`password` (see [Validation rules](#validation-rules)).
 
 ### POST /teachers
 
@@ -127,15 +125,13 @@ verified token.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "email", "celular", "created_by", "created_at" }`
-- `400` — missing required field; `email` present but not a valid
-  `local@domain` address
+- `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
+  `password` under 10 chars or without a letter+digit; `email` present but not
+  a valid address
 
 ```bash
 curl.exe -X POST http://localhost:3000/teachers -H "Content-Type: application/json" -d '{"username":"mruiz","password":"secret12345","nombres":"Maria","apellidos":"Ruiz","email":"mruiz@example.com"}'
 ```
-
-> Note: this flow runs its own local validation — it does NOT yet enforce the
-> shared auth rules for `username`/`password` (see [Validation rules](#validation-rules)).
 
 ### POST /patients
 
@@ -166,11 +162,11 @@ The auth flows share one validation module
 Applied by `/auth/register` and `/auth/reset-password` (`newPassword`), and
 the lookup normalization by `/auth/login` and `/auth/forgot-password`.
 
-> The alta-en-uno flows (`POST /students`, `POST /teachers`) validate input in
-> their own use cases and do NOT yet enforce the shared auth rules: their
-> `username` is trimmed only (no format check, no uppercase normalization) and
-> their `password` has no minimum-length or composition check. Align them with
-> the shared module before relying on them as an account-creation path.
+The alta-en-uno flows (`POST /students`, `POST /teachers`) enforce the same
+shared rules for `username` and `password` as register — usernames are stored
+UPPERCASE and passwords must be 10+ chars with a letter and a digit. Unlike
+register, their `email` stays optional: it is validated with the same standard
+format only when present.
 
 ## JWT
 

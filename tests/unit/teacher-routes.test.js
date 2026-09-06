@@ -12,7 +12,7 @@ const CONTRACT_KEYS = ['id', 'nombres', 'apellidos', 'email', 'celular', 'create
 
 const VALID_PAYLOAD = {
   username: 'mruiz',
-  password: 'secret123',
+  password: 'secret12345',
   nombres: 'Maria',
   apellidos: 'Ruiz',
   email: 'mruiz@mail.com',

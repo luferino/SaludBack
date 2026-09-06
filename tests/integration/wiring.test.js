@@ -71,12 +71,12 @@ test('POST /auth/register is reachable through the wiring (auth router mounted)'
 
 test('POST /students alta en uno works through the wiring (student router mounted)', async () => {
   const { status, body } = await post('/students', {
-    username: 'wiring-stu-1',
-    password: 'secret123',
+    username: 'wiringstu1',
+    password: 'secret12345',
     nombres: 'Ana',
     apellidos: 'Lopez',
     codalumno: 'WIRING001',
-    email: 'wiring-stu-1@example.com',
+    email: 'wiringstu1@example.com',
     celular: '+5491100000000',
   });
 
@@ -85,7 +85,7 @@ test('POST /students alta en uno works through the wiring (student router mounte
   assert.equal(body.created_by, null);
 
   const { rows: users } = await pool.query('SELECT id, role FROM users WHERE username = $1', [
-    'wiring-stu-1',
+    'WIRINGSTU1',
   ]);
   assert.equal(users.length, 1);
   assert.equal(users[0].role, 'estudiante');
@@ -98,11 +98,11 @@ test('POST /students alta en uno works through the wiring (student router mounte
 
 test('POST /teachers alta en uno works through the wiring (teacher router mounted)', async () => {
   const { status, body } = await post('/teachers', {
-    username: 'wiring-tea-1',
-    password: 'secret123',
+    username: 'wiringtea1',
+    password: 'secret12345',
     nombres: 'Maria',
     apellidos: 'Ruiz',
-    email: 'wiring-tea-1@example.com',
+    email: 'wiringtea1@example.com',
     celular: '+5491100000000',
   });
 
@@ -112,7 +112,7 @@ test('POST /teachers alta en uno works through the wiring (teacher router mounte
   assert.equal(body.created_by, null);
 
   const { rows: users } = await pool.query('SELECT id, role FROM users WHERE username = $1', [
-    'wiring-tea-1',
+    'WIRINGTEA1',
   ]);
   assert.equal(users.length, 1);
   assert.equal(users[0].role, 'teacher');

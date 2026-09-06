@@ -2,6 +2,7 @@ import { User } from '../../auth/domain/user.entity.js';
 import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/application/auth.ports.js';
 import { Teacher } from '../domain/teacher.entity.js';
 import { BadRequestError } from '../../shared/domain/errors.js';
+import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
 import type { TeacherRepositoryPort } from './teacher.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -17,18 +18,21 @@ export interface CreateTeacherInput {
 
 const REQUIRED_FIELDS = ['username', 'password', 'nombres', 'apellidos'] as const;
 
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+$/;
-
 /**
  * Create Teacher (alta en uno) use case.
  * One request creates the access account (role `teacher`, hashed
  * password) and the `teachers` profile row together, or links the
  * teacher to an existing account (TEA-001/TEA-002). Validation order:
- * required fields (400) -> email format when present (400) -> create-or-
- * link. Teachers have no `codalumno`, so there is no duplicate-code
- * 409 branch (unlike students). The user write and the teacher write
- * share one transaction via the injected UnitOfWork, so both persist or
- * neither does (AUD-003).
+ * required fields (400) -> username format + uppercase normalization
+ * (400) -> password strength (400) -> email format when present (400) ->
+ * create-or-link. Username/password follow the shared auth validation
+ * (A-Z0-9, uppercased for storage/lookup; min 10 chars with a letter and
+ * a digit), so accounts created here are findable via /auth/login like
+ * register-created ones; email stays optional (UAC-002) but is checked
+ * with the shared format when present. Teachers have no `codalumno`, so
+ * there is no duplicate-code 409 branch (unlike students). The user
+ * write and the teacher write share one transaction via the injected
+ * UnitOfWork, so both persist or neither does (AUD-003).
  */
 export class CreateTeacher {
   private readonly teacherRepository: TeacherRepositoryPort;
@@ -61,11 +65,16 @@ export class CreateTeacher {
       }
     }
 
-    const username = input.username.trim();
+    // Shared auth validation: username may only contain letters and
+    // digits and is normalized to uppercase; password must be at least
+    // 10 chars with a letter and a digit (same rules as register, so
+    // alta-en-uno accounts are findable via /auth/login).
+    const username = normalizeUsername(input.username);
+    validatePassword(input.password);
 
     const email = normalizeOptional(input.email);
-    if (email !== null && !EMAIL_PATTERN.test(email)) {
-      throw new BadRequestError('email must be a valid local@domain address');
+    if (email !== null) {
+      validateEmail(email);
     }
     const celular = normalizeOptional(input.celular);
 

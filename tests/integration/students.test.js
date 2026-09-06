@@ -27,12 +27,12 @@ const CONTRACT_KEYS = [
 ];
 
 const VALID_PAYLOAD = {
-  username: 'stu-alta-1',
-  password: 'secret123',
+  username: 'stualta1',
+  password: 'secret12345',
   nombres: 'Ana',
   apellidos: 'Lopez',
   codalumno: '20240123',
-  email: 'stu-alta-1@example.com',
+  email: 'stualta1@example.com',
   celular: '+5491100000000',
 };
 
@@ -102,7 +102,7 @@ test('POST /students performs alta en uno: 201, exact 8-key contract, one estudi
   assert.equal(body.nombres, 'Ana');
   assert.equal(body.apellidos, 'Lopez');
   assert.equal(body.codalumno, '20240123');
-  assert.equal(body.email, 'stu-alta-1@example.com');
+  assert.equal(body.email, 'stualta1@example.com');
   assert.equal(body.celular, '+5491100000000');
   assert.equal(body.created_by, null);
   assert.equal(typeof body.id, 'string');
@@ -116,13 +116,13 @@ test('POST /students performs alta en uno: 201, exact 8-key contract, one estudi
 
   const { rows: users } = await pool.query(
     'SELECT id, role, password_hash, email FROM users WHERE username = $1',
-    ['stu-alta-1'],
+    ['STUALTA1'],
   );
   assert.equal(users.length, 1);
   assert.equal(users[0].role, 'estudiante');
-  assert.notEqual(users[0].password_hash, 'secret123');
+  assert.notEqual(users[0].password_hash, 'secret12345');
   assert.match(users[0].password_hash, /^\$2[aby]\$/);
-  assert.equal(users[0].email, 'stu-alta-1@example.com');
+  assert.equal(users[0].email, 'stualta1@example.com');
 
   const { rows: students } = await pool.query(
     'SELECT user_id, codalumno, created_by FROM students WHERE codalumno = $1',
@@ -136,12 +136,12 @@ test('POST /students performs alta en uno: 201, exact 8-key contract, one estudi
 test('POST /students links to an existing username without a duplicate account or role change (STU-002)', async () => {
   const { rows: [existing] } = await pool.query(
     `INSERT INTO users (username, password_hash, role, email)
-     VALUES ('stu-link-user', 'keep-hash', 'teacher', NULL) RETURNING id`,
+     VALUES ('STULINKUSER', 'keep-hash', 'teacher', NULL) RETURNING id`,
   );
 
   const { status, body } = await createStudent({
-    username: 'stu-link-user',
-    password: 'ignored-when-linking',
+    username: 'stulinkuser',
+    password: 'ignored-link123',
     nombres: 'Luis',
     apellidos: 'Perez',
     codalumno: 'LINK001',
@@ -150,7 +150,7 @@ test('POST /students links to an existing username without a duplicate account o
   assert.equal(status, 201);
   assert.equal(body.created_by, null, 'open route: no actor');
 
-  assert.equal(await countUsers('stu-link-user'), 1, 'no duplicate account');
+  assert.equal(await countUsers('STULINKUSER'), 1, 'no duplicate account');
   const { rows: users } = await pool.query(
     'SELECT role, password_hash FROM users WHERE id = $1',
     [existing.id],
@@ -170,23 +170,23 @@ test('POST /students links to an existing username without a duplicate account o
 test('POST /students links to an existing email even when the username is new (STU-002)', async () => {
   const { rows: [existing] } = await pool.query(
     `INSERT INTO users (username, password_hash, role, email)
-     VALUES ('stu-mail-user', 'keep-hash', 'estudiante', 'stu-mail@example.com') RETURNING id`,
+     VALUES ('STUMAILUSER', 'keep-hash', 'estudiante', 'stumail@example.com') RETURNING id`,
   );
 
   const { status } = await createStudent({
-    username: 'stu-brand-new',
-    password: 'secret123',
+    username: 'stubrandnew',
+    password: 'secret12345',
     nombres: 'Maria',
     apellidos: 'Gomez',
     codalumno: 'LINK002',
-    email: 'stu-mail@example.com',
+    email: 'stumail@example.com',
   });
 
   assert.equal(status, 201);
-  assert.equal(await countUsers('stu-brand-new'), 0, 'no account created for the new username');
+  assert.equal(await countUsers('STUBRANDNEW'), 0, 'no account created for the new username');
   const { rows: byEmail } = await pool.query(
     'SELECT count(*)::int AS n FROM users WHERE email = $1',
-    ['stu-mail@example.com'],
+    ['stumail@example.com'],
   );
   assert.equal(byEmail[0].n, 1, 'no duplicate email account');
 
@@ -200,16 +200,16 @@ test('POST /students links to an existing email even when the username is new (S
 
 test('POST /students rejects a duplicate codalumno with 409 and persists nothing (STU-003)', async () => {
   await createStudent({
-    username: 'stu-dup-1',
-    password: 'secret123',
+    username: 'studup1',
+    password: 'secret12345',
     nombres: 'Ana',
     apellidos: 'Lopez',
     codalumno: 'ABC123',
   });
 
   const { status, body } = await createStudent({
-    username: 'stu-dup-2',
-    password: 'secret123',
+    username: 'studup2',
+    password: 'secret12345',
     nombres: 'Otro',
     apellidos: 'Alumno',
     codalumno: 'abc123', // different casing: case-insensitive duplicate
@@ -217,7 +217,7 @@ test('POST /students rejects a duplicate codalumno with 409 and persists nothing
 
   assert.equal(status, 409);
   assert.equal(body.error.code, 'CONFLICT');
-  assert.equal(await countUsers('stu-dup-2'), 0, '409 persists nothing');
+  assert.equal(await countUsers('STUDUP2'), 0, '409 persists nothing');
   const { rows } = await pool.query(
     'SELECT count(*)::int AS n FROM students WHERE lower(codalumno) = lower($1)',
     ['ABC123'],
@@ -227,12 +227,12 @@ test('POST /students rejects a duplicate codalumno with 409 and persists nothing
 
 test('POST /students rejects invalid codalumno, missing fields, and bad email with 400 and persists nothing (STU-001 STU-003 UAC-002)', async () => {
   const payloads = [
-    { ...VALID_PAYLOAD, username: 'stu-bad-1', codalumno: '12_34A' },
-    { ...VALID_PAYLOAD, username: 'stu-bad-2', codalumno: '2024-00123' },
-    { ...VALID_PAYLOAD, username: 'stu-bad-3', codalumno: 'ABC 123' },
-    { ...VALID_PAYLOAD, username: 'stu-bad-4', codalumno: undefined }, // missing codalumno (undefined is dropped by JSON)
-    { password: 'secret123', nombres: 'Ana', apellidos: 'Lopez', codalumno: 'BAD005' }, // missing username
-    { ...VALID_PAYLOAD, username: 'stu-bad-6', codalumno: 'BAD006', email: 'not-an-email' },
+    { ...VALID_PAYLOAD, username: 'stubad1', codalumno: '12_34A' },
+    { ...VALID_PAYLOAD, username: 'stubad2', codalumno: '2024-00123' },
+    { ...VALID_PAYLOAD, username: 'stubad3', codalumno: 'ABC 123' },
+    { ...VALID_PAYLOAD, username: 'stubad4', codalumno: undefined }, // missing codalumno (undefined is dropped by JSON)
+    { password: 'secret12345', nombres: 'Ana', apellidos: 'Lopez', codalumno: 'BAD005' }, // missing username
+    { ...VALID_PAYLOAD, username: 'stubad6', codalumno: 'BAD006', email: 'not-an-email' },
   ];
 
   for (const payload of payloads) {
@@ -241,7 +241,7 @@ test('POST /students rejects invalid codalumno, missing fields, and bad email wi
     assert.equal(body.error.code, 'BAD_REQUEST');
   }
 
-  for (const username of ['stu-bad-1', 'stu-bad-2', 'stu-bad-3', 'stu-bad-4', 'stu-bad-5', 'stu-bad-6']) {
+  for (const username of ['STUBAD1', 'STUBAD2', 'STUBAD3', 'STUBAD4', 'STUBAD5', 'STUBAD6']) {
     assert.equal(await countUsers(username), 0, `${username} must not be persisted`);
   }
   const { rows } = await pool.query(
@@ -296,8 +296,8 @@ test('the REAL authenticate middleware maps a signed token sub to created_by (ST
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        username: 'stu-act-1',
-        password: 'secret123',
+        username: 'stuact1',
+        password: 'secret12345',
         nombres: 'Ana',
         apellidos: 'Lopez',
         codalumno: 'ACTOR001',
@@ -323,15 +323,15 @@ test('the REAL authenticate middleware maps a signed token sub to created_by (ST
         authorization: 'Bearer not.a.jwt',
       },
       body: JSON.stringify({
-        username: 'stu-act-2',
-        password: 'secret123',
+        username: 'stuact2',
+        password: 'secret12345',
         nombres: 'Ana',
         apellidos: 'Lopez',
         codalumno: 'ACTOR002',
       }),
     });
     assert.equal(malformed.status, 401);
-    assert.equal(await countUsers('stu-act-2'), 0);
+    assert.equal(await countUsers('STUACT2'), 0);
   } finally {
     await new Promise((resolve) => actorServer.close(resolve));
   }
@@ -340,8 +340,8 @@ test('the REAL authenticate middleware maps a signed token sub to created_by (ST
 test('a garbage Bearer token on the open route still creates with created_by null (STU-005)', async () => {
   const { status, body } = await createStudent(
     {
-      username: 'stu-garb-1',
-      password: 'secret123',
+      username: 'stugarb1',
+      password: 'secret12345',
       nombres: 'Ana',
       apellidos: 'Lopez',
       codalumno: 'GARB001',

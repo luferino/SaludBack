@@ -2,6 +2,7 @@ import { User } from '../../auth/domain/user.entity.js';
 import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/application/auth.ports.js';
 import { Student } from '../domain/student.entity.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
+import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
 import type { StudentRepositoryPort } from './student.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -19,17 +20,22 @@ export interface CreateStudentInput {
 const REQUIRED_FIELDS = ['username', 'password', 'nombres', 'apellidos', 'codalumno'] as const;
 
 const CODALUMNO_PATTERN = /^[A-Za-z0-9]+$/;
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+$/;
 
 /**
  * Create Student (alta en uno) use case.
  * One request creates the access account (role `estudiante`, hashed
  * password) and the `students` profile row together, or links the
  * student to an existing account (STU-001/STU-002). Validation order
- * (STU-003): required fields (400) -> codalumno format (400) -> email
- * format when present (400) -> duplicate codalumno (409) -> create-or-
- * link. The user write and the student write share one transaction via
- * the injected UnitOfWork, so both persist or neither does (AUD-003).
+ * (STU-003): required fields (400) -> username format + uppercase
+ * normalization (400) -> password strength (400) -> codalumno format
+ * (400) -> email format when present (400) -> duplicate codalumno (409)
+ * -> create-or-link. Username/password follow the shared auth
+ * validation (A-Z0-9, uppercased for storage/lookup; min 10 chars with a
+ * letter and a digit), so accounts created here are findable via
+ * /auth/login like register-created ones; email stays optional (UAC-002)
+ * but is checked with the shared format when present. The user write and
+ * the student write share one transaction via the injected UnitOfWork,
+ * so both persist or neither does (AUD-003).
  */
 export class CreateStudent {
   private readonly studentRepository: StudentRepositoryPort;
@@ -62,15 +68,21 @@ export class CreateStudent {
       }
     }
 
-    const username = input.username.trim();
+    // Shared auth validation: username may only contain letters and
+    // digits and is normalized to uppercase; password must be at least
+    // 10 chars with a letter and a digit (same rules as register, so
+    // alta-en-uno accounts are findable via /auth/login).
+    const username = normalizeUsername(input.username);
+    validatePassword(input.password);
+
     const codalumno = input.codalumno.trim();
     if (!CODALUMNO_PATTERN.test(codalumno)) {
       throw new BadRequestError('codalumno must contain only letters and digits');
     }
 
     const email = normalizeOptional(input.email);
-    if (email !== null && !EMAIL_PATTERN.test(email)) {
-      throw new BadRequestError('email must be a valid local@domain address');
+    if (email !== null) {
+      validateEmail(email);
     }
     const celular = normalizeOptional(input.celular);
 

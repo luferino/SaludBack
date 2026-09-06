@@ -8,7 +8,7 @@ Staff-originated "alta en uno" creation of students via `POST /students`: one re
 
 ### Requirement: STU-001: Create Student (Alta en Uno)
 
-`POST /students` MUST accept `username`, `password`, `nombres`, `apellidos`, `codalumno` (required) and optional `email`, `celular`. It MUST create the access account (role `estudiante`, hashed password) and the `students` row (`user_id` FK to `users.id`) in one operation, with audit columns per the audit-trail convention. Success MUST respond 201; a missing or empty required field MUST respond 400 and persist nothing.
+`POST /students` MUST accept `username`, `password`, `nombres`, `apellidos`, `codalumno` (required) and optional `email`, `celular`. It MUST create the access account (role `estudiante`, hashed password) and the `students` row (`user_id` FK to `users.id`) in one operation, with audit columns per the audit-trail convention. The account `username` and `password` follow the shared auth validation used by user-registration: `username` is required, may contain only letters and digits (A-Z0-9), and is normalized to uppercase for storage and lookup; `password` is required, at least 10 characters, with at least one letter and one digit. Unlike register, `email` stays optional — when present it MUST match the same standard email format. Success MUST respond 201; a missing or empty required field MUST respond 400 and persist nothing.
 
 #### Scenario: Successful alta en uno
 

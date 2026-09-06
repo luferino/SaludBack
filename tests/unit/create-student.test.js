@@ -78,7 +78,7 @@ function buildUseCase(overrides = {}) {
 
 const VALID_INPUT = {
   username: 'jperez',
-  password: 'secret123',
+  password: 'secret12345',
   nombres: 'Ana',
   apellidos: 'Lopez',
   codalumno: '20240123',
@@ -97,14 +97,14 @@ test('successful alta en uno creates the user and the student in one tx and pass
 
   // Duplicate check ran first with the trimmed codalumno.
   assert.deepEqual(studentRepository.calls.findByCodalumno, ['20240123']);
-  // User resolution: username miss, then email lookup.
-  assert.deepEqual(userRepository.calls.findByUsername, ['jperez']);
+  // User resolution: username miss (normalized to uppercase), then email lookup.
+  assert.deepEqual(userRepository.calls.findByUsername, ['JPEREZ']);
   assert.deepEqual(userRepository.calls.findByEmail, ['jperez@mail.com']);
 
   // Password hashed once and the account created with role estudiante.
-  assert.deepEqual(hasher.calls.hash, ['secret123']);
+  assert.deepEqual(hasher.calls.hash, ['secret12345']);
   assert.equal(userRepository.calls.create.length, 1);
-  assert.equal(userRepository.calls.create[0].username, 'jperez');
+  assert.equal(userRepository.calls.create[0].username, 'JPEREZ');
   assert.equal(userRepository.calls.create[0].passwordHash, 'hashed-value');
   assert.equal(userRepository.calls.create[0].role, 'estudiante');
   assert.equal(userRepository.calls.create[0].email, 'jperez@mail.com');
@@ -123,7 +123,7 @@ test('anonymous create defaults createdBy to null and an email-less account has 
 
   const student = await useCase.execute({
     username: 'jperez',
-    password: 'secret123',
+    password: 'secret12345',
     nombres: 'Ana',
     apellidos: 'Lopez',
     codalumno: '20240123',
@@ -147,21 +147,53 @@ test('blank email or celular normalize to null instead of 400 (UAC-002)', async 
   assert.equal(studentRepository.calls.create[0].celular, null);
 });
 
-test('username and codalumno are trimmed before lookup and persistence (STU-003)', async () => {
+test('username is trimmed and normalized to uppercase before lookup and persistence (STU-003 shared auth rules)', async () => {
   const { studentRepository, userRepository, useCase } = buildUseCase();
 
   await useCase.execute({ ...VALID_INPUT, username: '  jperez  ', codalumno: ' 20240123 ' });
 
-  assert.deepEqual(userRepository.calls.findByUsername, ['jperez']);
+  assert.deepEqual(userRepository.calls.findByUsername, ['JPEREZ']);
   assert.deepEqual(studentRepository.calls.findByCodalumno, ['20240123']);
-  assert.equal(userRepository.calls.create[0].username, 'jperez');
+  assert.equal(userRepository.calls.create[0].username, 'JPEREZ');
   assert.equal(studentRepository.calls.create[0].codalumno, '20240123');
+});
+
+test('username with an invalid character (dot, dash, underscore, space) throws BadRequestError before any lookup', async () => {
+  for (const username of ['j.perez', 'j-perez', 'j_perez', 'j perez']) {
+    const { userRepository, studentRepository, useCase } = buildUseCase();
+
+    await assert.rejects(() => useCase.execute({ ...VALID_INPUT, username }), BadRequestError);
+    assert.equal(userRepository.calls.findByUsername.length, 0, `${username} must fail before user lookups`);
+    assert.equal(studentRepository.calls.findByCodalumno.length, 0, `${username} must fail before the codalumno dup check`);
+    assert.equal(userRepository.calls.create.length, 0);
+    assert.equal(studentRepository.calls.create.length, 0);
+  }
+});
+
+test('lowercase username input reaches create normalized to uppercase (shared auth rules)', async () => {
+  const { userRepository, useCase } = buildUseCase();
+
+  await useCase.execute({ ...VALID_INPUT, username: 'jperez' });
+
+  assert.deepEqual(userRepository.calls.findByUsername, ['JPEREZ']);
+  assert.equal(userRepository.calls.create[0].username, 'JPEREZ');
+});
+
+test('password that is too short, lacks a digit, or lacks a letter throws BadRequestError before any lookup', async () => {
+  for (const password of ['short1', 'onlyletters', '1234567890']) {
+    const { userRepository, studentRepository, useCase } = buildUseCase();
+
+    await assert.rejects(() => useCase.execute({ ...VALID_INPUT, password }), BadRequestError);
+    assert.equal(userRepository.calls.findByUsername.length, 0, `${password} must fail before user lookups`);
+    assert.equal(userRepository.calls.create.length, 0);
+    assert.equal(studentRepository.calls.create.length, 0);
+  }
 });
 
 test('existing username links the student without hashing or creating an account (STU-002)', async () => {
   const existing = new User({
     id: 'uuid-existing-user',
-    username: 'jperez',
+    username: 'JPEREZ',
     passwordHash: 'keep-me',
     role: 'teacher',
     email: null,
@@ -170,7 +202,7 @@ test('existing username links the student without hashing or creating an account
     userRepository: createFakeUserRepository({ byUsername: existing }),
   });
 
-  const student = await useCase.execute({ ...VALID_INPUT, password: 'ignored-when-linking' });
+  const student = await useCase.execute({ ...VALID_INPUT, password: 'ignored-link123' });
 
   assert.equal(student.userId, 'uuid-existing-user');
   assert.equal(hasher.calls.hash.length, 0, 'existing credentials are NOT re-hashed');
@@ -183,7 +215,7 @@ test('existing username links the student without hashing or creating an account
 test('existing email links the student when the username is free (STU-002)', async () => {
   const existing = new User({
     id: 'uuid-email-user',
-    username: 'otro-usuario',
+    username: 'otrousuario',
     passwordHash: 'keep-me',
     role: 'teacher',
     email: 'jperez@mail.com',

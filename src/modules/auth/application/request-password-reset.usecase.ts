@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { BadRequestError } from '../../shared/domain/errors.js';
+import { normalizeUsername } from '../../shared/domain/validation.js';
 import type { UserRepositoryPort, ResetTokenRepositoryPort, MailerPort } from './auth.ports.js';
 
 const GENERIC_SUCCESS_MESSAGE = 'If the account exists, a password reset link has been sent';
@@ -54,7 +55,8 @@ export class RequestPasswordReset {
       throw new BadRequestError('username is required');
     }
 
-    const user = await this.repository.findByUsername(username);
+    const normalizedUsername = normalizeUsername(username);
+    const user = await this.repository.findByUsername(normalizedUsername);
     if (!user || !user.email) {
       return { message: GENERIC_SUCCESS_MESSAGE };
     }

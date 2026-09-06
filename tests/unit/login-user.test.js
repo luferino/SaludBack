@@ -7,8 +7,8 @@ import { BadRequestError, UnauthorizedError } from '../../src/modules/shared/dom
 
 const EXISTING_USER = new User({
   id: 'uuid-1',
-  username: 'jperez',
-  passwordHash: 'hashed:secret123',
+  username: 'JPEREZ',
+  passwordHash: 'hashed:secret12345',
   role: 'estudiante',
 });
 
@@ -39,15 +39,25 @@ test('successful login returns a token signed with role-derived claims', async (
   const { repository, hasher, tokenService, calls } = createFakes();
   const useCase = new LoginUser({ repository, hasher, tokenService });
 
-  const result = await useCase.execute({ username: 'jperez', password: 'secret123' });
+  const result = await useCase.execute({ username: 'JPEREZ', password: 'secret12345' });
 
-  assert.equal(result.token, 'signed-token:jperez');
+  assert.equal(result.token, 'signed-token:JPEREZ');
   assert.deepEqual(calls.sign[0], {
     sub: 'uuid-1',
-    username: 'jperez',
+    username: 'JPEREZ',
     role: 'estudiante',
     permissions: ROLE_PERMISSIONS.estudiante,
   });
+});
+
+test('lowercase input username is normalized to uppercase before lookup', async () => {
+  const { repository, hasher, tokenService, calls } = createFakes();
+  const useCase = new LoginUser({ repository, hasher, tokenService });
+
+  const result = await useCase.execute({ username: 'jperez', password: 'secret12345' });
+
+  assert.equal(calls.findByUsername[0], 'JPEREZ');
+  assert.equal(result.token, 'signed-token:JPEREZ');
 });
 
 test('unknown username throws a generic UnauthorizedError and never signs', async () => {
@@ -71,7 +81,7 @@ test('wrong password throws the same generic UnauthorizedError and never signs',
   const useCase = new LoginUser({ repository, hasher, tokenService });
 
   await assert.rejects(
-    () => useCase.execute({ username: 'jperez', password: 'wrong-pass' }),
+    () => useCase.execute({ username: 'JPEREZ', password: 'wrong-pass' }),
     (error) => {
       assert.ok(error instanceof UnauthorizedError);
       assert.equal(error.message, 'Invalid credentials');
@@ -84,13 +94,13 @@ test('wrong password throws the same generic UnauthorizedError and never signs',
 test('missing or empty username throws BadRequestError', async () => {
   const { repository, hasher, tokenService } = createFakes();
   const useCase = new LoginUser({ repository, hasher, tokenService });
-  await assert.rejects(() => useCase.execute({ password: 'secret123' }), BadRequestError);
-  await assert.rejects(() => useCase.execute({ username: '   ', password: 'secret123' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ password: 'secret12345' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ username: '   ', password: 'secret12345' }), BadRequestError);
 });
 
 test('missing or empty password throws BadRequestError', async () => {
   const { repository, hasher, tokenService } = createFakes();
   const useCase = new LoginUser({ repository, hasher, tokenService });
-  await assert.rejects(() => useCase.execute({ username: 'jperez' }), BadRequestError);
-  await assert.rejects(() => useCase.execute({ username: 'jperez', password: '' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ username: 'JPEREZ' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ username: 'JPEREZ', password: '' }), BadRequestError);
 });

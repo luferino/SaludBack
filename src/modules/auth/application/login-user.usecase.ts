@@ -1,4 +1,5 @@
 import { BadRequestError, UnauthorizedError } from '../../shared/domain/errors.js';
+import { normalizeUsername } from '../../shared/domain/validation.js';
 import { permissionsForRole } from '../domain/permissions.js';
 import type { UserRepositoryPort, PasswordHasherPort, TokenServicePort } from './auth.ports.js';
 
@@ -45,7 +46,8 @@ export class LoginUser {
       throw new BadRequestError('password is required');
     }
 
-    const user = await this.repository.findByUsername(username);
+    const normalizedUsername = normalizeUsername(username);
+    const user = await this.repository.findByUsername(normalizedUsername);
     if (!user) {
       throw new UnauthorizedError('Invalid credentials');
     }

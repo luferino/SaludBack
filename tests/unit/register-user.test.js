@@ -35,22 +35,22 @@ test('successful registration creates an estudiante with a hashed password and e
 
   const created = await useCase.execute({
     username: 'jperez',
-    password: 'secret123',
+    password: 'secret12345',
     email: 'jperez@example.com',
   });
 
-  assert.equal(created.username, 'jperez');
+  assert.equal(created.username, 'JPEREZ');
   assert.equal(created.role, 'estudiante');
   assert.equal(created.email, 'jperez@example.com');
-  assert.equal(created.passwordHash, 'hashed:secret123');
-  assert.equal(repository.calls.findByUsername[0], 'jperez');
+  assert.equal(created.passwordHash, 'hashed:secret12345');
+  assert.equal(repository.calls.findByUsername[0], 'JPEREZ');
   assert.equal(repository.calls.findByEmail[0], 'jperez@example.com');
   assert.equal(repository.calls.create.length, 1);
 });
 
 test('duplicate username throws ConflictError and does not create', async () => {
   const repository = createFakeRepository({
-    existingByUsername: new User({ username: 'jperez', passwordHash: 'x', role: 'estudiante' }),
+    existingByUsername: new User({ username: 'JPEREZ', passwordHash: 'x', role: 'estudiante' }),
   });
   const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
 
@@ -58,7 +58,7 @@ test('duplicate username throws ConflictError and does not create', async () => 
     () =>
       useCase.execute({
         username: 'jperez',
-        password: 'secret123',
+        password: 'secret12345',
         email: 'jperez@example.com',
       }),
     ConflictError,
@@ -81,7 +81,7 @@ test('duplicate email throws ConflictError and does not create', async () => {
     () =>
       useCase.execute({
         username: 'nuevo',
-        password: 'secret123',
+        password: 'secret12345',
         email: 'dup@example.com',
       }),
     ConflictError,
@@ -92,11 +92,11 @@ test('duplicate email throws ConflictError and does not create', async () => {
 test('missing or empty username throws BadRequestError', async () => {
   const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
   await assert.rejects(
-    () => useCase.execute({ password: 'secret123', email: 'a@example.com' }),
+    () => useCase.execute({ password: 'secret12345', email: 'a@example.com' }),
     BadRequestError,
   );
   await assert.rejects(
-    () => useCase.execute({ username: '  ', password: 'secret123', email: 'a@example.com' }),
+    () => useCase.execute({ username: '  ', password: 'secret12345', email: 'a@example.com' }),
     BadRequestError,
   );
 });
@@ -117,16 +117,94 @@ test('missing, empty or malformed email throws BadRequestError', async () => {
   const repository = createFakeRepository();
   const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
   await assert.rejects(
-    () => useCase.execute({ username: 'jperez', password: 'secret123' }),
+    () => useCase.execute({ username: 'jperez', password: 'secret12345' }),
     BadRequestError,
   );
   await assert.rejects(
-    () => useCase.execute({ username: 'jperez', password: 'secret123', email: '  ' }),
+    () => useCase.execute({ username: 'jperez', password: 'secret12345', email: '  ' }),
     BadRequestError,
   );
   await assert.rejects(
-    () => useCase.execute({ username: 'jperez', password: 'secret123', email: 'not-an-email' }),
+    () => useCase.execute({ username: 'jperez', password: 'secret12345', email: 'not-an-email' }),
     BadRequestError,
   );
   assert.equal(repository.calls.create.length, 0);
+});
+
+test('password too short throws BadRequestError', async () => {
+  const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
+  await assert.rejects(
+    () => useCase.execute({ username: 'jperez', password: 'short1', email: 'a@example.com' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must be at least 10 characters');
+      return true;
+    },
+  );
+});
+
+test('password without digit throws BadRequestError', async () => {
+  const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
+  await assert.rejects(
+    () => useCase.execute({ username: 'jperez', password: 'lettersonly', email: 'a@example.com' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must contain at least one letter and one number');
+      return true;
+    },
+  );
+});
+
+test('password without letter throws BadRequestError', async () => {
+  const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
+  await assert.rejects(
+    () => useCase.execute({ username: 'jperez', password: '1234567890', email: 'a@example.com' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must contain at least one letter and one number');
+      return true;
+    },
+  );
+});
+
+test('username with invalid characters (dot, dash, underscore, space) throws BadRequestError', async () => {
+  const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
+  for (const invalid of ['j.perez', 'j-perez', 'j_perez', 'j perez']) {
+    await assert.rejects(
+      () => useCase.execute({ username: invalid, password: 'secret12345', email: 'a@example.com' }),
+      (error) => {
+        assert.ok(error instanceof BadRequestError);
+        assert.equal(error.message, 'username may only contain letters and numbers');
+        return true;
+      },
+    );
+  }
+});
+
+test('username is normalized to uppercase', async () => {
+  const repository = createFakeRepository();
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  const created = await useCase.execute({
+    username: 'jperez',
+    password: 'secret12345',
+    email: 'jperez@example.com',
+  });
+
+  assert.equal(created.username, 'JPEREZ');
+  assert.equal(repository.calls.findByUsername[0], 'JPEREZ');
+});
+
+test('email with invalid format throws BadRequestError', async () => {
+  const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
+  for (const invalid of ['not-an-email', '@example.com', 'user@', 'user@.com', 'user@example']) {
+    await assert.rejects(
+      () => useCase.execute({ username: 'jperez', password: 'secret12345', email: invalid }),
+      (error) => {
+        assert.ok(error instanceof BadRequestError);
+        assert.equal(error.message, 'email must be a valid address');
+        return true;
+      },
+    );
+  }
 });

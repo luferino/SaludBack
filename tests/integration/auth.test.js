@@ -140,29 +140,29 @@ function lastResetToken() {
 test('POST /auth/register creates an estudiante with a bcrypt hash and email', async () => {
   const { status, body } = await register({
     username: 'jperez',
-    password: 'secret123',
+    password: 'secret12345',
     email: 'jperez@example.com',
   });
   assert.equal(status, 201);
-  assert.equal(body.username, 'jperez');
+  assert.equal(body.username, 'JPEREZ');
   assert.equal(body.role, 'estudiante');
   assert.equal(body.email, 'jperez@example.com');
   assert.equal(body.passwordHash, undefined);
 
   const { rows } = await pool.query('SELECT password_hash, email FROM users WHERE username = $1', [
-    'jperez',
+    'JPEREZ',
   ]);
   assert.equal(rows.length, 1);
-  assert.notEqual(rows[0].password_hash, 'secret123');
+  assert.notEqual(rows[0].password_hash, 'secret12345');
   assert.match(rows[0].password_hash, /^\$2[aby]\$/);
   assert.equal(rows[0].email, 'jperez@example.com');
 });
 
 test('POST /auth/register rejects a duplicate username with 409', async () => {
-  await register({ username: 'mperez', password: 'secret123', email: 'mperez@example.com' });
+  await register({ username: 'mperez', password: 'secret12345', email: 'mperez@example.com' });
   const { status, body } = await register({
     username: 'mperez',
-    password: 'otra-clave',
+    password: 'otraclave123',
     email: 'mperez-otro@example.com',
   });
   assert.equal(status, 409);
@@ -170,16 +170,16 @@ test('POST /auth/register rejects a duplicate username with 409', async () => {
 
   const { rows } = await pool.query(
     'SELECT count(*)::int AS n FROM users WHERE username = $1',
-    ['mperez'],
+    ['MPEREZ'],
   );
   assert.equal(rows[0].n, 1);
 });
 
 test('POST /auth/register rejects a duplicate email with 409', async () => {
-  await register({ username: 'dperez', password: 'secret123', email: 'dup@example.com' });
+  await register({ username: 'dperez', password: 'secret12345', email: 'dup@example.com' });
   const { status, body } = await register({
-    username: 'dperez-otro',
-    password: 'secret123',
+    username: 'dperez2',
+    password: 'secret12345',
     email: 'dup@example.com',
   });
   assert.equal(status, 409);
@@ -187,7 +187,7 @@ test('POST /auth/register rejects a duplicate email with 409', async () => {
 
   const { rows } = await pool.query(
     'SELECT count(*)::int AS n FROM users WHERE username = $1',
-    ['dperez-otro'],
+    ['DPEREZ2'],
   );
   assert.equal(rows[0].n, 0);
 });
@@ -211,15 +211,15 @@ test('POST /auth/register rejects missing or empty fields with 400', async () =>
 
 test('POST /auth/register records NULL audit actors and creates no students row (REG-001 UAC-001)', async () => {
   const { status, body } = await register({
-    username: 'audit-user',
-    password: 'secret123',
-    email: 'audit-user@example.com',
+    username: 'audituser',
+    password: 'secret12345',
+    email: 'audituser@example.com',
   });
   assert.equal(status, 201);
 
   const { rows } = await pool.query(
     'SELECT created_by, updated_by, updated_at FROM users WHERE username = $1',
-    ['audit-user'],
+    ['AUDITUSER'],
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0].created_by, null, 'registration records NULL created_by (UAC-001)');
@@ -260,8 +260,8 @@ test('an attached guard rejects the request before the use case runs', async () 
 });
 
 test('POST /auth/login returns 200 with a token carrying role and permissions', async () => {
-  await register({ username: 'lperez', password: 'secret123', email: 'lperez@example.com' });
-  const { status, body } = await login({ username: 'lperez', password: 'secret123' });
+  await register({ username: 'lperez', password: 'secret12345', email: 'lperez@example.com' });
+  const { status, body } = await login({ username: 'lperez', password: 'secret12345' });
 
   assert.equal(status, 200);
   assert.equal(typeof body.token, 'string');
@@ -269,7 +269,7 @@ test('POST /auth/login returns 200 with a token carrying role and permissions', 
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'estudiante');
-  assert.equal(decoded.username, 'lperez');
+  assert.equal(decoded.username, 'LPEREZ');
   assert.ok(Array.isArray(decoded.permissions));
   assert.ok(decoded.permissions.length > 0);
 });
@@ -279,7 +279,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
   const passwordHash = await hasher.hash('teacherpass1');
   const { rows: [teacher] } = await pool.query(
     `INSERT INTO users (username, password_hash, role, email)
-     VALUES ('tclaims', $1, 'teacher', 'tclaims@example.com') RETURNING id`,
+     VALUES ('TCLAIMS', $1, 'teacher', 'tclaims@example.com') RETURNING id`,
     [passwordHash],
   );
 
@@ -378,7 +378,7 @@ test('protected route rejects missing, malformed and expired tokens with 401', a
 
 test('POST /auth/forgot-password mails a reset link to a user with email', async () => {
   mailer.clear();
-  await register({ username: 'rperez', password: 'secret123', email: 'rperez@example.com' });
+  await register({ username: 'rperez', password: 'secret12345', email: 'rperez@example.com' });
 
   const { status, body } = await forgot({ username: 'rperez' });
 
@@ -394,11 +394,11 @@ test('POST /auth/forgot-password is identical for unknown and email-less users a
   mailer.clear();
   await pool.query(
     'INSERT INTO users (username, password_hash, role, email) VALUES ($1, $2, $3, NULL)',
-    ['legacy-user', 'not-a-real-hash', 'estudiante'],
+    ['LEGACYUSER', 'not-a-real-hash', 'estudiante'],
   );
 
-  const unknown = await forgot({ username: 'ghost-user' });
-  const emailLess = await forgot({ username: 'legacy-user' });
+  const unknown = await forgot({ username: 'ghostuser' });
+  const emailLess = await forgot({ username: 'legacyuser' });
 
   assert.equal(unknown.status, 200);
   assert.equal(emailLess.status, 200);
@@ -425,9 +425,9 @@ test('POST /auth/reset-password rejects missing or empty fields with 400', async
 
 test('forgot then reset: old password stops working, new one works, token is single-use', async () => {
   mailer.clear();
-  await register({ username: 'e2e-user', password: 'oldpass123', email: 'e2e@example.com' });
+  await register({ username: 'e2euser', password: 'oldpass123', email: 'e2e@example.com' });
 
-  const forgotRes = await forgot({ username: 'e2e-user' });
+  const forgotRes = await forgot({ username: 'e2euser' });
   assert.equal(forgotRes.status, 200);
 
   const token = lastResetToken();
@@ -437,13 +437,13 @@ test('forgot then reset: old password stops working, new one works, token is sin
   assert.equal(resetRes.status, 200);
   assert.deepEqual(resetRes.body, { message: 'Password has been reset' });
 
-  const oldLogin = await login({ username: 'e2e-user', password: 'oldpass123' });
+  const oldLogin = await login({ username: 'e2euser', password: 'oldpass123' });
   assert.equal(oldLogin.status, 401);
 
-  const newLogin = await login({ username: 'e2e-user', password: 'newpass456' });
+  const newLogin = await login({ username: 'e2euser', password: 'newpass456' });
   assert.equal(newLogin.status, 200);
 
-  const reuse = await reset({ token, newPassword: 'anotherpass' });
+  const reuse = await reset({ token, newPassword: 'anotherpass1' });
   assert.equal(reuse.status, 400);
   assert.equal(reuse.body.error.code, 'BAD_REQUEST');
   assert.equal(reuse.body.error.message, 'Invalid or expired reset token');
@@ -451,9 +451,9 @@ test('forgot then reset: old password stops working, new one works, token is sin
 
 test('an expired reset token is rejected with the password unchanged', async () => {
   mailer.clear();
-  await register({ username: 'exp-user', password: 'keepme123', email: 'exp@example.com' });
+  await register({ username: 'expuser', password: 'keepme12345', email: 'exp@example.com' });
   const { rows: userRows } = await pool.query('SELECT id FROM users WHERE username = $1', [
-    'exp-user',
+    'EXPUSER',
   ]);
 
   const rawToken = 'expired-raw-token';
@@ -468,20 +468,20 @@ test('an expired reset token is rejected with the password unchanged', async () 
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'BAD_REQUEST');
 
-  const loginStillWorks = await login({ username: 'exp-user', password: 'keepme123' });
+  const loginStillWorks = await login({ username: 'expuser', password: 'keepme12345' });
   assert.equal(loginStillWorks.status, 200);
 });
 
 test('issuing beyond the outstanding cap invalidates the oldest token', async () => {
   mailer.clear();
-  await register({ username: 'cap-user', password: 'secret123', email: 'cap@example.com' });
+  await register({ username: 'capuser', password: 'secret12345', email: 'cap@example.com' });
   const { rows: userRows } = await pool.query('SELECT id FROM users WHERE username = $1', [
-    'cap-user',
+    'CAPUSER',
   ]);
   const cap = config.resetTokenMaxOutstanding;
 
   for (let i = 0; i <= cap; i += 1) {
-    const res = await forgot({ username: 'cap-user' });
+    const res = await forgot({ username: 'capuser' });
     assert.equal(res.status, 200);
   }
 

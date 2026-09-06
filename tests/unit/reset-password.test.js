@@ -41,17 +41,19 @@ function createFakes({ resetToken = VALID_RESET_TOKEN } = {}) {
   return { repository, resetTokenRepository, hasher, calls };
 }
 
+const VALID_NEW_PASSWORD = 'newSecret123';
+
 test('valid token: looks up by sha256, marks used, then replaces the password hash', async () => {
   const fakes = createFakes();
   const useCase = new ResetPassword(fakes);
 
-  const result = await useCase.execute({ token: 'raw-secret-token', newPassword: 'new-secret' });
+  const result = await useCase.execute({ token: 'raw-secret-token', newPassword: VALID_NEW_PASSWORD });
 
   assert.deepEqual(result, { message: 'Password has been reset' });
   assert.equal(fakes.calls.findValidByHash[0], sha256('raw-secret-token'));
-  assert.equal(fakes.calls.hash[0], 'new-secret');
+  assert.equal(fakes.calls.hash[0], VALID_NEW_PASSWORD);
   assert.equal(fakes.calls.markUsed[0], 'token-uuid');
-  assert.deepEqual(fakes.calls.updatePassword[0], ['uuid-1', 'hashed:new-secret']);
+  assert.deepEqual(fakes.calls.updatePassword[0], ['uuid-1', `hashed:${VALID_NEW_PASSWORD}`]);
 });
 
 test('markUsed runs before updatePassword (design D8)', async () => {
@@ -70,7 +72,7 @@ test('markUsed runs before updatePassword (design D8)', async () => {
     await originalUpdatePassword(userId, hash);
   };
 
-  await useCase.execute({ token: 'raw-secret-token', newPassword: 'new-secret' });
+  await useCase.execute({ token: 'raw-secret-token', newPassword: VALID_NEW_PASSWORD });
 
   assert.deepEqual(order, ['markUsed', 'updatePassword']);
 });
@@ -80,7 +82,7 @@ test('unknown, used, or expired token throws one generic error and never touches
   const useCase = new ResetPassword(fakes);
 
   await assert.rejects(
-    () => useCase.execute({ token: 'raw-secret-token', newPassword: 'new-secret' }),
+    () => useCase.execute({ token: 'raw-secret-token', newPassword: VALID_NEW_PASSWORD }),
     (error) => {
       assert.ok(error instanceof BadRequestError);
       assert.equal(error.message, 'Invalid or expired reset token');
@@ -95,8 +97,8 @@ test('missing or empty token throws BadRequestError without looking up', async (
   const fakes = createFakes();
   const useCase = new ResetPassword(fakes);
 
-  await assert.rejects(() => useCase.execute({ newPassword: 'new-secret' }), BadRequestError);
-  await assert.rejects(() => useCase.execute({ token: '   ', newPassword: 'new-secret' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ newPassword: VALID_NEW_PASSWORD }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ token: '   ', newPassword: VALID_NEW_PASSWORD }), BadRequestError);
   assert.equal(fakes.calls.findValidByHash.length, 0);
 });
 
@@ -106,5 +108,50 @@ test('missing or empty newPassword throws BadRequestError without looking up', a
 
   await assert.rejects(() => useCase.execute({ token: 'raw-secret-token' }), BadRequestError);
   await assert.rejects(() => useCase.execute({ token: 'raw-secret-token', newPassword: '' }), BadRequestError);
+  assert.equal(fakes.calls.findValidByHash.length, 0);
+});
+
+test('newPassword too short throws BadRequestError', async () => {
+  const fakes = createFakes();
+  const useCase = new ResetPassword(fakes);
+
+  await assert.rejects(
+    () => useCase.execute({ token: 'raw-secret-token', newPassword: 'short1' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must be at least 10 characters');
+      return true;
+    },
+  );
+  assert.equal(fakes.calls.findValidByHash.length, 0);
+});
+
+test('newPassword without digit throws BadRequestError', async () => {
+  const fakes = createFakes();
+  const useCase = new ResetPassword(fakes);
+
+  await assert.rejects(
+    () => useCase.execute({ token: 'raw-secret-token', newPassword: 'lettersonly' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must contain at least one letter and one number');
+      return true;
+    },
+  );
+  assert.equal(fakes.calls.findValidByHash.length, 0);
+});
+
+test('newPassword without letter throws BadRequestError', async () => {
+  const fakes = createFakes();
+  const useCase = new ResetPassword(fakes);
+
+  await assert.rejects(
+    () => useCase.execute({ token: 'raw-secret-token', newPassword: '1234567890' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'password must contain at least one letter and one number');
+      return true;
+    },
+  );
   assert.equal(fakes.calls.findValidByHash.length, 0);
 });

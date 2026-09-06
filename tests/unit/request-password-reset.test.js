@@ -41,7 +41,7 @@ function buildUseCase(fakes) {
 
 const USER_WITH_EMAIL = new User({
   id: 'uuid-1',
-  username: 'jperez',
+  username: 'JPEREZ',
   passwordHash: 'x',
   role: 'estudiante',
   email: 'jperez@example.com',
@@ -54,17 +54,26 @@ test('user with email gets a token and a mailed link; body is the generic succes
   const result = await useCase.execute({ username: 'jperez' });
 
   assert.deepEqual(result, GENERIC_BODY);
-  assert.equal(fakes.calls.findByUsername[0], 'jperez');
+  assert.equal(fakes.calls.findByUsername[0], 'JPEREZ');
   assert.equal(fakes.calls.create.length, 1);
   assert.equal(fakes.calls.sendMail.length, 1);
   assert.equal(fakes.calls.sendMail[0].to, 'jperez@example.com');
+});
+
+test('lowercase input username is normalized to uppercase before lookup', async () => {
+  const fakes = createFakes({ user: USER_WITH_EMAIL });
+  const useCase = buildUseCase(fakes);
+
+  await useCase.execute({ username: 'JPERez' });
+
+  assert.equal(fakes.calls.findByUsername[0], 'JPEREZ');
 });
 
 test('unknown username returns identical body with no token and no mail', async () => {
   const fakes = createFakes({ user: null });
   const useCase = buildUseCase(fakes);
 
-  const result = await useCase.execute({ username: 'ghost' });
+  const result = await useCase.execute({ username: 'GHOST' });
 
   assert.deepEqual(result, GENERIC_BODY);
   assert.equal(fakes.calls.create.length, 0);
@@ -72,11 +81,11 @@ test('unknown username returns identical body with no token and no mail', async 
 });
 
 test('user without email returns identical body with no token and no mail', async () => {
-  const emailLess = new User({ id: 'uuid-2', username: 'legacy', passwordHash: 'x', role: 'estudiante' });
+  const emailLess = new User({ id: 'uuid-2', username: 'LEGACY', passwordHash: 'x', role: 'estudiante' });
   const fakes = createFakes({ user: emailLess });
   const useCase = buildUseCase(fakes);
 
-  const result = await useCase.execute({ username: 'legacy' });
+  const result = await useCase.execute({ username: 'LEGACY' });
 
   assert.deepEqual(result, GENERIC_BODY);
   assert.equal(fakes.calls.create.length, 0);
@@ -84,7 +93,7 @@ test('user without email returns identical body with no token and no mail', asyn
 });
 
 test('identical body across all three outcomes', async () => {
-  const emailLess = new User({ id: 'uuid-2', username: 'legacy', passwordHash: 'x', role: 'estudiante' });
+  const emailLess = new User({ id: 'uuid-2', username: 'LEGACY', passwordHash: 'x', role: 'estudiante' });
 
   const bodyWithEmail = await buildUseCase(createFakes({ user: USER_WITH_EMAIL })).execute({ username: 'jperez' });
   const bodyUnknown = await buildUseCase(createFakes({ user: null })).execute({ username: 'ghost' });

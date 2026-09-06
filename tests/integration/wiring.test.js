@@ -56,15 +56,15 @@ test('GET / answers the heartbeat (index wiring boots the app)', async () => {
 
 test('POST /auth/register is reachable through the wiring (auth router mounted)', async () => {
   const { status, body } = await post('/auth/register', {
-    username: 'wiring-auth-1',
-    password: 'secret123',
-    email: 'wiring-auth-1@example.com',
+    username: 'wiringauth1',
+    password: 'secret12345',
+    email: 'wiringauth1@example.com',
   });
 
   assert.equal(status, 201);
   assert.equal(body.role, 'estudiante');
   const { rows } = await pool.query('SELECT count(*)::int AS n FROM users WHERE username = $1', [
-    'wiring-auth-1',
+    'WIRINGAUTH1',
   ]);
   assert.equal(rows[0].n, 1);
 });

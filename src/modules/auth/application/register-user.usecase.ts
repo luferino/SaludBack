@@ -1,5 +1,6 @@
 import { User } from '../domain/user.entity.js';
-import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
+import { ConflictError } from '../../shared/domain/errors.js';
+import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
 import type { UserRepositoryPort, PasswordHasherPort } from './auth.ports.js';
 
 export interface RegisterUserInput {
@@ -25,22 +26,13 @@ export class RegisterUser {
   }
 
   async execute({ username, password, email }: RegisterUserInput): Promise<User> {
-    if (!username || username.trim() === '') {
-      throw new BadRequestError('username is required');
-    }
-    if (!password) {
-      throw new BadRequestError('password is required');
-    }
-    if (!email || email.trim() === '') {
-      throw new BadRequestError('email is required');
-    }
-    if (!/^[^@\s]+@[^@\s]+$/.test(email)) {
-      throw new BadRequestError('email must be a valid local@domain address');
-    }
+    const normalizedUsername = normalizeUsername(username);
+    validatePassword(password);
+    validateEmail(email);
 
-    const existing = await this.repository.findByUsername(username);
+    const existing = await this.repository.findByUsername(normalizedUsername);
     if (existing) {
-      throw new ConflictError(`username already exists: ${username}`);
+      throw new ConflictError(`username already exists: ${normalizedUsername}`);
     }
 
     const existingByEmail = await this.repository.findByEmail(email);
@@ -49,7 +41,7 @@ export class RegisterUser {
     }
 
     const passwordHash = await this.hasher.hash(password);
-    const user = User.create({ username, passwordHash, role: 'estudiante', email });
+    const user = User.create({ username: normalizedUsername, passwordHash, role: 'estudiante', email });
     return this.repository.create(user);
   }
 }

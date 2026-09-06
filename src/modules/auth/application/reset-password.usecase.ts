@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { BadRequestError } from '../../shared/domain/errors.js';
+import { validatePassword } from '../../shared/domain/validation.js';
 import type { UserRepositoryPort, ResetTokenRepositoryPort, PasswordHasherPort } from './auth.ports.js';
 
 export interface ResetPasswordInput {
@@ -46,6 +47,7 @@ export class ResetPassword {
     if (!newPassword) {
       throw new BadRequestError('newPassword is required');
     }
+    validatePassword(newPassword);
 
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const resetToken = await this.resetTokenRepository.findValidByHash(tokenHash);

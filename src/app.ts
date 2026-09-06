@@ -36,6 +36,8 @@ export function createApp(pool: Pool): express.Express {
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
+    secretKid: config.jwtSecretKid,
+    previousSecrets: config.jwtPreviousSecrets,
     expiresIn: config.jwtExpiresIn,
   });
 

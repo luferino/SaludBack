@@ -65,3 +65,78 @@ test('verify rejects a token with a different audience', async () => {
   }).sign(CLAIMS);
   await assert.rejects(() => service.verify(otherAudience), { name: 'JsonWebTokenError' });
 });
+
+// --- kid rotation tests ---
+
+test('sign stamps the kid header', async () => {
+  const rotateService = new JwtTokenService({
+    secret: SECRET,
+    secretKid: '2026-09',
+    expiresIn: '2h',
+  });
+  const token = await rotateService.sign(CLAIMS);
+  const decoded = jwt.decode(token, { complete: true });
+  assert.equal(decoded.header.kid, '2026-09');
+});
+
+test('verify accepts a token signed with a previous secret by kid', async () => {
+  const previousSecret = 'old-secret';
+  const rotateService = new JwtTokenService({
+    secret: SECRET,
+    secretKid: '2026-09',
+    previousSecrets: [{ kid: '2026-08', secret: previousSecret }],
+    expiresIn: '2h',
+  });
+  // Sign with the old secret + old kid.
+  const oldService = new JwtTokenService({
+    secret: previousSecret,
+    secretKid: '2026-08',
+    expiresIn: '2h',
+  });
+  const token = await oldService.sign(CLAIMS);
+  const decoded = await rotateService.verify(token);
+  assert.equal(decoded.sub, 'uuid-1');
+  assert.equal(decoded.role, 'estudiante');
+});
+
+test('verify rejects a token with an unknown kid', async () => {
+  const rogueService = new JwtTokenService({
+    secret: 'rogue-secret',
+    secretKid: 'rogue',
+    expiresIn: '2h',
+  });
+  const token = await rogueService.sign(CLAIMS);
+  const rotateService = new JwtTokenService({
+    secret: SECRET,
+    secretKid: '2026-09',
+    expiresIn: '2h',
+  });
+  await assert.rejects(() => rotateService.verify(token), { name: 'JsonWebTokenError' });
+});
+
+test('verify rejects a token that claims a known kid but uses a wrong secret', async () => {
+  const wrongService = new JwtTokenService({
+    secret: 'wrong',
+    secretKid: '2026-09',
+    expiresIn: '2h',
+  });
+  const token = await wrongService.sign(CLAIMS);
+  const rotateService = new JwtTokenService({
+    secret: SECRET,
+    secretKid: '2026-09',
+    expiresIn: '2h',
+  });
+  await assert.rejects(() => rotateService.verify(token), { name: 'JsonWebTokenError' });
+});
+
+test('legacy token without kid verifies against the current secret', async () => {
+  // Mint a token WITHOUT any kid header — simulates tokens from before this change.
+  const legacyToken = jwt.sign(CLAIMS, SECRET, {
+    expiresIn: '2h',
+    issuer: 'SaludBack',
+    audience: 'SaludBack-api',
+  });
+  const decoded = await service.verify(legacyToken);
+  assert.equal(decoded.sub, 'uuid-1');
+  assert.equal(decoded.role, 'estudiante');
+});

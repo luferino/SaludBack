@@ -28,6 +28,8 @@ export interface AppConfig {
   port: number;
   databaseUrl: string;
   jwtSecret: string;
+  jwtSecretKid: string;
+  jwtPreviousSecrets: { kid: string; secret: string }[];
   jwtExpiresIn: string;
   bcryptCost: number;
   clientUrl: string;
@@ -35,10 +37,41 @@ export interface AppConfig {
   resetTokenMaxOutstanding: number;
 }
 
+function parsePreviousSecrets(raw: string | undefined): { kid: string; secret: string }[] {
+  if (raw === undefined || raw === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      'JWT_PREVIOUS_SECRETS must be a valid JSON array of { "kid": string, "secret": string }. ' +
+        'Example: \'[{"kid":"2026-08","secret":"old-secret"}]\'',
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('JWT_PREVIOUS_SECRETS must be a JSON array, not a single object.');
+  }
+  for (const entry of parsed) {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      typeof (entry as Record<string, unknown>).kid !== 'string' ||
+      typeof (entry as Record<string, unknown>).secret !== 'string'
+    ) {
+      throw new Error(
+        'Each entry in JWT_PREVIOUS_SECRETS must have a "kid" and "secret" string.',
+      );
+    }
+  }
+  return parsed as { kid: string; secret: string }[];
+}
+
 export const config: AppConfig = Object.freeze({
   port: Number.parseInt(process.env.PORT ?? '3000', 10),
   databaseUrl: process.env.DATABASE_URL!,
   jwtSecret: process.env.JWT_SECRET!,
+  jwtSecretKid: process.env.JWT_SECRET_KID ?? 'current',
+  jwtPreviousSecrets: parsePreviousSecrets(process.env.JWT_PREVIOUS_SECRETS),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '2h',
   bcryptCost: Number.parseInt(process.env.BCRYPT_COST ?? '12', 10),
   clientUrl: process.env.CLIENT_URL!,

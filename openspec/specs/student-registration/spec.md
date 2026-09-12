@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Staff-originated "alta en uno" creation of students via `POST /students`: one request creates the access account (`user`, role `estudiante`) and the `students` profile row together, or links the student to an existing account. The route is open today but MUST expose guard and actor seams (patients precedent).
+Staff-originated "alta en uno" creation of students via `POST /students`: one request creates the access account (`user`, role `estudiante`) and the `students` profile row together, or links the student to an existing account. The route is admin-only: a verified `admin` Bearer token is required and the acting admin is recorded in `created_by` on both the account and the profile row.
 
 ## Requirements
 
@@ -70,37 +70,47 @@ When a user already exists with the same `username` OR the same `email` as the p
 
 ### Requirement: STU-004: Response Contract
 
-The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `email`, `celular`, `created_by`, `created_at` and no other field — no `user_id`, no `username`/`password`, no `updated_by`/`updated_at`. `created_by` SHALL be `null` without an actor.
+The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `email`, `celular`, `created_by`, `created_at` and no other field — no `user_id`, no `username`/`password`, no `updated_by`/`updated_at`. `created_by` SHALL equal the acting admin's id (the route is admin-only).
 
 #### Scenario: Only contract fields
 
-- GIVEN a successful anonymous create
+- GIVEN a successful admin-authorized create
 - WHEN the response body is inspected
 - THEN the body matches the contract fields
-- AND `created_by` is `null`
+- AND `created_by` is the admin's id
 
-### Requirement: STU-005: Guard and Actor Seams
+### Requirement: STU-005: Admin-Only Guard and Actor Resolution
 
-`POST /students` MUST expose a single guard seam (default open) and an actor hook. `created_by` MUST be the verified subject on `req.auth` when a valid token is present; NULL when anonymous or the token is invalid (the route stays open).
+`POST /students` MUST require a verified `admin` Bearer token (token verified by `authenticate`, policy enforced by `AdminGuard`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified non-admin token MUST respond 403. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `students` row.
+(Previously: the seam was default-open and `created_by` fell back to NULL for anonymous or invalid tokens.)
 
-#### Scenario: Default open
+#### Scenario: Missing token rejected
 
-- GIVEN no guard policy attached
+- GIVEN no Authorization header
 - WHEN an unauthenticated client calls `POST /students`
-- THEN the use case runs
+- THEN the response is 401 `UNAUTHORIZED`
+- AND nothing is persisted
+
+#### Scenario: Non-admin token rejected
+
+- GIVEN a verified Bearer token whose role is not `admin`
+- WHEN a client calls `POST /students` with it
+- THEN the response is 403 `FORBIDDEN`
+- AND nothing is persisted
 
 #### Scenario: Actor from verified token
 
-- GIVEN a valid token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
+- GIVEN a valid admin token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
 - WHEN `POST /students` is called
 - THEN the student's `created_by` is that id
+- AND the created user's `created_by` is that id
 
-#### Scenario: Invalid token stays open
+#### Scenario: Expired token rejected
 
-- GIVEN a malformed Bearer token
-- WHEN `POST /students` is called
-- THEN the create still succeeds
-- AND `created_by` is NULL
+- GIVEN an expired Bearer token
+- WHEN `POST /students` is called with it
+- THEN the response is 401 with the message `Invalid or missing token`
+- AND nothing is persisted
 
 ## Non-Goals
 

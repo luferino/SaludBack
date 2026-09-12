@@ -105,7 +105,13 @@ export class CreateStudent {
       const user =
         linkedUser ??
         (await this.userRepository.create(
-          User.create({ username, passwordHash: passwordHash!, role: 'estudiante', email }),
+          User.create({
+            username,
+            passwordHash: passwordHash!,
+            role: 'estudiante',
+            email,
+            createdBy: input.createdBy ?? null,
+          }),
           client,
         ));
 

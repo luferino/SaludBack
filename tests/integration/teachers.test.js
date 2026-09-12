@@ -10,8 +10,10 @@ import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcr
 import { PgUnitOfWork } from '../../src/modules/shared/infrastructure/pg-unit-of-work.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { AdminGuard } from '../../src/modules/shared/application/guard.ts';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { cleanDb } from './helpers/clean-db.js';
+import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -26,17 +28,22 @@ const VALID_PAYLOAD = {
   celular: '+5491100000000',
 };
 
-function buildApp(overrides = {}) {
+/**
+ * Production-like stack: authenticate (populates req.auth) then the router,
+ * whose handler runs AdminGuard and resolves created_by from the token sub.
+ */
+function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(
     '/teachers',
+    authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
     createTeacherRouter({
       repository: new PgTeacherRepository(pool),
       userRepository: new PgUserRepository(pool),
       hasher: new BcryptHasher(config.bcryptCost),
       unitOfWork: new PgUnitOfWork(pool),
-      ...overrides,
+      guard: new AdminGuard(),
     }),
   );
   app.use(errorHandler);
@@ -45,12 +52,15 @@ function buildApp(overrides = {}) {
 
 let server;
 let baseUrl;
+let adminId;
+let adminToken;
 
 before(async () => {
   // Own cleanup: teachers must be gone before users (FK teachers.user_id -> users.id).
   // Full FK-order hardening across files is PR 4; this keeps the shared test DB
   // clean so auth.test.js's `DELETE FROM users` never trips on leftover rows.
   await cleanDb(pool);
+  ({ id: adminId, token: adminToken } = await seedAdmin(pool));
   server = buildApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -71,7 +81,11 @@ after(async () => {
 async function createTeacher(payload, options = {}) {
   const res = await fetch(`${baseUrl}/teachers`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...options.headers },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${adminToken}`,
+      ...options.headers,
+    },
     body: JSON.stringify(payload),
   });
   return { status: res.status, body: await res.json() };
@@ -84,6 +98,42 @@ async function countUsers(username) {
   return rows[0].n;
 }
 
+test('POST /teachers rejects a missing, garbage and non-admin token (401/401/403)', async () => {
+  const payload = { ...VALID_PAYLOAD, username: 'teaguard1', nombres: 'Nadia' };
+
+  const noToken = await fetch(`${baseUrl}/teachers`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(noToken.status, 401);
+
+  const garbage = await fetch(`${baseUrl}/teachers`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer not.a.jwt' },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(garbage.status, 401);
+
+  const nonAdmin = await fetch(`${baseUrl}/teachers`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${await tokenForRole('estudiante')}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(nonAdmin.status, 403);
+  assert.equal((await nonAdmin.json()).error.code, 'FORBIDDEN');
+
+  assert.equal(await countUsers('TEAGUARD1'), 0, 'guard rejection persists nothing');
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM teachers WHERE nombres = $1',
+    ['Nadia'],
+  );
+  assert.equal(rows[0].n, 0);
+});
+
 test('POST /teachers performs alta en uno: 201, exact 7-key contract, one teacher user, linked row (TEA-001 TEA-003)', async () => {
   const { status, body } = await createTeacher(VALID_PAYLOAD);
 
@@ -93,7 +143,7 @@ test('POST /teachers performs alta en uno: 201, exact 7-key contract, one teache
   assert.equal(body.apellidos, 'Ruiz');
   assert.equal(body.email, 'teaalta1@example.com');
   assert.equal(body.celular, '+5491100000000');
-  assert.equal(body.created_by, null);
+  assert.equal(body.created_by, adminId, 'admin token sub lands in created_by (TEA-004 AUD-003)');
   assert.equal(typeof body.id, 'string');
   assert.equal(typeof body.created_at, 'string');
   // TEA-003: no internal fields leak, no codalumno key for teachers.
@@ -121,7 +171,7 @@ test('POST /teachers performs alta en uno: 201, exact 7-key contract, one teache
   assert.equal(teachers.length, 1);
   assert.equal(teachers[0].user_id, users[0].id, 'teacher row links to the new user (TEA-001)');
   assert.equal(teachers[0].email, 'teaalta1@example.com');
-  assert.equal(teachers[0].created_by, null);
+  assert.equal(teachers[0].created_by, adminId, 'created_by persisted from the admin token');
 });
 
 test('POST /teachers links to an existing username without a duplicate account or role change (TEA-002)', async () => {
@@ -138,7 +188,7 @@ test('POST /teachers links to an existing username without a duplicate account o
   });
 
   assert.equal(status, 201);
-  assert.equal(body.created_by, null, 'open route: no actor');
+  assert.equal(body.created_by, adminId, 'admin actor recorded on the link path');
 
   assert.equal(await countUsers('TEALINKUSER'), 1, 'no duplicate account');
   const { rows: users } = await pool.query(
@@ -214,109 +264,4 @@ test('POST /teachers rejects missing required fields and bad email with 400 and 
     [badNombres],
   );
   assert.equal(rows[0].n, 0);
-});
-
-test('the REAL authenticate middleware maps a signed token sub to created_by (TEA-004 AUD-003)', async () => {
-  const actorId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-  await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
-  await pool.query(
-    'INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)',
-    [actorId, 'tea-actor', 'not-a-real-hash', 'teacher'],
-  );
-
-  const tokenService = new JwtTokenService({
-    secret: config.jwtSecret,
-    expiresIn: config.jwtExpiresIn,
-  });
-  const token = await tokenService.sign({
-    sub: actorId,
-    username: 'tea-actor',
-    role: 'teacher',
-    permissions: [],
-  });
-
-  const app = express();
-  app.use(express.json());
-  app.use(
-    '/teachers',
-    authenticate(tokenService),
-    createTeacherRouter({
-      repository: new PgTeacherRepository(pool),
-      userRepository: new PgUserRepository(pool),
-      hasher: new BcryptHasher(config.bcryptCost),
-      unitOfWork: new PgUnitOfWork(pool),
-    }),
-  );
-  app.use(errorHandler);
-
-  const actorServer = app.listen(0);
-  await new Promise((resolve) => actorServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${actorServer.address().port}`;
-
-  try {
-    const res = await fetch(`${url}/teachers`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        username: 'teaact1',
-        password: 'secret12345',
-        nombres: 'Ana',
-        apellidos: 'Lopez',
-      }),
-    });
-    const body = await res.json();
-    assert.equal(res.status, 201);
-    assert.equal(body.created_by, actorId);
-
-    const { rows } = await pool.query(
-      'SELECT created_by FROM teachers WHERE user_id = (SELECT id FROM users WHERE username = $1)',
-      ['TEAACT1'],
-    );
-    assert.equal(rows[0].created_by, actorId);
-
-    // Malformed token through the REAL middleware: rejected with 401 and the
-    // handler never runs (open-route 201 + NULL stays covered by the test
-    // below — PAT-004/TEA-004 invalid-token scenario).
-    const malformed = await fetch(`${url}/teachers`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: 'Bearer not.a.jwt',
-      },
-      body: JSON.stringify({
-        username: 'teaact2',
-        password: 'secret12345',
-        nombres: 'Ana',
-        apellidos: 'Lopez',
-      }),
-    });
-    assert.equal(malformed.status, 401);
-    assert.equal(await countUsers('TEAACT2'), 0);
-  } finally {
-    await new Promise((resolve) => actorServer.close(resolve));
-  }
-});
-
-test('a garbage Bearer token on the open route still creates with created_by null (TEA-004)', async () => {
-  const { status, body } = await createTeacher(
-    {
-      username: 'teagarb1',
-      password: 'secret12345',
-      nombres: 'Ana',
-      apellidos: 'Lopez',
-    },
-    { headers: { authorization: 'Bearer not.a.jwt' } },
-  );
-
-  assert.equal(status, 201);
-  assert.equal(body.created_by, null);
-
-  const { rows } = await pool.query(
-    'SELECT created_by FROM teachers WHERE user_id = (SELECT id FROM users WHERE username = $1)',
-    ['TEAGARB1'],
-  );
-  assert.equal(rows[0].created_by, null);
 });

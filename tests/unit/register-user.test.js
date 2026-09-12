@@ -24,6 +24,7 @@ function createFakeRepository(overrides = {}) {
     },
     async create(user) {
       calls.create.push(user);
+      if (overrides.createThrows) throw overrides.createThrows;
       return new User({ ...user, id: 'uuid-new', createdAt: new Date('2026-08-05T12:00:00Z') });
     },
   };
@@ -207,4 +208,107 @@ test('email with invalid format throws BadRequestError', async () => {
       },
     );
   }
+});
+
+test('registration passes createdBy through to the persisted entity (AUD-003)', async () => {
+  const repository = createFakeRepository();
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  const created = await useCase.execute({
+    username: 'actor1',
+    password: 'secret12345',
+    email: 'actor1@example.com',
+    createdBy: 'actor-1',
+  });
+
+  assert.equal(created.createdBy, 'actor-1');
+  assert.equal(repository.calls.create[0].createdBy, 'actor-1');
+});
+
+/** Mimics a pg unique_violation error (SQLSTATE 23505) with its constraint name. */
+function uniqueViolation(constraint, message) {
+  return Object.assign(new Error(message), { code: '23505', constraint });
+}
+
+test('registration maps a unique-violation race on username to ConflictError with a clean message', async () => {
+  const repository = createFakeRepository({
+    createThrows: uniqueViolation(
+      'users_username_key',
+      'duplicate key value violates unique constraint "users_username_key"',
+    ),
+  });
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({
+        username: 'jperez',
+        password: 'secret12345',
+        email: 'jperez@example.com',
+      }),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.ok(!error.message.includes('duplicate key value'), 'raw pg text must not leak');
+      assert.equal(error.message, 'username already exists: JPEREZ');
+      return true;
+    },
+  );
+});
+
+test('registration maps a unique-violation race on email to ConflictError with a clean message', async () => {
+  const repository = createFakeRepository({
+    createThrows: uniqueViolation(
+      'users_email_unique',
+      'duplicate key value violates unique constraint "users_email_unique"',
+    ),
+  });
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({
+        username: 'jperez',
+        password: 'secret12345',
+        email: 'jperez@example.com',
+      }),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.message, 'email already exists: jperez@example.com');
+      return true;
+    },
+  );
+});
+
+test('registration lets non-unique database errors propagate unchanged', async () => {
+  const dbError = Object.assign(new Error('violates foreign key constraint'), { code: '23503' });
+  const repository = createFakeRepository({ createThrows: dbError });
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({
+        username: 'jperez',
+        password: 'secret12345',
+        email: 'jperez@example.com',
+      }),
+    (error) => {
+      assert.equal(error, dbError, 'non-23505 errors are not swallowed');
+      assert.ok(!(error instanceof ConflictError));
+      return true;
+    },
+  );
+});
+
+test('registration without a createdBy defaults the audit actor to null', async () => {
+  const repository = createFakeRepository();
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  const created = await useCase.execute({
+    username: 'actor2',
+    password: 'secret12345',
+    email: 'actor2@example.com',
+  });
+
+  assert.equal(created.createdBy, null);
+  assert.equal(repository.calls.create[0].createdBy, null);
 });

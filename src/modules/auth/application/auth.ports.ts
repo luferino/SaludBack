@@ -14,8 +14,8 @@ export interface UserRepositoryPort {
   /**
    * Persists a new user. Rows carry the audit columns
    * (created_by/updated_by/updated_at — UAC-001) on the User entity;
-   * registration records `created_by` NULL because no admin flow exists
-   * (AUD-003), and creation leaves both `updated_*` columns NULL. An
+   * registration records the acting admin in `created_by` (AUD-003) and
+   * creation leaves both `updated_*` columns NULL. An
    * optional `client` lets alta-en-uno flows create the account inside
    * the same transaction as the profile row (defaults to the pool).
    */

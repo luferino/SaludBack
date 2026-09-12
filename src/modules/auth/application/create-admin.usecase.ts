@@ -4,23 +4,23 @@ import { normalizeUsername, validatePassword, validateEmail } from '../../shared
 import { isUniqueViolation, translateUniqueViolation } from './unique-violation.js';
 import type { UserRepositoryPort, PasswordHasherPort } from './auth.ports.js';
 
-export interface RegisterUserInput {
+export interface CreateAdminInput {
   username: string;
   password: string;
-  email: string;
-  createdBy?: string | null;
+  email?: string | null;
 }
 
 /**
- * Register Student Account use case.
- * Admin-originated alta of `estudiante` users: validate input, hash the
- * password, reject duplicates (username and email), persist. Ports
- * (repository, hasher) are injected; the policy guard in front of it
- * lives at route wiring. `createdBy` carries the acting admin id
- * (resolved from the verified token `sub` at route level, AUD-003) so
- * the users row records who registered the account.
+ * First-admin bootstrap use case. Mirrors RegisterUser but forces the
+ * `admin` role through the SAME shared validation (normalizeUsername
+ * A-Z0-9 uppercased, validatePassword min 10 + letter + digit). This is
+ * the only way an admin can be born once register is admin-gated: run via
+ * the create-admin CLI script against the dev database. Email stays
+ * optional for a bare bootstrap account; when provided it is validated
+ * and duplicate-checked like register. Ports (repository, hasher) are
+ * injected.
  */
-export class RegisterUser {
+export class CreateAdmin {
   private readonly repository: UserRepositoryPort;
   private readonly hasher: PasswordHasherPort;
 
@@ -29,23 +29,33 @@ export class RegisterUser {
     this.hasher = hasher;
   }
 
-  async execute({ username, password, email, createdBy = null }: RegisterUserInput): Promise<User> {
+  async execute({ username, password, email = null }: CreateAdminInput): Promise<User> {
     const normalizedUsername = normalizeUsername(username);
     validatePassword(password);
-    validateEmail(email);
+    // Empty / whitespace-only emails behave like null: nobody may own
+    // `email = ''` (it would sit in the unique index and misattribute a
+    // later 23505 to the username branch). Trimming also keeps the
+    // constraint disambiguation on the stored value.
+    const cleanEmail = email?.trim() || null;
+    if (cleanEmail) {
+      validateEmail(cleanEmail);
+    }
 
     const existing = await this.repository.findByUsername(normalizedUsername);
     if (existing) {
       throw new ConflictError(`username already exists: ${normalizedUsername}`);
     }
 
-    const existingByEmail = await this.repository.findByEmail(email);
-    if (existingByEmail) {
-      throw new ConflictError(`email already exists: ${email}`);
+    if (cleanEmail) {
+      const existingByEmail = await this.repository.findByEmail(cleanEmail);
+      if (existingByEmail) {
+        throw new ConflictError(`email already exists: ${cleanEmail}`);
+      }
     }
 
     const passwordHash = await this.hasher.hash(password);
-    const user = User.create({ username: normalizedUsername, passwordHash, role: 'estudiante', email, createdBy });
+    const user = User.create({ username: normalizedUsername, passwordHash, role: 'admin', email: cleanEmail });
+
     try {
       return await this.repository.create(user);
     } catch (error) {
@@ -56,7 +66,7 @@ export class RegisterUser {
       if (!isUniqueViolation(error)) {
         throw error;
       }
-      throw translateUniqueViolation(error, { username: normalizedUsername, email });
+      throw translateUniqueViolation(error, { username: normalizedUsername, email: cleanEmail });
     }
   }
 }

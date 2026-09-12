@@ -8,6 +8,15 @@
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   estudiante: Object.freeze(['profile:read', 'materias:read', 'turnos:read']),
   teacher: Object.freeze(['profile:read', 'materias:read', 'turnos:read']),
+  admin: Object.freeze([
+    'users:write',
+    'students:write',
+    'teachers:write',
+    'patients:write',
+    'profile:read',
+    'materias:read',
+    'turnos:read',
+  ]),
 });
 
 export function permissionsForRole(role: string): readonly string[] {

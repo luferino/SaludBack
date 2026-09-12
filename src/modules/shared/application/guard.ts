@@ -1,5 +1,20 @@
 import type { Request } from 'express';
-import { UnauthorizedError } from '../domain/errors.js';
+import { UnauthorizedError, ForbiddenError } from '../domain/errors.js';
+
+/**
+ * Minimal structural shape of the verified-token context the `authenticate`
+ * middleware attaches to requests (`req.auth`). Declared locally so the
+ * application layer never imports from infrastructure; the real type lives
+ * in auth/infrastructure/middleware/authenticate.ts.
+ */
+interface RequestWithAuth extends Request {
+  auth?: {
+    role: string;
+    permissions: string[];
+    sub?: string;
+    userId?: string;
+  };
+}
 
 /**
  * Guard port: a single policy boundary in front of a use case.
@@ -22,5 +37,25 @@ export class Guard {
 export class OpenGuard extends Guard {
   async authorize(): Promise<void> {
     // Allow all requests.
+  }
+}
+
+/**
+ * Admin-only policy guard. Requires the request to carry a verified
+ * `req.auth` (populated by the `authenticate` middleware) whose role is
+ * `admin`. A request that never ran authentication (or failed it) is
+ * unauthorized (401); a verified non-admin caller is forbidden (403).
+ * Mounted AFTER `authenticate` so the middleware populates `req.auth`
+ * before the guard evaluates it.
+ */
+export class AdminGuard extends Guard {
+  async authorize(request: Request): Promise<void> {
+    const authReq = request as RequestWithAuth;
+    if (!authReq.auth) {
+      throw new UnauthorizedError('Authentication required');
+    }
+    if (authReq.auth.role !== 'admin') {
+      throw new ForbiddenError('Admin role required');
+    }
   }
 }

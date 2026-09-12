@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Staff-originated creation of teachers via `POST /teachers`: one request provides the access account (`user`, role `teacher`) and the `teachers` profile row, reusing the student-registration create-or-link semantics. The route is open today but MUST expose guard and actor seams.
+Staff-originated creation of teachers via `POST /teachers`: one request provides the access account (`user`, role `teacher`) and the `teachers` profile row, reusing the student-registration create-or-link semantics. The route is admin-only: a verified `admin` Bearer token is required and the acting admin is recorded in `created_by` on both the account and the profile row.
 
 ## Requirements
 
@@ -45,30 +45,40 @@ When a user already exists with the same `username` OR the same `email` as the p
 
 ### Requirement: TEA-003: Response Contract
 
-The response MUST contain exactly `id`, `nombres`, `apellidos`, `email`, `celular`, `created_by`, `created_at` and no other field — no `user_id`, no `username`/`password`, no `updated_by`/`updated_at`. `created_by` SHALL be `null` without an actor.
+The response MUST contain exactly `id`, `nombres`, `apellidos`, `email`, `celular`, `created_by`, `created_at` and no other field — no `user_id`, no `username`/`password`, no `updated_by`/`updated_at`. `created_by` SHALL equal the acting admin's id (the route is admin-only).
 
 #### Scenario: Only contract fields
 
-- GIVEN a successful anonymous create
+- GIVEN a successful admin-authorized create
 - WHEN the response body is inspected
 - THEN the body matches the contract fields
-- AND `created_by` is `null`
+- AND `created_by` is the admin's id
 
-### Requirement: TEA-004: Guard and Actor Seams
+### Requirement: TEA-004: Admin-Only Guard and Actor Resolution
 
-`POST /teachers` MUST expose a single guard seam (default open) and an actor hook. `created_by` MUST be the verified subject on `req.auth` when a valid token is present; NULL when anonymous or the token is invalid (the route stays open).
+`POST /teachers` MUST require a verified `admin` Bearer token (token verified by `authenticate`, policy enforced by `AdminGuard`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified non-admin token MUST respond 403. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `teachers` row.
+(Previously: the seam was default-open and `created_by` fell back to NULL for anonymous or invalid tokens.)
 
-#### Scenario: Default open
+#### Scenario: Missing token rejected
 
-- GIVEN no guard policy attached
+- GIVEN no Authorization header
 - WHEN an unauthenticated client calls `POST /teachers`
-- THEN the use case runs
+- THEN the response is 401 `UNAUTHORIZED`
+- AND nothing is persisted
+
+#### Scenario: Non-admin token rejected
+
+- GIVEN a verified Bearer token whose role is not `admin`
+- WHEN a client calls `POST /teachers` with it
+- THEN the response is 403 `FORBIDDEN`
+- AND nothing is persisted
 
 #### Scenario: Actor from verified token
 
-- GIVEN a valid token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
+- GIVEN a valid admin token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
 - WHEN `POST /teachers` is called
 - THEN the teacher's `created_by` is that id
+- AND the created user's `created_by` is that id
 
 ## Non-Goals
 

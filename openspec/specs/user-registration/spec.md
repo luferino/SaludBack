@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Admin-originated creation of `estudiante` accounts. There is no self-registration: accounts are created on behalf of students. The endpoint is open today because no admin role exists yet, but it MUST expose a guard seam so an admin-only guard can be attached later without rework.
+Admin-originated creation of `estudiante` accounts. There is no self-registration: accounts are created on behalf of students. The endpoint is admin-only: a verified `admin` Bearer token is required, and the acting admin is recorded in `created_by`. The first admin is born through the create-admin bootstrap script, not through the API.
 
 ## Requirements
 
 ### Requirement: Register Student Account
 
-The system MUST accept `POST /auth/register` with a `username`, `password`, and `email` and MUST create a user with role `estudiante` and `created_by` NULL. The input contract: `username` is required and MUST contain only letters and digits (A-Z0-9), normalized to uppercase for storage and lookup; `password` is required, MUST be at least 10 characters, and MUST contain at least one letter and one digit; `email` is required and MUST match a standard email format. The request MUST fail with HTTP 409 when the username already exists or the email is already in use, and MUST fail with HTTP 400 when a field is missing, empty, or fails its format rule. Registering a user MUST NOT create a `students` row; student profiles are created only through the student-registration flow.
-(Previously: no audit or profile-side-effect rules were pinned; the input contract and email-duplicate 409 were unspecified.)
+The system MUST accept `POST /auth/register` with a `username`, `password`, and `email` and MUST create a user with role `estudiante`, recording the authenticated admin's id in `created_by`. The input contract: `username` is required and MUST contain only letters and digits (A-Z0-9), normalized to uppercase for storage and lookup; `password` is required, MUST be at least 10 characters, and MUST contain at least one letter and one digit; `email` is required and MUST match a standard email format. The request MUST fail with HTTP 409 when the username already exists or the email is already in use, including when the duplicate is caught by the unique index (SQLSTATE 23505 MUST be translated to 409 CONFLICT, never a raw database error), and MUST fail with HTTP 400 when a field is missing, empty, or fails its format rule. Registering a user MUST NOT create a `students` row; student profiles are created only through the student-registration flow.
+(Previously: registration wrote `created_by` NULL because no admin flow existed and the 23505 race on the unique index was unpinned.)
 
 #### Scenario: Successful registration
 
@@ -84,7 +84,8 @@ The system MUST accept `POST /auth/register` with a `username`, `password`, and 
 
 - GIVEN a successful registration
 - WHEN the database is inspected
-- THEN the new user has `created_by` NULL
+- THEN the new user records the acting admin's id in `created_by`
+- AND `updated_by` and `updated_at` are NULL
 - AND no `students` row references the new user
 
 ### Requirement: Password Hashing
@@ -98,19 +99,28 @@ The system MUST NOT persist plaintext passwords. It SHALL store a bcrypt hash of
 - THEN the stored password value is a bcrypt hash
 - AND the hash does not equal `secret12345`
 
-### Requirement: Admin Guard Seam
+### Requirement: Admin-Only Registration
 
-The registration flow MUST expose a guard seam — a single policy boundary in front of the use case. While no admin role exists, the seam MUST allow unauthenticated requests (default open). When a guard policy is attached to the seam, the system SHALL enforce it before executing the use case.
+`POST /auth/register` MUST require a verified `admin` Bearer token. A missing, malformed, or expired token MUST respond 401 with `UNAUTHORIZED` and the message `Invalid or missing token` (the token is verified before any handler runs); a verified non-admin token MUST respond 403 with `FORBIDDEN`; in both cases the registration use case MUST NOT execute and nothing MUST be persisted. The first admin cannot be created through this API — it SHALL be bootstrapped via the create-admin script (`pnpm create-admin`), which enforces the same username/password rules and inserts a single `admin` user directly against the database.
+(Previously: the route was default-open behind a guard seam with no admin role existing; the guard seam requirement said unauthenticated requests MUST be allowed.)
 
-#### Scenario: Seam open by default
+#### Scenario: No token rejected
 
-- GIVEN no admin guard policy attached to the seam
+- GIVEN no Authorization header
 - WHEN an unauthenticated client calls `POST /auth/register`
-- THEN the registration use case executes normally
+- THEN the request is rejected with 401 and `UNAUTHORIZED`
+- AND the registration use case is not executed
 
-#### Scenario: Seam rejects when policy attached
+#### Scenario: Expired token rejected
 
-- GIVEN an admin-only guard policy attached to the seam
-- WHEN an unauthenticated client calls `POST /auth/register`
-- THEN the request is rejected with 401 or 403
+- GIVEN an expired Bearer token
+- WHEN a client calls `POST /auth/register` with it
+- THEN the request is rejected with 401, `UNAUTHORIZED`, and the message `Invalid or missing token`
+- AND the registration use case is not executed
+
+#### Scenario: Non-admin token rejected
+
+- GIVEN a verified Bearer token whose role is not `admin`
+- WHEN a client calls `POST /auth/register` with it
+- THEN the request is rejected with 403 and `FORBIDDEN`
 - AND the registration use case is not executed

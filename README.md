@@ -42,27 +42,33 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/` | health check |
-| `POST` | `/auth/register` | create `estudiante` account |
+| `POST` | `/auth/register` | create `estudiante` account — **admin Bearer token required** |
 | `POST` | `/auth/login` | username + password → token |
 | `POST` | `/auth/forgot-password` | request a password-reset link |
 | `POST` | `/auth/reset-password` | redeem a reset token |
-| `POST` | `/students` | alta en uno: account + student profile |
-| `POST` | `/teachers` | alta en uno: account + teacher profile |
-| `POST` | `/patients` | patient record (no account) |
+| `POST` | `/students` | alta en uno: account + student profile — **admin Bearer token required** |
+| `POST` | `/teachers` | alta en uno: account + teacher profile — **admin Bearer token required** |
+| `POST` | `/patients` | patient record (no account) — **admin Bearer token required** |
+
+Protected endpoints (`/auth/register`, `/students`, `/teachers`, `/patients`)
+verify the Bearer token first: `401` without a valid token, `403` when the
+token's role is not `admin`, `201` otherwise. `POST /auth/login` and both
+password-recovery endpoints stay public — they are the entry points.
 
 ### POST /auth/register
 
-Creates an `estudiante` account. Open today while no admin role exists; the
-route sits behind a guard seam so an admin-only policy can be attached later
-without rework.
+Creates an `estudiante` account. Requires an **admin Bearer token**
+(`Authorization: Bearer <token>`); an `admin` token is created via the
+first-admin bootstrap below.
 
 - Body: `{ "username", "password", "email" }` — all required
 - `201` → `{ "id", "username", "role": "estudiante", "email", "createdAt" }`
 - `400` — validation failure (see [Validation rules](#validation-rules));
+  `401` — missing/invalid token; `403` — non-admin token;
   `409` — duplicate username or email
 
 ```bash
-curl.exe -X POST http://localhost:3000/auth/register -H "Content-Type: application/json" -d '{"username":"jperez","password":"secret12345","email":"jperez@example.com"}'
+curl.exe -X POST http://localhost:3000/auth/register -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"username":"jperez","password":"secret12345","email":"jperez@example.com"}'
 ```
 
 ### POST /auth/login
@@ -103,50 +109,73 @@ curl.exe -X POST http://localhost:3000/auth/reset-password -H "Content-Type: app
 ### POST /students
 
 Alta en uno: creates the access account (role `estudiante`) and the `students`
-profile row in one transaction. Open today (no auth middleware); `created_by`
-is `null` without a verified token.
+profile row in one transaction. Requires an **admin Bearer token**;
+`created_by` records the admin user id from the token.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "codalumno", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "codalumno", "email", "celular", "created_by", "created_at" }`
 - `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
   `password` under 10 chars or without a letter+digit; `codalumno` not purely
   alphanumeric (`^[A-Za-z0-9]+$`); `email` present but not a valid address;
+  `401` — missing/invalid token; `403` — non-admin token;
   `409` — duplicate `codalumno`
 
 ```bash
-curl.exe -X POST http://localhost:3000/students -H "Content-Type: application/json" -d '{"username":"jperez","password":"secret12345","nombres":"Juan","apellidos":"Perez","codalumno":"20240123","email":"jperez@example.com"}'
+curl.exe -X POST http://localhost:3000/students -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"username":"jperez","password":"secret12345","nombres":"Juan","apellidos":"Perez","codalumno":"20240123","email":"jperez@example.com"}'
 ```
 
 ### POST /teachers
 
 Alta en uno: creates the access account (role `teacher`) and the `teachers`
-profile row in one transaction. Open today; `created_by` is `null` without a
-verified token.
+profile row in one transaction. Requires an **admin Bearer token**;
+`created_by` records the admin user id from the token.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "email", "celular", "created_by", "created_at" }`
 - `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
   `password` under 10 chars or without a letter+digit; `email` present but not
-  a valid address
+  a valid address; `401` — missing/invalid token; `403` — non-admin token
 
 ```bash
-curl.exe -X POST http://localhost:3000/teachers -H "Content-Type: application/json" -d '{"username":"mruiz","password":"secret12345","nombres":"Maria","apellidos":"Ruiz","email":"mruiz@example.com"}'
+curl.exe -X POST http://localhost:3000/teachers -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"username":"mruiz","password":"secret12345","nombres":"Maria","apellidos":"Ruiz","email":"mruiz@example.com"}'
 ```
 
 ### POST /patients
 
-Clinical entity only — no account is created. Open today; `created_by` is
-`null` without a verified token.
+Clinical entity only — no account is created. Requires an **admin Bearer
+token**; `created_by` records the admin user id from the token.
 
 - Body: `{ "documento", "nombres", "apellidos", "fecha_nacimiento", "email", "celular", "sexo", "direccion" }` — all required
 - `201` → `{ "id", "documento", "nombres", "apellidos", "fecha_nacimiento", "email", "celular", "sexo", "direccion", "created_by", "created_at" }`
 - `400` — missing field; `documento` not 4-8 digits; `sexo` not `M` or `F`;
   `fecha_nacimiento` not a real `YYYY-MM-DD` date or in the future; `email`
-  not a valid `local@domain` address; `409` — duplicate `documento`
+  not a valid `local@domain` address; `401` — missing/invalid token;
+  `403` — non-admin token; `409` — duplicate `documento`
 
 ```bash
-curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
+curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
 ```
+
+### First admin bootstrap
+
+Once register is admin-only, the first admin cannot be created through the
+API. The bootstrap CLI creates one directly in the database (dev-only):
+
+```bash
+pnpm create-admin -- --username ROOTUSER --password <PASSWORD>
+```
+
+`--password` passes the secret on the command line, which can end up in your
+shell history — prefer the env fallback for production-shaped credentials:
+
+```bash
+$env:ADMIN_USERNAME = "ROOTUSER"; $env:ADMIN_PASSWORD = "<PASSWORD>"; pnpm create-admin
+```
+
+Or set `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`. It enforces the same
+rules as register (username A-Z0-9 stored UPPERCASE; password min 10 chars
+with a letter and a digit) and exits `1` on invalid input or an existing
+username.
 
 ## Validation rules
 
@@ -175,6 +204,10 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 
 - Claims: `sub` (user id), `username`, `role`, `permissions`, `iat`, `exp`,
   `iss: "SaludBack"`, `aud: "SaludBack-api"`. No secrets in the payload.
+- Roles: `estudiante`, `teacher`, `admin` — `permissions` is derived from the
+  role at login time; `admin` carries an explicit management set
+  (`users:write`, `students:write`, `teachers:write`, `patients:write`,
+  `profile:read`, `materias:read`, `turnos:read`).
 - Header: every signed token carries a `kid` (key id) header identifying the
   signing secret — default `"current"`, configurable via `JWT_SECRET_KID`.
 - Verification: the token's `kid` selects the secret — matches
@@ -209,6 +242,7 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 | `CLIENT_URL` | — | required; base URL for password-reset links (`{CLIENT_URL}?token=...`) |
 | `RESET_TOKEN_TTL` | `15` | reset-token lifetime, in minutes |
 | `RESET_TOKEN_MAX_OUTSTANDING` | `3` | cap on outstanding reset tokens per user |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | optional; fallback credentials when `pnpm create-admin` runs without `--username`/`--password` |
 
 ## Testing
 

@@ -12,10 +12,10 @@ import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcr
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
-import { OpenGuard, Guard } from '../../src/modules/shared/application/guard.ts';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
+import { AdminGuard } from '../../src/modules/shared/application/guard.ts';
 import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
 import { cleanDb } from './helpers/clean-db.js';
+import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -40,7 +40,12 @@ class RecordingMailer {
 
 const mailer = new RecordingMailer();
 
-function buildApp(guard) {
+/**
+ * Builds the production-like guarded auth router: authenticate FIRST (via
+ * registerMiddleware), AdminGuard SECOND (inside the register handler);
+ * login, forgot-password and reset-password stay unauthenticated.
+ */
+function buildApp(guardOverride) {
   const app = express();
   app.use(express.json());
   app.use(
@@ -56,7 +61,8 @@ function buildApp(guard) {
       mailer,
       clientUrl: config.clientUrl,
       resetTokenTtl: config.resetTokenTtl,
-      guard,
+      guard: guardOverride ?? new AdminGuard(),
+      registerMiddleware: authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
     }),
   );
   app.use(errorHandler);
@@ -75,10 +81,13 @@ function buildProtectedApp(tokenService) {
 
 let server;
 let baseUrl;
+let adminId;
+let adminToken;
 
 before(async () => {
   await cleanDb(pool);
-  server = buildApp(new OpenGuard()).listen(0);
+  ({ id: adminId, token: adminToken } = await seedAdmin(pool));
+  server = buildApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
@@ -98,7 +107,17 @@ after(async () => {
 async function register(body) {
   const res = await fetch(`${baseUrl}/auth/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+/** Sends to register WITHOUT the admin token (for the 401/403 tests). */
+async function registerUnprotected(body, headers = {}) {
+  const res = await fetch(`${baseUrl}/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
@@ -136,6 +155,29 @@ function lastResetToken() {
   const link = mailer.messages.at(-1).text;
   return new URL(link).searchParams.get('token');
 }
+
+// --- register protection tests ---
+
+test('POST /auth/register without a token is rejected with 401', async () => {
+  const { status, body } = await registerUnprotected({
+    username: 'blocked',
+    password: 'secret12345',
+    email: 'blocked@example.com',
+  });
+  assert.equal(status, 401);
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+});
+
+test('POST /auth/register with a non-admin token is rejected with 403', async () => {
+  const { status, body } = await registerUnprotected(
+    { username: 'blocked2', password: 'secret12345', email: 'blocked2@example.com' },
+    { authorization: `Bearer ${await tokenForRole('estudiante')}` },
+  );
+  assert.equal(status, 403);
+  assert.equal(body.error.code, 'FORBIDDEN');
+});
+
+// --- register happy / edge cases (all behind admin token) ---
 
 test('POST /auth/register creates an estudiante with a bcrypt hash and email', async () => {
   const { status, body } = await register({
@@ -209,7 +251,7 @@ test('POST /auth/register rejects missing or empty fields with 400', async () =>
   }
 });
 
-test('POST /auth/register records NULL audit actors and creates no students row (REG-001 UAC-001)', async () => {
+test('POST /auth/register records the admin actor in created_by and creates no students row (REG-001 AUD-003)', async () => {
   const { status, body } = await register({
     username: 'audituser',
     password: 'secret12345',
@@ -222,7 +264,7 @@ test('POST /auth/register records NULL audit actors and creates no students row 
     ['AUDITUSER'],
   );
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].created_by, null, 'registration records NULL created_by (UAC-001)');
+  assert.equal(rows[0].created_by, adminId, 'registration records the admin token sub in created_by (AUD-003)');
   assert.equal(rows[0].updated_by, null);
   assert.equal(rows[0].updated_at, null);
 
@@ -233,31 +275,7 @@ test('POST /auth/register records NULL audit actors and creates no students row 
   assert.equal(students[0].n, 0, 'registration is account-only: no students row (REG-001)');
 });
 
-test('an attached guard rejects the request before the use case runs', async () => {
-  class AdminGuard extends Guard {
-    async authorize() {
-      throw new UnauthorizedError();
-    }
-  }
-
-  const guardedServer = buildApp(new AdminGuard()).listen(0);
-  await new Promise((resolve) => guardedServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${guardedServer.address().port}`;
-
-  const res = await fetch(`${url}/auth/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'blocked-user', password: 'secret123' }),
-  });
-  assert.equal(res.status, 401);
-
-  await new Promise((resolve) => guardedServer.close(resolve));
-  const { rows } = await pool.query(
-    'SELECT count(*)::int AS n FROM users WHERE username = $1',
-    ['blocked-user'],
-  );
-  assert.equal(rows[0].n, 0);
-});
+// --- login ---
 
 test('POST /auth/login returns 200 with a token carrying role and permissions', async () => {
   await register({ username: 'lperez', password: 'secret12345', email: 'lperez@example.com' });
@@ -324,6 +342,8 @@ test('POST /auth/login rejects missing or empty fields with 400', async () => {
   }
 });
 
+// --- authenticate middleware integration ---
+
 test('protected route passes a valid token and exposes role, permissions, sub and userId', async () => {
   const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await tokenService.sign({
@@ -375,6 +395,8 @@ test('protected route rejects missing, malformed and expired tokens with 401', a
 
   await new Promise((resolve) => protectedServer.close(resolve));
 });
+
+// --- password recovery (still unauthenticated, unchanged) ---
 
 test('POST /auth/forgot-password mails a reset link to a user with email', async () => {
   mailer.clear();

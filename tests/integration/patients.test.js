@@ -7,10 +7,10 @@ import { createPatientRouter } from '../../src/modules/patients/infrastructure/r
 import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { AdminGuard } from '../../src/modules/shared/application/guard.ts';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
-import { Guard } from '../../src/modules/shared/application/guard.ts';
-import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 import { cleanDb } from './helpers/clean-db.js';
+import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -39,14 +39,19 @@ const VALID_PAYLOAD = {
   direccion: 'Av. Siempre Viva 742',
 };
 
-function buildApp(overrides = {}) {
+/**
+ * Production-like stack: authenticate (populates req.auth) then the router,
+ * whose handler runs AdminGuard and resolves created_by from the token sub.
+ */
+function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(
     '/patients',
+    authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
     createPatientRouter({
       repository: new PgPatientRepository(pool),
-      ...overrides,
+      guard: new AdminGuard(),
     }),
   );
   app.use(errorHandler);
@@ -55,9 +60,12 @@ function buildApp(overrides = {}) {
 
 let server;
 let baseUrl;
+let adminId;
+let adminToken;
 
 before(async () => {
   await cleanDb(pool);
+  ({ id: adminId, token: adminToken } = await seedAdmin(pool));
   server = buildApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -78,7 +86,11 @@ after(async () => {
 async function createPatient(payload, options = {}) {
   const res = await fetch(`${baseUrl}/patients`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...options.headers },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${adminToken}`,
+      ...options.headers,
+    },
     body: JSON.stringify(payload),
   });
   return { status: res.status, body: await res.json() };
@@ -92,6 +104,37 @@ async function countPatients(documento) {
   return rows[0].n;
 }
 
+test('POST /patients rejects a missing, garbage and non-admin token (401/401/403)', async () => {
+  const payload = { ...VALID_PAYLOAD, documento: '87654321' };
+
+  const noToken = await fetch(`${baseUrl}/patients`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(noToken.status, 401);
+
+  const garbage = await fetch(`${baseUrl}/patients`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer not.a.jwt' },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(garbage.status, 401);
+
+  const nonAdmin = await fetch(`${baseUrl}/patients`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${await tokenForRole('teacher')}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(nonAdmin.status, 403);
+  assert.equal((await nonAdmin.json()).error.code, 'FORBIDDEN');
+
+  assert.equal(await countPatients('87654321'), 0, 'guard rejection persists nothing');
+});
+
 test('POST /patients creates a patient with the exact 11-key contract body', async () => {
   const { status, body } = await createPatient(VALID_PAYLOAD);
 
@@ -100,7 +143,7 @@ test('POST /patients creates a patient with the exact 11-key contract body', asy
   assert.equal(body.documento, '35123456');
   assert.equal(body.nombres, 'Ana');
   assert.equal(body.fecha_nacimiento, '1990-04-12');
-  assert.equal(body.created_by, null);
+  assert.equal(body.created_by, adminId, 'admin token sub lands in created_by (PAT-004)');
   assert.equal(typeof body.id, 'string');
   assert.equal(typeof body.created_at, 'string');
 
@@ -148,116 +191,4 @@ test('POST /patients rejects missing, null, blank, or invalid fields with 400 an
     ['77776666'],
   );
   assert.equal(rows[0].n, 0);
-});
-
-test('an attached guard rejects the request before the use case runs', async () => {
-  class AdminGuard extends Guard {
-    async authorize() {
-      throw new UnauthorizedError();
-    }
-  }
-
-  const guardedServer = buildApp({ guard: new AdminGuard() }).listen(0);
-  await new Promise((resolve) => guardedServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${guardedServer.address().port}`;
-
-  const res = await fetch(`${url}/patients`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...VALID_PAYLOAD, documento: '33333333' }),
-  });
-  assert.equal(res.status, 401);
-
-  await new Promise((resolve) => guardedServer.close(resolve));
-  assert.equal(await countPatients('33333333'), 0);
-});
-
-test('the REAL authenticate middleware maps a signed token sub to created_by (PAT-004)', async () => {
-  const actorId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-  await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
-  await pool.query(
-    'INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)',
-    [actorId, 'smoke-doctor', 'not-a-real-hash', 'admin'],
-  );
-
-  const tokenService = new JwtTokenService({
-    secret: config.jwtSecret,
-    expiresIn: config.jwtExpiresIn,
-  });
-  const token = await tokenService.sign({
-    sub: actorId,
-    username: 'smoke-doctor',
-    role: 'admin',
-    permissions: [],
-  });
-
-  const app = express();
-  app.use(express.json());
-  app.use(
-    '/patients',
-    authenticate(tokenService),
-    createPatientRouter({ repository: new PgPatientRepository(pool) }),
-  );
-  app.use(errorHandler);
-
-  const actorServer = app.listen(0);
-  await new Promise((resolve) => actorServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${actorServer.address().port}`;
-
-  try {
-    const res = await fetch(`${url}/patients`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444444' }),
-    });
-    const body = await res.json();
-    assert.equal(res.status, 201);
-    assert.equal(body.created_by, actorId);
-
-    const { rows } = await pool.query(
-      'SELECT created_by FROM patients WHERE documento = $1',
-      ['44444444'],
-    );
-    assert.equal(rows[0].created_by, actorId);
-
-    // A malformed token through the REAL middleware is rejected with 401 and
-    // the handler never runs (PAT-004 verified-token path is covered above;
-    // the open-route 201 + NULL path is the next test).
-    const malformed = await fetch(`${url}/patients`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: 'Bearer not.a.jwt',
-      },
-      body: JSON.stringify({ ...VALID_PAYLOAD, documento: '44444445' }),
-    });
-    assert.equal(malformed.status, 401);
-    assert.equal(await countPatients('44444445'), 0);
-  } finally {
-    // Always release the server handle and clean up the actor FK rows, even
-    // when an assertion throws, so the node:test process cannot hang on an
-    // open handle and no suite's `DELETE FROM users` ever trips on the FK.
-    await new Promise((resolve) => actorServer.close(resolve));
-    await pool.query('DELETE FROM patients WHERE created_by = $1', [actorId]);
-    await pool.query('DELETE FROM users WHERE id = $1', [actorId]);
-  }
-});
-
-test('a garbage Bearer token on the open route still creates with created_by null', async () => {
-  const { status, body } = await createPatient(
-    { ...VALID_PAYLOAD, documento: '55555555' },
-    { headers: { authorization: 'Bearer not.a.jwt' } },
-  );
-
-  assert.equal(status, 201);
-  assert.equal(body.created_by, null);
-
-  const { rows } = await pool.query(
-    'SELECT created_by FROM patients WHERE documento = $1',
-    ['55555555'],
-  );
-  assert.equal(rows[0].created_by, null);
 });

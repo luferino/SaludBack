@@ -61,13 +61,15 @@ export class User {
     passwordHash,
     role,
     email = null,
+    createdBy = null,
   }: {
     username: string;
     passwordHash: string;
     role: string;
     email?: string | null;
+    createdBy?: string | null;
   }): User {
-    return new User({ username, passwordHash, role, email });
+    return new User({ username, passwordHash, role, email, createdBy });
   }
 
   /**

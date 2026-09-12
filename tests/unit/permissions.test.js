@@ -28,6 +28,26 @@ test('teacher permissions follow the <resource>:<action> naming (AUTH-001)', () 
   }
 });
 
+test('admin role maps to an explicit management permission set', () => {
+  const permissions = ROLE_PERMISSIONS.admin;
+  assert.ok(Array.isArray(permissions));
+  assert.ok(permissions.length > 0);
+  assert.ok(permissions.every((permission) => typeof permission === 'string'));
+  assert.ok(
+    permissions.includes('users:write') &&
+      permissions.includes('students:write') &&
+      permissions.includes('teachers:write') &&
+      permissions.includes('patients:write'),
+    'admin carries the management permissions',
+  );
+});
+
+test('admin permissions follow the <resource>:<action> naming', () => {
+  for (const permission of ROLE_PERMISSIONS.admin) {
+    assert.match(permission, /^[a-z]+:[a-z]+$/);
+  }
+});
+
 test('unknown roles yield no permissions', () => {
   assert.deepEqual(permissionsForRole('medico'), []);
 });

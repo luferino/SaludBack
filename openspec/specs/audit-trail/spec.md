@@ -43,16 +43,17 @@ Every business table (`users`, `patients`, `students`, `teachers`) MUST carry `c
 
 ### Requirement: AUD-003: Actor Resolution Convention
 
-Profile creates (`patients`, `students`, `teachers`) MUST record `created_by` from the verified token subject exposed on `req.auth` (`sub`/`userId`) when present, and NULL otherwise. `users.created_by` MUST remain NULL: no admin flow exists, and registration stays open.
+Profile creates (`patients`, `students`, `teachers`) MUST record `created_by` from the verified admin token subject exposed on `req.auth` (`sub`/`userId`) — those routes are admin-only. `users.created_by` MUST be stamped the same way: the register and alta-en-uno flows record the acting admin in the account row, and NULL only when a flow runs without a verified subject (no such route exists today — every create is admin-gated).
+(Previously: `users.created_by` MUST remain NULL because no admin flow existed and registration stayed open.)
 
 #### Scenario: Verified subject attributed
 
-- GIVEN a request with a valid token carrying `sub`
-- WHEN a profile create runs
+- GIVEN a request with a valid admin token carrying `sub`
+- WHEN a create (user or profile) runs
 - THEN `created_by` equals the `sub`
 
-#### Scenario: Anonymous creation
+#### Scenario: Creation without a verified subject
 
-- GIVEN a request without a verified subject
-- WHEN a profile create runs
+- GIVEN a create flow that runs without a verified token subject
+- WHEN the create runs
 - THEN `created_by` is NULL

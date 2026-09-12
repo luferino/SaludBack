@@ -14,16 +14,19 @@ import { PgStudentRepository } from './modules/students/infrastructure/repositor
 import { createTeacherRouter } from './modules/teachers/infrastructure/routes/teacher.routes.js';
 import { PgTeacherRepository } from './modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
+import { AdminGuard } from './modules/shared/application/guard.js';
+import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
 import { errorHandler } from './middleware/error-handler.js';
 
 /**
  * Production app factory (PR 4 wiring). Builds the shared pool-backed
  * repositories, hasher, token service and unit of work once and mounts every
  * router on one Express app: `/auth` (register/login/password recovery),
- * `/patients`, `/students` and `/teachers` (open alta en uno; guards and
- * authenticate middleware attach later at the route boundary — PAT-005,
- * STU-005, TEA-004). `index.ts` consumes this factory so the exact production
- * wiring is testable end-to-end.
+ * `/patients`, `/students` and `/teachers`. Register and the alta endpoints
+ * sit behind `authenticate` (populates `req.auth`) + `AdminGuard` (403 for
+ * non-admin callers); login and password recovery stay unauthenticated.
+ * The admin token `sub` flows into `created_by` through the default actor
+ * hook once `req.auth` is set (AUD-003).
  */
 export function createApp(pool: Pool): express.Express {
   const repository = new PgUserRepository(pool);
@@ -58,29 +61,42 @@ export function createApp(pool: Pool): express.Express {
       mailer,
       clientUrl: config.clientUrl,
       resetTokenTtl: config.resetTokenTtl,
+      // Admin-only registration: authenticate FIRST (populates req.auth),
+      // AdminGuard evaluates it inside the register handler. Login and
+      // password recovery bypass both (they are the entry points).
+      guard: new AdminGuard(),
+      registerMiddleware: authenticate(tokenService),
     }),
   );
 
-  // Open routes: no guard or actor hook passed, so alta is public and
-  // created_by stays null until a guard and token wiring land (PAT-005,
-  // STU-005, TEA-004 default open).
-  app.use('/patients', createPatientRouter({ repository: patientRepository }));
+  // Alta endpoints are admin-only: authenticate runs BEFORE the router so
+  // req.auth exists when AdminGuard evaluates and when getActor resolves
+  // created_by from the token sub (PAT-005, STU-005, TEA-004).
+  app.use(
+    '/patients',
+    authenticate(tokenService),
+    createPatientRouter({ repository: patientRepository, guard: new AdminGuard() }),
+  );
   app.use(
     '/students',
+    authenticate(tokenService),
     createStudentRouter({
       repository: studentRepository,
       userRepository: repository,
       hasher,
       unitOfWork,
+      guard: new AdminGuard(),
     }),
   );
   app.use(
     '/teachers',
+    authenticate(tokenService),
     createTeacherRouter({
       repository: teacherRepository,
       userRepository: repository,
       hasher,
       unitOfWork,
+      guard: new AdminGuard(),
     }),
   );
 

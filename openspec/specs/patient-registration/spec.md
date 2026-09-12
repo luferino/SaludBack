@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Staff-originated entry of patients' personal data (`alta de datos personales`) via `POST /patients`. The route is open today, but MUST expose guard and actor seams so a `pacientes:write` guard and token attribution attach later without rework.
+Staff-originated entry of patients' personal data (`alta de datos personales`) via `POST /patients`. The route is admin-only: a verified `admin` Bearer token is required and the acting admin is recorded in `created_by`.
 
 ## Requirements
 
@@ -65,55 +65,51 @@ All eight fields are required; missing, null, or blank MUST respond 400 and pers
 
 ### Requirement: PAT-004: created_by Actor Seam
 
-The create flow MUST record the acting user in `created_by`. The route factory SHALL accept an optional `getActor(req)` hook; the default hook MUST resolve the actor from the verified token subject exposed on `req.auth` (`sub`/`userId`) — the PAT-004 fix — and MUST fall back to `null` when no verified subject exists. `created_by` MUST equal the actor's id, or NULL when anonymous. Future guards MUST reuse this hook unchanged.
-(Previously: the default hook always yielded null because `authenticate` discarded the token `sub`.)
+The create flow MUST record the acting admin in `created_by`. The route factory SHALL accept an optional `getActor(req)` hook; the default hook MUST resolve the actor from the verified token subject exposed on `req.auth` (`sub`/`userId`) — the PAT-004 fix — and MUST fall back to `null` when no verified subject exists. `created_by` MUST equal the actor's id (the route is admin-only, so the actor is present on every successful create).
+(Previously: the default hook always yielded null because `authenticate` discarded the token `sub`; the route was open and `created_by` could be NULL for anonymous requests.)
 
-#### Scenario: Anonymous request
+#### Scenario: Missing token rejected
 
 - GIVEN a request without an Authorization header
 - WHEN `POST /patients` is called
-- THEN the patient has `created_by` NULL
+- THEN the response is 401 `UNAUTHORIZED`
+- AND no patient is created
 
 #### Scenario: Verified token
 
-- GIVEN a valid token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
+- GIVEN a valid admin token with `sub` `a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d`
 - WHEN `POST /patients` is called through the real `authenticate` middleware with no injected `getActor`
 - THEN the patient has `created_by` set to that id
 
-#### Scenario: Invalid token (open route)
+#### Scenario: Non-admin token rejected
 
-- GIVEN a malformed or expired Bearer token
-- WHEN `POST /patients` is called
-- THEN the create still succeeds (route open)
-- AND `created_by` is NULL
+- GIVEN a verified Bearer token whose role is not `admin`
+- WHEN `POST /patients` is called with it
+- THEN the response is 403 `FORBIDDEN`
+- AND no patient is created
 
-### Requirement: PAT-005: Open Guard Seam
+### Requirement: PAT-005: Admin-Only Guard
 
-`POST /patients` MUST expose a single policy boundary in front of the use case. With no permission guard, the seam MUST allow all requests (default open). With a guard attached, the system SHALL enforce it before the use case.
+`POST /patients` MUST require a verified `admin` Bearer token (token verified by `authenticate`, policy enforced by `AdminGuard`). A missing, malformed, or expired token MUST respond 401 with the message `Invalid or missing token` and the create MUST NOT run; a verified non-admin token MUST respond 403.
+(Previously: the seam was default-open and a `pacientes:write` permission guard was left as a non-goal.)
 
-#### Scenario: Default open
+#### Scenario: Expired token rejected
 
-- GIVEN no guard policy attached
-- WHEN an unauthenticated client calls `POST /patients`
-- THEN the use case runs
-
-#### Scenario: Rejects when guarded
-
-- GIVEN a `pacientes:write` guard and a client without it
-- WHEN the client calls `POST /patients`
-- THEN the response is 401 or 403
-- AND the use case is skipped
+- GIVEN an expired Bearer token
+- WHEN a client calls `POST /patients` with it
+- THEN the response is 401 with the message `Invalid or missing token`
+- AND no patient is created
 
 ### Requirement: PAT-006: Response Contract
 
-The response MUST contain exactly `id`, `documento`, `nombres`, `apellidos`, `fecha_nacimiento`, `email`, `celular`, `sexo`, `direccion`, `created_by`, `created_at`, no other field. `created_by` SHALL be `null` without an actor.
+The response MUST contain exactly `id`, `documento`, `nombres`, `apellidos`, `fecha_nacimiento`, `email`, `celular`, `sexo`, `direccion`, `created_by`, `created_at`, no other field. `created_by` SHALL equal the acting admin's id (the route is admin-only).
 
 #### Scenario: Only contract fields
 
-- GIVEN a successful anonymous create
+- GIVEN a successful admin-authorized create
 - WHEN the response body is inspected
 - THEN the body matches the contract fields
-- AND `created_by` is `null`
+- AND `created_by` is the admin's id
 
 ### Requirement: PAT-007: Update Audit Columns (Internal)
 
@@ -135,6 +131,6 @@ The `patients` table MUST gain nullable `updated_by` and `updated_at` columns wh
 ## Non-Goals
 
 - Clinical data, turnos, materias, patient-user linking.
-- Permission guard (seam only).
+- Permission checks beyond the admin role gate (e.g. per-resource `pacientes:write` scoping).
 - Document types / per-type validation.
 - New env vars or dependencies.

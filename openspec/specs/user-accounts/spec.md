@@ -73,13 +73,15 @@ The user store MUST expose `findByEmail(email)` and `updatePassword(userId, newP
 
 ### Requirement: User Audit Columns (Internal)
 
-The `users` table MUST gain nullable `created_by`, `updated_by`, and `updated_at` columns per the audit-trail convention, while keeping `id` as a UUID primary key (no bigserial). Registration MUST record `created_by` as NULL because no admin flow exists yet. The audit columns MUST NOT appear in the user entity `toJSON` or any API response; the existing user response contract MUST stay unchanged.
+The `users` table MUST gain nullable `created_by`, `updated_by`, and `updated_at` columns per the audit-trail convention, while keeping `id` as a UUID primary key (no bigserial). Registration MUST record the authenticated admin's id in `created_by` (register is admin-only; the token `sub` is resolved at route level). The audit columns MUST NOT appear in the user entity `toJSON` or any API response; the existing user response contract MUST stay unchanged.
+(Previously: registration recorded `created_by` NULL because no admin flow existed.)
 
-#### Scenario: Registration records null audit actor
+#### Scenario: Registration records the acting admin
 
-- GIVEN a successful `POST /auth/register`
+- GIVEN a successful `POST /auth/register` by an authenticated admin
 - WHEN the persisted user row is inspected
-- THEN `created_by`, `updated_by`, and `updated_at` are all NULL
+- THEN `created_by` equals the admin's id
+- AND `updated_by` and `updated_at` are both NULL
 
 #### Scenario: Response hides audit columns
 

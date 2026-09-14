@@ -4,7 +4,7 @@ import { CreatePatient } from '../../application/create-patient.usecase.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { PatientRepositoryPort } from '../../application/patient.ports.js';
-import type { AuthenticatedRequest } from '../../../auth/infrastructure/middleware/authenticate.js';
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 
 /**
  * Patient routes. The use case receives the injected repository; the guard

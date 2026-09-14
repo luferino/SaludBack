@@ -6,7 +6,7 @@ import type { Guard } from '../../../shared/application/guard.js';
 import type { TeacherRepositoryPort } from '../../application/teacher.ports.js';
 import type { UserRepositoryPort, PasswordHasherPort } from '../../../auth/application/auth.ports.js';
 import type { UnitOfWorkPort } from '../../../shared/application/unit-of-work.js';
-import type { AuthenticatedRequest } from '../../../auth/infrastructure/middleware/authenticate.js';
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 
 /**
  * Teacher routes. The use case receives the injected repositories,

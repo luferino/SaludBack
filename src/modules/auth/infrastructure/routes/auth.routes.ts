@@ -7,7 +7,7 @@ import { ResetPassword } from '../../application/reset-password.usecase.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { UserRepositoryPort, PasswordHasherPort, TokenServicePort, ResetTokenRepositoryPort, MailerPort } from '../../application/auth.ports.js';
 import type { Guard } from '../../../shared/application/guard.js';
-import type { AuthenticatedRequest } from '../middleware/authenticate.js';
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 
 export interface AuthRouterDeps {
   repository: UserRepositoryPort;

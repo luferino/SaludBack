@@ -1,15 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError } from '../../../shared/domain/errors.js';
 import type { TokenServicePort } from '../../application/auth.ports.js';
-
-export interface AuthenticatedRequest extends Request {
-  auth?: {
-    role: string;
-    permissions: string[];
-    sub?: string;
-    userId?: string;
-  };
-}
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 
 /**
  * Token-verification middleware. Reads a Bearer token from the

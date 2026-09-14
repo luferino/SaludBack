@@ -36,14 +36,20 @@ export function normalizeUsername(username: string): string {
 }
 
 /**
- * Validate that an email is present and matches a standard email pattern.
- * Throws BadRequestError if missing, empty, or malformed.
+ * Normalize an email for validation, lookup, and storage: trims
+ * surrounding whitespace, treats missing/empty/whitespace-only values as
+ * absent (`null`), and validates present values against the shared email
+ * pattern.
+ * Throws BadRequestError if the trimmed value is malformed.
+ * Returns the trimmed email, or `null` when absent.
  */
-export function validateEmail(email: string): void {
-  if (!email || email.trim() === '') {
-    throw new BadRequestError('email is required');
+export function normalizeEmail(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? '').trim();
+  if (trimmed === '') {
+    return null;
   }
-  if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+  if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
     throw new BadRequestError('email must be a valid address');
   }
+  return trimmed;
 }

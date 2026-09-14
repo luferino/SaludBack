@@ -1,6 +1,6 @@
 import { User } from '../domain/user.entity.js';
 import { ConflictError } from '../../shared/domain/errors.js';
-import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
+import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
 import { isUniqueViolation, translateUniqueViolation } from './unique-violation.js';
 import type { UserRepositoryPort, PasswordHasherPort } from './auth.ports.js';
 
@@ -34,12 +34,10 @@ export class CreateAdmin {
     validatePassword(password);
     // Empty / whitespace-only emails behave like null: nobody may own
     // `email = ''` (it would sit in the unique index and misattribute a
-    // later 23505 to the username branch). Trimming also keeps the
-    // constraint disambiguation on the stored value.
-    const cleanEmail = email?.trim() || null;
-    if (cleanEmail) {
-      validateEmail(cleanEmail);
-    }
+    // later 23505 to the username branch). normalizeEmail also trims the
+    // stored value so the constraint disambiguation stays on the
+    // normalized email.
+    const cleanEmail = normalizeEmail(email);
 
     const existing = await this.repository.findByUsername(normalizedUsername);
     if (existing) {

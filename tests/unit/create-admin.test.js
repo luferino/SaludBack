@@ -175,3 +175,61 @@ test('an empty or whitespace-only email behaves like null (no validation, no loo
     assert.equal(repository.calls.create[0].email, null);
   }
 });
+
+test('a padded email is trimmed before validation, lookup, and storage', async () => {
+  const repository = createFakeRepository();
+  const useCase = new CreateAdmin({ repository, hasher: new FakeHasher() });
+
+  const created = await useCase.execute({
+    username: 'rootuser',
+    password: 'Secret12345',
+    email: '  root@example.com  ',
+  });
+
+  assert.equal(created.email, 'root@example.com');
+  assert.equal(repository.calls.findByEmail[0], 'root@example.com');
+  assert.equal(repository.calls.create[0].email, 'root@example.com');
+});
+
+test('a padded malformed email throws BadRequestError with the shared message', async () => {
+  const repository = createFakeRepository();
+  const useCase = new CreateAdmin({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({ username: 'rootuser', password: 'Secret12345', email: '  not-an-email  ' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'email must be a valid address');
+      return true;
+    },
+  );
+  assert.equal(repository.calls.create.length, 0);
+});
+
+test('duplicate check treats a padded email and the stored email as the same (409)', async () => {
+  const repository = createFakeRepository({
+    existingByEmail: new User({
+      username: 'otro',
+      passwordHash: 'x',
+      role: 'admin',
+      email: 'root@example.com',
+    }),
+  });
+  const useCase = new CreateAdmin({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({
+        username: 'nuevoadmin',
+        password: 'Secret12345',
+        email: '  root@example.com  ',
+      }),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.message, 'email already exists: root@example.com');
+      return true;
+    },
+  );
+  assert.equal(repository.calls.create.length, 0);
+});

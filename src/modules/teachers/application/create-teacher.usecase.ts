@@ -2,7 +2,7 @@ import { User } from '../../auth/domain/user.entity.js';
 import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/application/auth.ports.js';
 import { Teacher } from '../domain/teacher.entity.js';
 import { BadRequestError } from '../../shared/domain/errors.js';
-import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
+import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
 import type { TeacherRepositoryPort } from './teacher.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -72,10 +72,10 @@ export class CreateTeacher {
     const username = normalizeUsername(input.username);
     validatePassword(input.password);
 
-    const email = normalizeOptional(input.email);
-    if (email !== null) {
-      validateEmail(email);
-    }
+    // Optional email (UAC-002): absent, empty, or whitespace-only becomes
+    // null; present values are trimmed and validated by the shared helper
+    // (same policy as register/create-admin).
+    const email = normalizeEmail(input.email);
     const celular = normalizeOptional(input.celular);
 
     // Create-or-link: an existing username SHORT-CIRCUITS the email

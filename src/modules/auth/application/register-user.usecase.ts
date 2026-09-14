@@ -1,6 +1,6 @@
 import { User } from '../domain/user.entity.js';
-import { ConflictError } from '../../shared/domain/errors.js';
-import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
+import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
+import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
 import { isUniqueViolation, translateUniqueViolation } from './unique-violation.js';
 import type { UserRepositoryPort, PasswordHasherPort } from './auth.ports.js';
 
@@ -32,20 +32,26 @@ export class RegisterUser {
   async execute({ username, password, email, createdBy = null }: RegisterUserInput): Promise<User> {
     const normalizedUsername = normalizeUsername(username);
     validatePassword(password);
-    validateEmail(email);
+    // Email is required for register: normalize (trim + validate) so
+    // padded values are accepted and stored trimmed, then enforce
+    // presence on the normalized value only.
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      throw new BadRequestError('email is required');
+    }
 
     const existing = await this.repository.findByUsername(normalizedUsername);
     if (existing) {
       throw new ConflictError(`username already exists: ${normalizedUsername}`);
     }
 
-    const existingByEmail = await this.repository.findByEmail(email);
+    const existingByEmail = await this.repository.findByEmail(normalizedEmail);
     if (existingByEmail) {
-      throw new ConflictError(`email already exists: ${email}`);
+      throw new ConflictError(`email already exists: ${normalizedEmail}`);
     }
 
     const passwordHash = await this.hasher.hash(password);
-    const user = User.create({ username: normalizedUsername, passwordHash, role: 'estudiante', email, createdBy });
+    const user = User.create({ username: normalizedUsername, passwordHash, role: 'estudiante', email: normalizedEmail, createdBy });
     try {
       return await this.repository.create(user);
     } catch (error) {
@@ -56,7 +62,7 @@ export class RegisterUser {
       if (!isUniqueViolation(error)) {
         throw error;
       }
-      throw translateUniqueViolation(error, { username: normalizedUsername, email });
+      throw translateUniqueViolation(error, { username: normalizedUsername, email: normalizedEmail });
     }
   }
 }

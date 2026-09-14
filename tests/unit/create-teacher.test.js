@@ -258,6 +258,32 @@ test('malformed email throws BadRequestError and persists nothing', async () => 
   }
 });
 
+test('a padded email is trimmed before lookup and persistence', async () => {
+  const { userRepository, teacherRepository, useCase } = buildUseCase();
+
+  const teacher = await useCase.execute({ ...VALID_INPUT, email: '  mruiz@mail.com  ' });
+
+  assert.equal(teacher.email, 'mruiz@mail.com');
+  assert.deepEqual(userRepository.calls.findByEmail, ['mruiz@mail.com']);
+  assert.equal(userRepository.calls.create[0].email, 'mruiz@mail.com');
+  assert.equal(teacherRepository.calls.create[0].email, 'mruiz@mail.com');
+});
+
+test('a padded malformed email throws BadRequestError with the shared message', async () => {
+  const { userRepository, teacherRepository, useCase } = buildUseCase();
+
+  await assert.rejects(
+    () => useCase.execute({ ...VALID_INPUT, email: '  not-an-email  ' }),
+    (error) => {
+      assert.ok(error instanceof BadRequestError);
+      assert.equal(error.message, 'email must be a valid address');
+      return true;
+    },
+  );
+  assert.equal(userRepository.calls.create.length, 0);
+  assert.equal(teacherRepository.calls.create.length, 0);
+});
+
 test('Teacher.toJSON returns exactly the 7 TEA-003 contract keys and hides internals (AUD-002)', () => {
   const teacher = new Teacher({
     id: 'uuid-t',

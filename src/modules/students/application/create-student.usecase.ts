@@ -2,7 +2,7 @@ import { User } from '../../auth/domain/user.entity.js';
 import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/application/auth.ports.js';
 import { Student } from '../domain/student.entity.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
-import { normalizeUsername, validatePassword, validateEmail } from '../../shared/domain/validation.js';
+import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
 import type { StudentRepositoryPort } from './student.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -80,10 +80,10 @@ export class CreateStudent {
       throw new BadRequestError('codalumno must contain only letters and digits');
     }
 
-    const email = normalizeOptional(input.email);
-    if (email !== null) {
-      validateEmail(email);
-    }
+    // Optional email (UAC-002): absent, empty, or whitespace-only becomes
+    // null; present values are trimmed and validated by the shared helper
+    // (same policy as register/create-admin).
+    const email = normalizeEmail(input.email);
     const celular = normalizeOptional(input.celular);
 
     const existing = await this.studentRepository.findByCodalumno(codalumno);

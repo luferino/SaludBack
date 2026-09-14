@@ -132,6 +132,68 @@ test('missing, empty or malformed email throws BadRequestError', async () => {
   assert.equal(repository.calls.create.length, 0);
 });
 
+test('whitespace-only or missing email is rejected with email is required', async () => {
+  const repository = createFakeRepository();
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+  for (const input of [
+    { username: 'jperez', password: 'secret12345' },
+    { username: 'jperez', password: 'secret12345', email: '' },
+    { username: 'jperez', password: 'secret12345', email: '   ' },
+  ]) {
+    await assert.rejects(
+      () => useCase.execute(input),
+      (error) => {
+        assert.ok(error instanceof BadRequestError);
+        assert.equal(error.message, 'email is required');
+        return true;
+      },
+    );
+  }
+  assert.equal(repository.calls.create.length, 0);
+});
+
+test('email with surrounding whitespace is trimmed before lookup and storage', async () => {
+  const repository = createFakeRepository();
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  const created = await useCase.execute({
+    username: 'jperez',
+    password: 'secret12345',
+    email: '  jperez@example.com  ',
+  });
+
+  assert.equal(created.email, 'jperez@example.com');
+  assert.equal(repository.calls.findByEmail[0], 'jperez@example.com');
+  assert.equal(repository.calls.create[0].email, 'jperez@example.com');
+});
+
+test('duplicate check treats a padded email and the stored email as the same (409)', async () => {
+  const repository = createFakeRepository({
+    existingByEmail: new User({
+      username: 'otro',
+      passwordHash: 'x',
+      role: 'estudiante',
+      email: 'dup@example.com',
+    }),
+  });
+  const useCase = new RegisterUser({ repository, hasher: new FakeHasher() });
+
+  await assert.rejects(
+    () =>
+      useCase.execute({
+        username: 'nuevo',
+        password: 'secret12345',
+        email: '  dup@example.com  ',
+      }),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.message, 'email already exists: dup@example.com');
+      return true;
+    },
+  );
+  assert.equal(repository.calls.create.length, 0);
+});
+
 test('password too short throws BadRequestError', async () => {
   const useCase = new RegisterUser({ repository: createFakeRepository(), hasher: new FakeHasher() });
   await assert.rejects(

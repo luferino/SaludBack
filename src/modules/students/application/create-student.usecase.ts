@@ -3,6 +3,7 @@ import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/applicat
 import { Student } from '../domain/student.entity.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
 import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
+import { isUniqueViolation, translateUniqueViolation } from '../../auth/application/unique-violation.js';
 import type { StudentRepositoryPort } from './student.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -102,18 +103,30 @@ export class CreateStudent {
     const passwordHash = linkedUser ? null : await this.hasher.hash(input.password);
 
     return this.unitOfWork.withTransaction(async (client) => {
-      const user =
-        linkedUser ??
-        (await this.userRepository.create(
-          User.create({
-            username,
-            passwordHash: passwordHash!,
-            role: 'estudiante',
-            email,
-            createdBy: input.createdBy ?? null,
-          }),
-          client,
-        ));
+      let user = linkedUser;
+      if (user === null) {
+        try {
+          user = await this.userRepository.create(
+            User.create({
+              username,
+              passwordHash: passwordHash!,
+              role: 'estudiante',
+              email,
+              createdBy: input.createdBy ?? null,
+            }),
+            client,
+          );
+        } catch (error) {
+          // TOCTOU race (or a row the pre-check lookup missed): the unique
+          // index on users surfaces as a raw pg unique_violation (SQLSTATE
+          // 23505). Translate it into the same ConflictError the pre-checks
+          // raise so callers get a clean 409 and never see a leaked SQL string.
+          if (!isUniqueViolation(error)) {
+            throw error;
+          }
+          throw translateUniqueViolation(error, { username, email });
+        }
+      }
 
       const student = Student.create({
         userId: user.id!,
@@ -125,7 +138,19 @@ export class CreateStudent {
         createdBy: input.createdBy ?? null,
       });
 
-      return this.studentRepository.create(student, client);
+      try {
+        return await this.studentRepository.create(student, client);
+      } catch (error) {
+        // TOCTOU race (or a row the pre-check lookup missed): the unique
+        // index on codalumno surfaces as a raw pg unique_violation
+        // (SQLSTATE 23505). Translate it into the same ConflictError the
+        // pre-check raises — but ONLY for `students_codalumno_unique`;
+        // any other 23505 (or non-23505) error rethrows untouched.
+        if (!isUniqueViolation(error) || error.constraint !== 'students_codalumno_unique') {
+          throw error;
+        }
+        throw new ConflictError(`codalumno already exists: ${codalumno}`);
+      }
     });
   }
 }

@@ -42,15 +42,15 @@ const VALID_PAYLOAD = {
  * Production-like stack: authenticate (populates req.auth) then the router,
  * whose handler runs AdminGuard and resolves created_by from the token sub.
  */
-function buildApp() {
+function buildApp(overrides = {}) {
   const app = express();
   app.use(express.json());
   app.use(
     '/students',
     authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
     createStudentRouter({
-      repository: new PgStudentRepository(pool),
-      userRepository: new PgUserRepository(pool),
+      repository: overrides.studentRepository ?? new PgStudentRepository(pool),
+      userRepository: overrides.userRepository ?? new PgUserRepository(pool),
       hasher: new BcryptHasher(config.bcryptCost),
       unitOfWork: new PgUnitOfWork(pool),
       guard: new AdminGuard(),
@@ -106,6 +106,47 @@ async function countUsers(username) {
     username,
   ]);
   return rows[0].n;
+}
+
+/**
+ * Wraps the real user repository so the pre-check lookups hit the DB
+ * (returning null for fresh usernames/emails) but create() raises a raw
+ * pg unique_violation (SQLSTATE 23505) — deterministically simulating the
+ * TOCTOU race a duplicate can slip through. The endpoint must translate
+ * it to 409, never leak it as a 500.
+ */
+function racingUserRepository(constraint, message) {
+  const real = new PgUserRepository(pool);
+  const leak = new Error(message);
+  leak.code = '23505';
+  leak.constraint = constraint;
+  return {
+    findByUsername: (username) => real.findByUsername(username),
+    findByEmail: (email) => real.findByEmail(email),
+    create: async () => {
+      throw leak;
+    },
+  };
+}
+
+/**
+ * Same idea for the student write: the codalumno pre-check hits the DB
+ * (null for a fresh codalumno), but the students insert itself raises a
+ * raw pg unique_violation on `students_codalumno_unique` (migration 004)
+ * — deterministically simulating the TOCTOU race between the pre-check
+ * and the write. The endpoint must translate it to 409, never leak it.
+ */
+function racingStudentRepository(constraint, message) {
+  const real = new PgStudentRepository(pool);
+  const leak = new Error(message);
+  leak.code = '23505';
+  leak.constraint = constraint;
+  return {
+    findByCodalumno: (codalumno) => real.findByCodalumno(codalumno),
+    create: async () => {
+      throw leak;
+    },
+  };
 }
 
 test('POST /students rejects a missing, garbage and non-admin token (401/401/403)', async () => {
@@ -299,4 +340,124 @@ test('POST /students rejects invalid codalumno, missing fields, and bad email wi
     ['12_34A', '2024-00123', 'ABC 123', 'BAD004', 'BAD005', 'BAD006'],
   );
   assert.equal(rows[0].n, 0);
+});
+
+test('POST /students maps a unique-violation race on the account username to 409 CONFLICT, not 500', async () => {
+  const app = buildApp({
+    userRepository: racingUserRepository(
+      'users_username_key',
+      'duplicate key value violates unique constraint "users_username_key"',
+    ),
+  });
+  const racingServer = app.listen(0);
+  await new Promise((resolve) => racingServer.once('listening', resolve));
+  const url = `http://127.0.0.1:${racingServer.address().port}`;
+
+  try {
+    const res = await fetch(`${url}/students`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        ...VALID_PAYLOAD,
+        username: 'sturace1',
+        codalumno: 'RACE001',
+        email: 'sturace1@example.com', // must not collide with earlier fixtures' emails (link path)
+      }),
+    });
+    const body = await res.json();
+
+    assert.equal(res.status, 409);
+    assert.equal(body.error.code, 'CONFLICT');
+    assert.equal(body.error.message, 'username already exists: STURACE1');
+    assert.equal(await countUsers('STURACE1'), 0, 'the race persists no account');
+  } finally {
+    // closeAllConnections destroys the undici keep-alive socket, otherwise
+    // close() waits on it and the test runner hangs at teardown.
+    await new Promise((resolve) => {
+      racingServer.close(resolve);
+      racingServer.closeAllConnections();
+    });
+  }
+});
+
+test('POST /students maps a unique-violation race on the account email to 409 CONFLICT, not 500', async () => {
+  const app = buildApp({
+    userRepository: racingUserRepository(
+      'users_email_unique',
+      'duplicate key value violates unique constraint "users_email_unique"',
+    ),
+  });
+  const racingServer = app.listen(0);
+  await new Promise((resolve) => racingServer.once('listening', resolve));
+  const url = `http://127.0.0.1:${racingServer.address().port}`;
+
+  try {
+    const res = await fetch(`${url}/students`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        ...VALID_PAYLOAD,
+        username: 'sturace2',
+        codalumno: 'RACE002',
+        email: 'sturace2@example.com',
+      }),
+    });
+    const body = await res.json();
+
+    assert.equal(res.status, 409);
+    assert.equal(body.error.code, 'CONFLICT');
+    assert.equal(body.error.message, 'email already exists: sturace2@example.com');
+    assert.equal(await countUsers('STURACE2'), 0, 'the race persists no account');
+  } finally {
+    // closeAllConnections destroys the undici keep-alive socket, otherwise
+    // close() waits on it and the test runner hangs at teardown.
+    await new Promise((resolve) => {
+      racingServer.close(resolve);
+      racingServer.closeAllConnections();
+    });
+  }
+});
+
+test('POST /students maps a unique-violation race on the codalumno insert to 409 CONFLICT, not 500', async () => {
+  const app = buildApp({
+    studentRepository: racingStudentRepository(
+      'students_codalumno_unique',
+      'duplicate key value violates unique constraint "students_codalumno_unique"',
+    ),
+  });
+  const racingServer = app.listen(0);
+  await new Promise((resolve) => racingServer.once('listening', resolve));
+  const url = `http://127.0.0.1:${racingServer.address().port}`;
+
+  try {
+    const res = await fetch(`${url}/students`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        ...VALID_PAYLOAD,
+        username: 'sturace3',
+        codalumno: 'RACE003',
+        email: 'sturace3@example.com', // must not collide with earlier fixtures' emails (link path)
+      }),
+    });
+    const body = await res.json();
+
+    assert.equal(res.status, 409);
+    assert.equal(body.error.code, 'CONFLICT');
+    assert.equal(body.error.message, 'codalumno already exists: RACE003');
+    // The student insert aborts the tx, so the account insert rolls back too (AUD-003).
+    assert.equal(await countUsers('STURACE3'), 0, 'the race persists no account');
+    const { rows } = await pool.query(
+      'SELECT count(*)::int AS n FROM students WHERE codalumno = $1',
+      ['RACE003'],
+    );
+    assert.equal(rows[0].n, 0, 'the race persists no student row');
+  } finally {
+    // closeAllConnections destroys the undici keep-alive socket, otherwise
+    // close() waits on it and the test runner hangs at teardown.
+    await new Promise((resolve) => {
+      racingServer.close(resolve);
+      racingServer.closeAllConnections();
+    });
+  }
 });

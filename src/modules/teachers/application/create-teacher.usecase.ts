@@ -3,6 +3,7 @@ import type { UserRepositoryPort, PasswordHasherPort } from '../../auth/applicat
 import { Teacher } from '../domain/teacher.entity.js';
 import { BadRequestError } from '../../shared/domain/errors.js';
 import { normalizeUsername, validatePassword, normalizeEmail } from '../../shared/domain/validation.js';
+import { isUniqueViolation, translateUniqueViolation } from '../../auth/application/unique-violation.js';
 import type { TeacherRepositoryPort } from './teacher.ports.js';
 import type { UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 
@@ -89,18 +90,30 @@ export class CreateTeacher {
     const passwordHash = linkedUser ? null : await this.hasher.hash(input.password);
 
     return this.unitOfWork.withTransaction(async (client) => {
-      const user =
-        linkedUser ??
-        (await this.userRepository.create(
-          User.create({
-            username,
-            passwordHash: passwordHash!,
-            role: 'teacher',
-            email,
-            createdBy: input.createdBy ?? null,
-          }),
-          client,
-        ));
+      let user = linkedUser;
+      if (user === null) {
+        try {
+          user = await this.userRepository.create(
+            User.create({
+              username,
+              passwordHash: passwordHash!,
+              role: 'teacher',
+              email,
+              createdBy: input.createdBy ?? null,
+            }),
+            client,
+          );
+        } catch (error) {
+          // TOCTOU race (or a row the pre-check lookup missed): the unique
+          // index on users surfaces as a raw pg unique_violation (SQLSTATE
+          // 23505). Translate it into the same ConflictError the pre-checks
+          // raise so callers get a clean 409 and never see a leaked SQL string.
+          if (!isUniqueViolation(error)) {
+            throw error;
+          }
+          throw translateUniqueViolation(error, { username, email });
+        }
+      }
 
       const teacher = Teacher.create({
         userId: user.id!,

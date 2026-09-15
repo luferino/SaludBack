@@ -18,6 +18,7 @@ function createFakeStudentRepository(overrides = {}) {
     },
     async create(student, client) {
       calls.create.push({ ...student, client });
+      if (overrides.createThrows) throw overrides.createThrows;
       return new Student({ ...student, id: 'uuid-student', createdAt: CREATED_AT });
     },
   };
@@ -37,6 +38,7 @@ function createFakeUserRepository(overrides = {}) {
     },
     async create(user, client) {
       calls.create.push({ ...user, client });
+      if (overrides.createThrows) throw overrides.createThrows;
       return new User({ ...user, id: overrides.createdUserId ?? 'uuid-new-user', createdAt: CREATED_AT });
     },
   };
@@ -382,4 +384,131 @@ test('Student.create builds a new student with audit defaults', () => {
   assert.equal(student.email, null);
   assert.equal(student.celular, null);
   assert.equal(student.createdBy, 'actor-1');
+});
+
+/** Mimics a pg unique_violation error (SQLSTATE 23505) with its constraint name. */
+function uniqueViolation(constraint, message) {
+  return Object.assign(new Error(message), { code: '23505', constraint });
+}
+
+test('alta maps a unique-violation race on the account username to ConflictError with a clean message', async () => {
+  const { userRepository, studentRepository, useCase } = buildUseCase({
+    userRepository: createFakeUserRepository({
+      createThrows: uniqueViolation(
+        'users_username_key',
+        'duplicate key value violates unique constraint "users_username_key"',
+      ),
+    }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.ok(!error.message.includes('duplicate key value'), 'raw pg text must not leak');
+      assert.equal(error.message, 'username already exists: JPEREZ');
+      return true;
+    },
+  );
+  assert.equal(userRepository.calls.create.length, 1, 'the account insert attempt reached the repository');
+  assert.equal(studentRepository.calls.create.length, 0, 'no student row after the conflict (tx aborted)');
+});
+
+test('alta maps a unique-violation race on the account email to ConflictError with a clean message', async () => {
+  const { studentRepository, useCase } = buildUseCase({
+    userRepository: createFakeUserRepository({
+      createThrows: uniqueViolation(
+        'users_email_unique',
+        'duplicate key value violates unique constraint "users_email_unique"',
+      ),
+    }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.message, 'email already exists: jperez@mail.com');
+      return true;
+    },
+  );
+  assert.equal(studentRepository.calls.create.length, 0, 'no student row after the conflict (tx aborted)');
+});
+
+test('alta lets non-unique database errors propagate unchanged', async () => {
+  const dbError = Object.assign(new Error('violates foreign key constraint'), { code: '23503' });
+  const { studentRepository, useCase } = buildUseCase({
+    userRepository: createFakeUserRepository({ createThrows: dbError }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.equal(error, dbError, 'non-23505 errors are not swallowed');
+      assert.ok(!(error instanceof ConflictError));
+      return true;
+    },
+  );
+  assert.equal(studentRepository.calls.create.length, 0);
+});
+
+test('alta maps a unique-violation race on the codalumno insert to ConflictError with a clean message', async () => {
+  const { userRepository, studentRepository, useCase } = buildUseCase({
+    studentRepository: createFakeStudentRepository({
+      createThrows: uniqueViolation(
+        'students_codalumno_unique',
+        'duplicate key value violates unique constraint "students_codalumno_unique"',
+      ),
+    }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.ok(!error.message.includes('duplicate key value'), 'raw pg text must not leak');
+      assert.equal(error.message, 'codalumno already exists: 20240123');
+      return true;
+    },
+  );
+  // The race is on the student row: the account insert already succeeded
+  // inside the tx, then the student insert aborts it (AUD-003).
+  assert.equal(userRepository.calls.create.length, 1, 'the account insert reached the repository');
+  assert.equal(studentRepository.calls.create.length, 1, 'the student insert was attempted (tx aborted after)');
+});
+
+test('alta lets a unique-violation on a non-codalumno constraint rethrow untouched', async () => {
+  const other = uniqueViolation('students_pkey', 'some other constraint race');
+  const { userRepository, studentRepository, useCase } = buildUseCase({
+    studentRepository: createFakeStudentRepository({ createThrows: other }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.equal(error, other, '23505 on another constraint is not swallowed');
+      assert.ok(!(error instanceof ConflictError));
+      return true;
+    },
+  );
+  assert.equal(userRepository.calls.create.length, 1);
+  assert.equal(studentRepository.calls.create.length, 1);
+});
+
+test('alta lets non-unique database errors from the student insert propagate unchanged', async () => {
+  const dbError = Object.assign(new Error('violates foreign key constraint'), { code: '23503' });
+  const { userRepository, studentRepository, useCase } = buildUseCase({
+    studentRepository: createFakeStudentRepository({ createThrows: dbError }),
+  });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.equal(error, dbError, 'non-23505 errors are not swallowed');
+      assert.ok(!(error instanceof ConflictError));
+      return true;
+    },
+  );
+  assert.equal(userRepository.calls.create.length, 1);
+  assert.equal(studentRepository.calls.create.length, 1);
 });

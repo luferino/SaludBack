@@ -1,5 +1,6 @@
 import { Patient } from '../domain/patient.entity.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
+import { isUniqueViolation } from '../../auth/application/unique-violation.js';
 import type { PatientRepositoryPort } from './patient.ports.js';
 
 export interface CreatePatientInput {
@@ -78,7 +79,20 @@ export class CreatePatient {
       createdBy: input.createdBy ?? null,
     });
 
-    return this.repository.create(patient);
+    try {
+      return await this.repository.create(patient);
+    } catch (error) {
+      // TOCTOU race (or a row the pre-check lookup missed): the unique
+      // index on documento surfaces as a raw pg unique_violation (SQLSTATE
+      // 23505). Translate it into the same ConflictError the pre-check
+      // raises so callers get a clean 409 and never see a leaked SQL string.
+      // `documento` is the only unique column on patients (email is not
+      // unique there), so only `patients_documento_key` maps to a conflict.
+      if (!isUniqueViolation(error) || error.constraint !== 'patients_documento_key') {
+        throw error;
+      }
+      throw new ConflictError(`documento already exists: ${documento}`);
+    }
   }
 }
 

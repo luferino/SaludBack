@@ -14,6 +14,7 @@ function createFakeRepository(overrides = {}) {
     },
     async create(patient) {
       calls.create.push(patient);
+      if (overrides.createThrows) throw overrides.createThrows;
       return new Patient({
         ...patient,
         id: 'uuid-new',
@@ -164,4 +165,45 @@ test('validation rejects a payload before the duplicate check runs', async () =>
   );
   assert.equal(repository.calls.findByDocumento.length, 0);
   assert.equal(repository.calls.create.length, 0);
+});
+
+/** Mimics a pg unique_violation error (SQLSTATE 23505) with its constraint name. */
+function uniqueViolation(constraint, message) {
+  return Object.assign(new Error(message), { code: '23505', constraint });
+}
+
+test('a unique-violation race on the documento insert maps to ConflictError with a clean message', async () => {
+  const repository = createFakeRepository({
+    createThrows: uniqueViolation(
+      'patients_documento_key',
+      'duplicate key value violates unique constraint "patients_documento_key"',
+    ),
+  });
+  const useCase = new CreatePatient({ repository });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.ok(!error.message.includes('duplicate key value'), 'raw pg text must not leak');
+      assert.equal(error.message, 'documento already exists: 35123456');
+      return true;
+    },
+  );
+  assert.equal(repository.calls.create.length, 1, 'the insert attempt reached the repository');
+});
+
+test('a non-unique database error propagates unchanged', async () => {
+  const dbError = Object.assign(new Error('violates foreign key constraint'), { code: '23503' });
+  const repository = createFakeRepository({ createThrows: dbError });
+  const useCase = new CreatePatient({ repository });
+
+  await assert.rejects(
+    () => useCase.execute(VALID_INPUT),
+    (error) => {
+      assert.equal(error, dbError, 'non-23505 errors are not swallowed');
+      assert.ok(!(error instanceof ConflictError));
+      return true;
+    },
+  );
 });

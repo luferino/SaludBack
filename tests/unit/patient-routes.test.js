@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultGetActor } from '../../src/modules/patients/infrastructure/routes/patient.routes.ts';
+import { defaultGetActor } from '../../src/modules/shared/infrastructure/default-get-actor.ts';
 
 test('defaultGetActor prefers the req.auth.userId alias over sub (PAT-004)', async () => {
   const req = { auth: { role: 'teacher', permissions: [], userId: 'uuid-user', sub: 'uuid-sub' } };

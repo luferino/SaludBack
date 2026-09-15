@@ -4,7 +4,7 @@ import { CreatePatient } from '../../application/create-patient.usecase.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { PatientRepositoryPort } from '../../application/patient.ports.js';
-import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
+import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
 
 /**
  * Patient routes. The use case receives the injected repository; the guard
@@ -37,17 +37,4 @@ export function createPatientRouter({
   });
 
   return router;
-}
-
-/**
- * Default actor hook: reads the verified token subject from `req.auth`,
- * preferring the `userId` alias and falling back to `sub` (both are set by
- * `authenticate` when the token carries a `sub` claim — AUTH-002).
- * Resolves to null when `req.auth` is unset (open route) or lacks a
- * subject (PAT-004); a guard or token middleware can set the seam without
- * changing the contract.
- */
-export async function defaultGetActor(req: Request): Promise<string | null> {
-  const authReq = req as AuthenticatedRequest;
-  return authReq.auth?.userId ?? authReq.auth?.sub ?? null;
 }

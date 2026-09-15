@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
-import { createStudentRouter, defaultGetActor } from '../../src/modules/students/infrastructure/routes/student.routes.ts';
+import { createStudentRouter } from '../../src/modules/students/infrastructure/routes/student.routes.ts';
+import { defaultGetActor } from '../../src/modules/shared/infrastructure/default-get-actor.ts';
 import { Student } from '../../src/modules/students/domain/student.entity.ts';
 import { User } from '../../src/modules/auth/domain/user.entity.ts';
 import { Guard } from '../../src/modules/shared/application/guard.ts';

@@ -1,6 +1,7 @@
 import process from 'node:process';
 import pg from 'pg';
 import config from '../config.js';
+import { parseArgs } from './create-admin-args.js';
 import { PgUserRepository } from '../modules/auth/infrastructure/repositories/pg-user.repository.js';
 import { BcryptHasher } from '../modules/auth/infrastructure/services/bcrypt-hasher.service.js';
 import { CreateAdmin } from '../modules/auth/application/create-admin.usecase.js';
@@ -17,14 +18,39 @@ import { AppError } from '../modules/shared/domain/errors.js';
  * replaced by the ADMIN_PASSWORD env var to avoid shell history):
  *   tsx src/scripts/create-admin.ts --username ROOT --password <PASSWORD>
  */
+const USAGE_LINES = [
+  'Usage: tsx src/scripts/create-admin.ts --username <USERNAME> --password <PASSWORD>',
+  '(or set ADMIN_USERNAME / ADMIN_PASSWORD). Dev-only bootstrap.',
+];
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`create-admin: ${message}`);
+    for (const line of USAGE_LINES) {
+      console.error(line);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if ('help' in args) {
+    for (const line of USAGE_LINES) {
+      console.log(line);
+    }
+    return;
+  }
+
   const username = args.username ?? process.env.ADMIN_USERNAME;
   const password = args.password ?? process.env.ADMIN_PASSWORD;
 
   if (!username || !password) {
-    console.error('Usage: tsx src/scripts/create-admin.ts --username <USERNAME> --password <PASSWORD>');
-    console.error('(or set ADMIN_USERNAME / ADMIN_PASSWORD). Dev-only bootstrap.');
+    for (const line of USAGE_LINES) {
+      console.error(line);
+    }
     process.exitCode = 1;
     return;
   }
@@ -47,20 +73,6 @@ async function main(): Promise<void> {
   } finally {
     await pool.end();
   }
-}
-
-/** Tiny `--flag value` parser; unknown flags and flag-like values are ignored. */
-function parseArgs(argv: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const flag = argv[i];
-    const value = argv[i + 1];
-    if ((flag === '--username' || flag === '--password') && value && !value.startsWith('--')) {
-      result[flag.slice(2)] = value;
-      i += 1;
-    }
-  }
-  return result;
 }
 
 await main();

@@ -139,6 +139,33 @@ test('email rejects malformed addresses', async () => {
   }
 });
 
+test('email rejects addresses without a TLD with the shared message', async () => {
+  for (const email of ['a@b', 'x@y', 'ana@mail']) {
+    const repository = createFakeRepository();
+    const useCase = new CreatePatient({ repository });
+
+    await assert.rejects(
+      () => useCase.execute({ ...VALID_INPUT, email }),
+      (error) => {
+        assert.ok(error instanceof BadRequestError);
+        assert.equal(error.message, 'email must be a valid address');
+        return true;
+      },
+    );
+    assert.equal(repository.calls.create.length, 0);
+  }
+});
+
+test('a whitespace-padded valid email is trimmed before lookup and persistence', async () => {
+  const repository = createFakeRepository();
+  const useCase = new CreatePatient({ repository });
+
+  const created = await useCase.execute({ ...VALID_INPUT, email: '  ana@mail.com  ' });
+
+  assert.equal(created.email, 'ana@mail.com');
+  assert.equal(repository.calls.create[0].email, 'ana@mail.com');
+});
+
 test('duplicate documento throws ConflictError and never creates', async () => {
   const repository = createFakeRepository({
     existing: new Patient({ ...VALID_INPUT, id: 'uuid-existing', fechaNacimiento: '1990-04-12' }),

@@ -149,7 +149,7 @@ token**; `created_by` records the admin user id from the token.
 - `201` → `{ "id", "documento", "nombres", "apellidos", "fecha_nacimiento", "email", "celular", "sexo", "direccion", "created_by", "created_at" }`
 - `400` — missing field; `documento` not 4-8 digits; `sexo` not `M` or `F`;
   `fecha_nacimiento` not a real `YYYY-MM-DD` date or in the future; `email`
-  not a valid `local@domain` address; `401` — missing/invalid token;
+  not a valid address; `401` — missing/invalid token;
   `403` — non-admin token; `409` — duplicate `documento`
 
 ```bash

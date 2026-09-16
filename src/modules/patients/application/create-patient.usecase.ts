@@ -1,5 +1,6 @@
 import { Patient } from '../domain/patient.entity.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
+import { normalizeEmail } from '../../shared/domain/validation.js';
 import { isUniqueViolation } from '../../auth/application/unique-violation.js';
 import type { PatientRepositoryPort } from './patient.ports.js';
 
@@ -58,8 +59,13 @@ export class CreatePatient {
 
     const fechaNacimiento = validateBirthDate(input.fecha_nacimiento);
 
-    if (!/^[^@\s]+@[^@\s]+$/.test(input.email)) {
-      throw new BadRequestError('email must be a valid local@domain address');
+    // Shared email policy (same as register/create-admin/alta): trims
+    // surrounding whitespace and rejects values without a TLD. `email` is a
+    // required field, so the absent/blank -> null branch is defensive only
+    // (the REQUIRED_FIELDS loop above already rejected those).
+    const email = normalizeEmail(input.email);
+    if (email === null) {
+      throw new BadRequestError('email is required');
     }
 
     const existing = await this.repository.findByDocumento(documento);
@@ -72,7 +78,7 @@ export class CreatePatient {
       nombres: input.nombres,
       apellidos: input.apellidos,
       fechaNacimiento,
-      email: input.email,
+      email,
       celular: input.celular,
       sexo: input.sexo,
       direccion: input.direccion,

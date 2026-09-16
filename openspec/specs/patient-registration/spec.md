@@ -30,7 +30,7 @@ The system MUST accept `POST /patients` with `documento`, `nombres`, `apellidos`
 
 ### Requirement: PAT-003: Input Validation
 
-All eight fields are required; missing, null, or blank MUST respond 400 and persist nothing. `documento` MUST be 4-8 digits (after trim). `sexo` MUST be `M` or `F`. `fecha_nacimiento` MUST be a valid `YYYY-MM-DD` date, not future. `email` MUST match `local@domain`.
+All eight fields are required; missing, null, or blank MUST respond 400 and persist nothing. `documento` MUST be 4-8 digits (after trim). `sexo` MUST be `M` or `F`. `fecha_nacimiento` MUST be a valid `YYYY-MM-DD` date, not future. `email` MUST be trimmed and match the shared email policy: a valid address with a domain TLD (values like `a@b` without a TLD MUST respond 400).
 
 #### Scenario: Missing required field
 

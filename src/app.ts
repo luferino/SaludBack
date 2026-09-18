@@ -14,17 +14,19 @@ import { PgStudentRepository } from './modules/students/infrastructure/repositor
 import { createTeacherRouter } from './modules/teachers/infrastructure/routes/teacher.routes.js';
 import { PgTeacherRepository } from './modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
-import { AdminGuard } from './modules/shared/application/guard.js';
+import { AdminGuard, PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
 import { errorHandler } from './middleware/error-handler.js';
 
 /**
  * Production app factory (PR 4 wiring). Builds the shared pool-backed
  * repositories, hasher, token service and unit of work once and mounts every
- * router on one Express app: `/auth` (register/login/password recovery),
+ * router on one Express app: `/auth` (register/login/me/password recovery),
  * `/patients`, `/students` and `/teachers`. Register and the alta endpoints
  * sit behind `authenticate` (populates `req.auth`) + `AdminGuard` (403 for
- * non-admin callers); login and password recovery stay unauthenticated.
+ * non-admin callers); `GET /auth/me` sits behind `authenticate` +
+ * `PermissionGuard('profile:read')` and reads the account fresh from the
+ * database (PR-001). Login and password recovery stay unauthenticated.
  * The admin token `sub` flows into `created_by` through the default actor
  * hook once `req.auth` is set (AUD-003).
  */
@@ -64,8 +66,12 @@ export function createApp(pool: Pool): express.Express {
       // Admin-only registration: authenticate FIRST (populates req.auth),
       // AdminGuard evaluates it inside the register handler. Login and
       // password recovery bypass both (they are the entry points).
+      // GET /me: authenticate + PermissionGuard('profile:read'), then a
+      // fresh DB read by the verified subject (PR-001).
       guard: new AdminGuard(),
       registerMiddleware: authenticate(tokenService),
+      meMiddleware: authenticate(tokenService),
+      meGuard: new PermissionGuard('profile:read'),
     }),
   );
 

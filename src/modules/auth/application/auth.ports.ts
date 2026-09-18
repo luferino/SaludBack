@@ -21,6 +21,11 @@ export interface UserRepositoryPort {
    */
   create(user: User, client?: Queryable): Promise<User>;
   findByEmail(email: string): Promise<User | null>;
+  /**
+   * Finds a user by primary key. Returns null when no row matches; used by
+   * GET /auth/me to read the account fresh from the database (PR-001).
+   */
+  findById(userId: string): Promise<User | null>;
   updatePassword(userId: string, newPasswordHash: string): Promise<void>;
 }
 

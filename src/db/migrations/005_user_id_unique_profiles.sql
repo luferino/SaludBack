@@ -9,8 +9,16 @@
 -- so the raise rolls the DDL back and skips the schema_migrations row.
 --
 -- Rollback: DROP CONSTRAINT students_user_id_unique / teachers_user_id_unique
--- (additive, no data loss). Constraint naming mirrors students_codalumno_unique
--- (004).
+-- (additive, no data loss). Constraint NAMING mirrors students_codalumno_unique
+-- (004), but the mechanics differ: 004 uses CREATE UNIQUE INDEX, 005 uses
+-- ADD CONSTRAINT (different rollback). The UNIQUE constraints also create
+-- implicit indexes duplicating the now-redundant students_user_id_idx /
+-- teachers_user_id_idx (004), which are kept for rollback simplicity.
+--
+-- NOTE on re-apply: after the manual rollback above, the 005 row stays in
+-- schema_migrations, so `pnpm db:migrate` prints "Skipping 005 (already
+-- applied)" forever. Re-applying requires removing that row first, e.g.
+--   DELETE FROM schema_migrations WHERE name = '005_user_id_unique_profiles.sql';
 
 DO $$DECLARE d text;BEGIN
   SELECT string_agg(format('%s -> {%s}', user_id, ids), '; ')

@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROLE_PERMISSIONS, permissionsForRole } from '../../src/modules/auth/domain/permissions.ts';
 // Namespace import so the file still loads while IMPLEMENTED_PERMISSIONS
-// does not exist yet (RED): missing named exports throw at link time.
+// does not exist yet (RED): property access on the namespace of a missing
+// named export yields undefined, so the first assertion throws a runtime
+// TypeError (still RED, just not at link time).
 import * as permissionsModule from '../../src/modules/auth/domain/permissions.ts';
 
 test('estudiante role maps to a non-empty permissions array', () => {

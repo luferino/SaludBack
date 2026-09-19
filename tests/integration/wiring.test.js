@@ -443,3 +443,125 @@ test('GET /auth/me enforces profile:read, not the admin role (PG-003)', async ()
   assert.equal(denied.status, 403);
   assert.equal(denied.body.error.code, 'FORBIDDEN');
 });
+
+// --- PG-003 mapping discrimination: a token holding EXACTLY one write
+// permission must reach ONLY the mount mapped to that permission. The
+// existing PG-003 suite cannot tell the three alta guards apart (a
+// blanket guard or a swapped mapping leaves every existing test green),
+// so each alta mount is proven independently. Allow-side tokens are
+// seeded as real rows (created_by FK satisfied); deny-side assertions
+// reuse the same token, so a wrongly permissive guard fails with a clean
+// 201 instead of a 22P02 uuid-cast 500.
+
+const DISCRIMINATION_MOUNTS = {
+  students: {
+    path: '/students',
+    payload: {
+      username: 'discstu1',
+      password: 'secret12345',
+      nombres: 'Ana',
+      apellidos: 'Lopez',
+      codalumno: 'DISCSTU1',
+      email: 'discstu1@example.com',
+      celular: '+5491100000000',
+    },
+  },
+  teachers: {
+    path: '/teachers',
+    payload: {
+      username: 'disctea1',
+      password: 'secret12345',
+      nombres: 'Maria',
+      apellidos: 'Ruiz',
+      email: 'disctea1@example.com',
+      celular: '+5491100000000',
+    },
+  },
+  patients: {
+    path: '/patients',
+    payload: {
+      documento: '77777777',
+      nombres: 'Ana',
+      apellidos: 'Lopez',
+      fecha_nacimiento: '1990-04-12',
+      email: 'disc-pat@example.com',
+      celular: '+5491100000000',
+      sexo: 'F',
+      direccion: 'Av. Siempre Viva 742',
+    },
+  },
+};
+
+async function assertDenied(path, payload, token, requiredPermission) {
+  const res = await post(path, payload, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(res.status, 403, `${path} must require ${requiredPermission}`);
+  assert.equal(res.body.error.code, 'FORBIDDEN');
+}
+
+test('token with exactly students:write reaches only POST /students (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['students:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
+});
+
+test('token with exactly teachers:write reaches only POST /teachers (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['teachers:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
+});
+
+test('token with exactly patients:write reaches only POST /patients (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['patients:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+});
+
+test('a token holding only an inert claim is denied on all four write mounts (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['materias:read'],
+  });
+
+  const register = await post(
+    '/auth/register',
+    {
+      username: 'discinert',
+      password: 'secret12345',
+      email: 'discinert@example.com',
+    },
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  assert.equal(register.status, 403, '/auth/register must require users:write');
+  assert.equal(register.body.error.code, 'FORBIDDEN');
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
+});

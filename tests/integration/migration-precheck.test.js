@@ -16,6 +16,10 @@
  * Shared-DB contract: every test restores the fully-migrated state before it
  * ends (before/after re-run the runner, which skips already-applied files), so
  * this suite never leaves the shared test DB half-migrated for other files.
+ *
+ * Serial-only: this suite mutates the shared schema (drops constraints, deletes
+ * a schema_migrations row); it REQUIRES serial execution
+ * (--test-concurrency=1) and must not run interleaved with other files.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,7 +36,7 @@ const MIGRATION_005 = '005_user_id_unique_profiles.sql';
 
 /** Runs the real migrate runner in a child process; resolves with its outcome. */
 function runMigrate() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', 'src/db/migrate.ts'], {
       cwd: REPO_ROOT,
       env: { ...process.env },
@@ -46,7 +50,23 @@ function runMigrate() {
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    // Watchdog: if the spawned runner hangs (e.g. unreachable DB) the promise
+    // would never settle and hang the whole suite. Kill the child and resolve
+    // with code null so the caller's assertion fails loudly instead.
+    const watchdog = setTimeout(() => {
+      child.kill();
+      resolve({ code: null, stdout, stderr });
+    }, 30_000);
+    child.on('error', (err) => {
+      // Spawn failure (bad cwd, missing binary): reject rather than wait for a
+      // close event that may never fire.
+      clearTimeout(watchdog);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(watchdog);
+      resolve({ code, stdout, stderr });
+    });
   });
 }
 
@@ -87,12 +107,16 @@ before(async () => {
   await ensureMigrated();
 });
 
+// Restore order matters: cleanDb() FIRST so a failed abort test's leftover
+// duplicate rows can never make ensureMigrated() re-run the 005 pre-check and
+// RAISE (which would mask the original failure). The migrated state is then the
+// last thing restored, so self-heal stays viable on the next run too.
 after(async () => {
   try {
-    await ensureMigrated();
+    await cleanDb(pool);
   } finally {
     try {
-      await cleanDb(pool);
+      await ensureMigrated();
     } finally {
       await pool.end();
     }
@@ -156,6 +180,52 @@ test('duplicate students.user_id aborts the migration before any DDL, listing us
   // Restore the shared test DB to the migrated state.
   await pool.query('DELETE FROM students WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+  await ensureMigrated();
+});
+
+test('duplicates across two distinct students.user_id values list EVERY affected group (STU-006)', async () => {
+  const firstUser = await insertUser();
+  const secondUser = await insertUser();
+  const firstIds = [randomUUID(), randomUUID()];
+  const secondIds = [randomUUID(), randomUUID()];
+  await dropUserUniques();
+  await pool.query(
+    `INSERT INTO students (id, user_id, nombres, apellidos, codalumno)
+     VALUES ($1, $2, $3, $4, $5), ($6, $2, $3, $4, $7), ($8, $9, $3, $4, $10), ($11, $9, $3, $4, $12)`,
+    [
+      firstIds[0], firstUser, 'Ana', 'Lopez', 'DUPSTU3',
+      firstIds[1], 'DUPSTU4',
+      secondIds[0], secondUser, 'DUPSTU5',
+      secondIds[1], 'DUPSTU6',
+    ],
+  );
+
+  const result = await runMigrate();
+  assert.equal(result.code, 1, `expected migrate to abort, got exit ${result.code}: ${result.stderr}`);
+  const listed = result.stderr.match(/students\.user_id duplicates: (.+)$/m);
+  assert.ok(listed, `stderr must list every duplicate user_id group: ${result.stderr}`);
+  // The RAISE concatenates groups with '; ' — assert BOTH uuid -> {ids} pairs
+  // survive the string_agg concatenation, not just the first match.
+  const pairs = {};
+  for (const group of listed[1].split('; ')) {
+    const parsed = group.match(/^([0-9a-f-]+) -> \{([^}]+)\}$/);
+    assert.ok(parsed, `malformed duplicate group "${group}" in: ${listed[1]}`);
+    pairs[parsed[1]] = parsed[2].split(',').map((s) => s.trim()).sort();
+  }
+  assert.deepEqual(pairs, {
+    [firstUser]: [firstIds[0], firstIds[1]].sort(),
+    [secondUser]: [secondIds[0], secondIds[1]].sort(),
+  });
+
+  // Pre-DDL abort for the whole file.
+  assert.equal(await constraintExists('students', 'students_user_id_unique'), false);
+  assert.equal(await constraintExists('teachers', 'teachers_user_id_unique'), false);
+  const { rows } = await pool.query('SELECT 1 FROM schema_migrations WHERE name = $1', [MIGRATION_005]);
+  assert.equal(rows.length, 0, 'aborted migration must not record 005');
+
+  // Restore the shared test DB to the migrated state.
+  await pool.query('DELETE FROM students WHERE user_id = ANY($1)', [[firstUser, secondUser]]);
+  await pool.query('DELETE FROM users WHERE id = ANY($1)', [[firstUser, secondUser]]);
   await ensureMigrated();
 });
 

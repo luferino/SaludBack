@@ -4,15 +4,23 @@ import pg from 'pg';
 import config from '../../src/config.ts';
 import { createApp } from '../../src/app.ts';
 import { cleanDb } from './helpers/clean-db.js';
-import { seedAdmin, tokenForRole, expiredTokenForRole } from './helpers/admin-token.js';
+import {
+  ADMIN_ID,
+  seedAdmin,
+  seedUserWithPermissions,
+  tokenForRole,
+  tokenForRolePermissions,
+  expiredTokenForRole,
+} from './helpers/admin-token.js';
 
 /**
  * End-to-end wiring coverage: the REAL app factory used by index.ts mounts
  * /auth, /patients, /students and /teachers together with the shared pool,
- * repositories and unit of work. Since the AdminGuard era, register and the
- * alta endpoints require a verified admin Bearer token (401 without one,
- * 403 for non-admin callers); these tests prove the wiring enforces that
- * and that authorized alta still persists linked rows.
+ * repositories and unit of work. Every protected mount enforces its mapped
+ * permission via PermissionGuard (PG-003): 401 without a token, 403 without
+ * the permission, success for the admin token (which owns every implemented
+ * permission). These tests prove the wiring enforces that and that
+ * authorized alta still persists linked rows.
  */
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -93,7 +101,7 @@ test('the wiring mounts GET /auth/me behind authenticate + PermissionGuard (401/
   assert.equal('permissions' in me.body, false);
 });
 
-test('the wiring mounts authenticate + AdminGuard on POST /auth/register (401/403/201)', async () => {
+test('the wiring mounts authenticate + PermissionGuard(users:write) on POST /auth/register (401/403/201)', async () => {
   const payload = {
     username: 'wiringauth1',
     password: 'secret12345',
@@ -123,7 +131,7 @@ test('the wiring mounts authenticate + AdminGuard on POST /auth/register (401/40
   assert.equal(actorRows[0].created_by, adminId, 'register stamps created_by from the admin token sub (AUD-003)');
 });
 
-test('the wiring mounts authenticate + AdminGuard on POST /students (401/403/201)', async () => {
+test('the wiring mounts authenticate + PermissionGuard(students:write) on POST /students (401/403/201)', async () => {
   const payload = {
     username: 'wiringstu1',
     password: 'secret12345',
@@ -166,7 +174,7 @@ test('the wiring mounts authenticate + AdminGuard on POST /students (401/403/201
   assert.equal(students[0].user_id, users[0].id);
 });
 
-test('the wiring mounts authenticate + AdminGuard on POST /teachers (401/403/201)', async () => {
+test('the wiring mounts authenticate + PermissionGuard(teachers:write) on POST /teachers (401/403/201)', async () => {
   const payload = {
     username: 'wiringtea1',
     password: 'secret12345',
@@ -207,7 +215,7 @@ test('the wiring mounts authenticate + AdminGuard on POST /teachers (401/403/201
   assert.equal(teachers.length, 1);
 });
 
-test('the wiring mounts authenticate + AdminGuard on POST /patients (401/403/201)', async () => {
+test('the wiring mounts authenticate + PermissionGuard(patients:write) on POST /patients (401/403/201)', async () => {
   const payload = {
     documento: '99999999',
     nombres: 'Ana',
@@ -298,4 +306,262 @@ test('an expired token is rejected with 401 on a real alta endpoint (POST /stude
     ['WIRINGEXP'],
   );
   assert.equal(rows[0].n, 0, 'the students handler never ran for an expired token');
+});
+
+// --- PG-003: the protected mounts enforce the mapped PERMISSION, not the
+// admin ROLE. Each deny-side token carries the admin role but drops the
+// mapped write permission: the old AdminGuard let it through (role only),
+// the PermissionGuard must reject with 403 before the use case runs.
+
+test('POST /auth/register enforces users:write, not the admin role (PG-003)', async () => {
+  const payload = {
+    username: 'permreg1',
+    password: 'secret12345',
+    email: 'permreg1@example.com',
+  };
+
+  const denied = await post('/auth/register', payload, {
+    headers: {
+      authorization: `Bearer ${await tokenForRolePermissions('admin', ['students:write', 'profile:read'], ADMIN_ID)}`,
+    },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'FORBIDDEN');
+
+  const { rows } = await pool.query('SELECT count(*)::int AS n FROM users WHERE username = $1', [
+    'PERMREG1',
+  ]);
+  assert.equal(rows[0].n, 0, 'register must not run when users:write is missing');
+});
+
+test('a verified token holding users:write may register regardless of its role (PG-003)', async () => {
+  const { id: staffId, token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['users:write', 'profile:read'],
+  });
+
+  const res = await post(
+    '/auth/register',
+    {
+      username: 'permreg2',
+      password: 'secret12345',
+      email: 'permreg2@example.com',
+    },
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.body.role, 'estudiante');
+
+  const { rows } = await pool.query('SELECT created_by FROM users WHERE username = $1', [
+    'PERMREG2',
+  ]);
+  assert.equal(rows[0].created_by, staffId, 'created_by lands from the verified token sub');
+});
+
+test('POST /students enforces students:write, not the admin role (PG-003)', async () => {
+  const payload = {
+    username: 'permstu1',
+    password: 'secret12345',
+    nombres: 'Ana',
+    apellidos: 'Lopez',
+    codalumno: 'PERMSTU1',
+    email: 'permstu1@example.com',
+    celular: '+5491100000000',
+  };
+
+  const denied = await post('/students', payload, {
+    headers: {
+      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+    },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'FORBIDDEN');
+
+  const { rows } = await pool.query('SELECT count(*)::int AS n FROM students WHERE codalumno = $1', [
+    'PERMSTU1',
+  ]);
+  assert.equal(rows[0].n, 0, 'the students handler must not run when students:write is missing');
+});
+
+test('POST /teachers enforces teachers:write, not the admin role (PG-003)', async () => {
+  const payload = {
+    username: 'permtea1',
+    password: 'secret12345',
+    nombres: 'Maria',
+    apellidos: 'Ruiz',
+    email: 'permtea1@example.com',
+    celular: '+5491100000000',
+  };
+
+  const denied = await post('/teachers', payload, {
+    headers: {
+      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+    },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'FORBIDDEN');
+
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM teachers t JOIN users u ON u.id = t.user_id WHERE u.username = $1',
+    ['PERMTEA1'],
+  );
+  assert.equal(rows[0].n, 0, 'the teachers handler must not run when teachers:write is missing');
+});
+
+test('POST /patients enforces patients:write, not the admin role (PG-003)', async () => {
+  const payload = {
+    documento: '88888888',
+    nombres: 'Ana',
+    apellidos: 'Lopez',
+    fecha_nacimiento: '1990-04-12',
+    email: 'perm-pat@example.com',
+    celular: '+5491100000000',
+    sexo: 'F',
+    direccion: 'Av. Siempre Viva 742',
+  };
+
+  const denied = await post('/patients', payload, {
+    headers: {
+      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+    },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'FORBIDDEN');
+
+  const { rows } = await pool.query('SELECT count(*)::int AS n FROM patients WHERE documento = $1', [
+    '88888888',
+  ]);
+  assert.equal(rows[0].n, 0, 'the patients handler must not run when patients:write is missing');
+});
+
+test('GET /auth/me enforces profile:read, not the admin role (PG-003)', async () => {
+  const denied = await getMe({
+    headers: {
+      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write'], ADMIN_ID)}`,
+    },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'FORBIDDEN');
+});
+
+// --- PG-003 mapping discrimination: a token holding EXACTLY one write
+// permission must reach ONLY the mount mapped to that permission. The
+// existing PG-003 suite cannot tell the three alta guards apart (a
+// blanket guard or a swapped mapping leaves every existing test green),
+// so each alta mount is proven independently. Allow-side tokens are
+// seeded as real rows (created_by FK satisfied); deny-side assertions
+// reuse the same token, so a wrongly permissive guard fails with a clean
+// 201 instead of a 22P02 uuid-cast 500.
+
+const DISCRIMINATION_MOUNTS = {
+  students: {
+    path: '/students',
+    payload: {
+      username: 'discstu1',
+      password: 'secret12345',
+      nombres: 'Ana',
+      apellidos: 'Lopez',
+      codalumno: 'DISCSTU1',
+      email: 'discstu1@example.com',
+      celular: '+5491100000000',
+    },
+  },
+  teachers: {
+    path: '/teachers',
+    payload: {
+      username: 'disctea1',
+      password: 'secret12345',
+      nombres: 'Maria',
+      apellidos: 'Ruiz',
+      email: 'disctea1@example.com',
+      celular: '+5491100000000',
+    },
+  },
+  patients: {
+    path: '/patients',
+    payload: {
+      documento: '77777777',
+      nombres: 'Ana',
+      apellidos: 'Lopez',
+      fecha_nacimiento: '1990-04-12',
+      email: 'disc-pat@example.com',
+      celular: '+5491100000000',
+      sexo: 'F',
+      direccion: 'Av. Siempre Viva 742',
+    },
+  },
+};
+
+async function assertDenied(path, payload, token, requiredPermission) {
+  const res = await post(path, payload, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(res.status, 403, `${path} must require ${requiredPermission}`);
+  assert.equal(res.body.error.code, 'FORBIDDEN');
+}
+
+test('token with exactly students:write reaches only POST /students (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['students:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
+});
+
+test('token with exactly teachers:write reaches only POST /teachers (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['teachers:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
+});
+
+test('token with exactly patients:write reaches only POST /patients (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['patients:write'],
+  });
+
+  const allowed = await post(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(allowed.status, 201);
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+});
+
+test('a token holding only an inert claim is denied on all four write mounts (PG-003 mapping discrimination)', async () => {
+  const { token } = await seedUserWithPermissions(pool, {
+    role: 'estudiante',
+    permissions: ['materias:read'],
+  });
+
+  const register = await post(
+    '/auth/register',
+    {
+      username: 'discinert',
+      password: 'secret12345',
+      email: 'discinert@example.com',
+    },
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  assert.equal(register.status, 403, '/auth/register must require users:write');
+  assert.equal(register.body.error.code, 'FORBIDDEN');
+
+  await assertDenied(DISCRIMINATION_MOUNTS.students.path, DISCRIMINATION_MOUNTS.students.payload, token, 'students:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.teachers.path, DISCRIMINATION_MOUNTS.teachers.payload, token, 'teachers:write');
+  await assertDenied(DISCRIMINATION_MOUNTS.patients.path, DISCRIMINATION_MOUNTS.patients.payload, token, 'patients:write');
 });

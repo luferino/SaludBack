@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROLE_PERMISSIONS, permissionsForRole } from '../../src/modules/auth/domain/permissions.ts';
+// Namespace import so the file still loads while IMPLEMENTED_PERMISSIONS
+// does not exist yet (RED): property access on the namespace of a missing
+// named export yields undefined, so the first assertion throws a runtime
+// TypeError (still RED, just not at link time).
+import * as permissionsModule from '../../src/modules/auth/domain/permissions.ts';
 
 test('estudiante role maps to a non-empty permissions array', () => {
   const permissions = ROLE_PERMISSIONS.estudiante;
@@ -50,4 +55,35 @@ test('admin permissions follow the <resource>:<action> naming', () => {
 
 test('unknown roles yield no permissions', () => {
   assert.deepEqual(permissionsForRole('medico'), []);
+});
+
+test('IMPLEMENTED_PERMISSIONS pins exactly the five enforceable permissions (PG-001)', () => {
+  assert.deepEqual(
+    [...permissionsModule.IMPLEMENTED_PERMISSIONS],
+    ['users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read'],
+  );
+});
+
+test('every implemented permission is granted to the admin role (PG-001)', () => {
+  for (const permission of permissionsModule.IMPLEMENTED_PERMISSIONS) {
+    assert.ok(
+      ROLE_PERMISSIONS.admin.includes(permission),
+      `admin role must own ${permission} so admin access stays unchanged`,
+    );
+  }
+});
+
+test('inert claims (materias:read / turnos:read) are never part of the implemented set (PG-001)', () => {
+  const implemented = new Set(permissionsModule.IMPLEMENTED_PERMISSIONS);
+  assert.ok(!implemented.has('materias:read'), 'materias:read is inert: no guard may enforce it');
+  assert.ok(!implemented.has('turnos:read'), 'turnos:read is inert: no guard may enforce it');
+  // The inert claims MAY still appear in ROLE_PERMISSIONS and in tokens.
+  assert.ok(ROLE_PERMISSIONS.estudiante.includes('materias:read'));
+  assert.ok(ROLE_PERMISSIONS.estudiante.includes('turnos:read'));
+});
+
+test('implemented permissions follow the <resource>:<action> naming', () => {
+  for (const permission of permissionsModule.IMPLEMENTED_PERMISSIONS) {
+    assert.match(permission, /^[a-z]+:[a-z]+$/);
+  }
 });

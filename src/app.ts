@@ -14,7 +14,7 @@ import { PgStudentRepository } from './modules/students/infrastructure/repositor
 import { createTeacherRouter } from './modules/teachers/infrastructure/routes/teacher.routes.js';
 import { PgTeacherRepository } from './modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
-import { AdminGuard, PermissionGuard } from './modules/shared/application/guard.js';
+import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
 import { errorHandler } from './middleware/error-handler.js';
 
@@ -22,13 +22,14 @@ import { errorHandler } from './middleware/error-handler.js';
  * Production app factory (PR 4 wiring). Builds the shared pool-backed
  * repositories, hasher, token service and unit of work once and mounts every
  * router on one Express app: `/auth` (register/login/me/password recovery),
- * `/patients`, `/students` and `/teachers`. Register and the alta endpoints
- * sit behind `authenticate` (populates `req.auth`) + `AdminGuard` (403 for
- * non-admin callers); `GET /auth/me` sits behind `authenticate` +
- * `PermissionGuard('profile:read')` and reads the account fresh from the
- * database (PR-001). Login and password recovery stay unauthenticated.
- * The admin token `sub` flows into `created_by` through the default actor
- * hook once `req.auth` is set (AUD-003).
+ * `/patients`, `/students` and `/teachers`. Every protected mount enforces
+ * the permission mapped in PG-003 via `PermissionGuard` after `authenticate`
+ * populates `req.auth`: register -> `users:write`, students/teachers/patients
+ * -> their own write permission, `GET /auth/me` -> `profile:read`. The admin
+ * role owns every implemented permission through `ROLE_PERMISSIONS`, so
+ * admin behavior is unchanged. Login and password recovery stay
+ * unauthenticated. The verified token `sub` flows into `created_by` through
+ * the default actor hook once `req.auth` is set (AUD-003).
  */
 export function createApp(pool: Pool): express.Express {
   const repository = new PgUserRepository(pool);
@@ -63,25 +64,27 @@ export function createApp(pool: Pool): express.Express {
       mailer,
       clientUrl: config.clientUrl,
       resetTokenTtl: config.resetTokenTtl,
-      // Admin-only registration: authenticate FIRST (populates req.auth),
-      // AdminGuard evaluates it inside the register handler. Login and
-      // password recovery bypass both (they are the entry points).
-      // GET /me: authenticate + PermissionGuard('profile:read'), then a
-      // fresh DB read by the verified subject (PR-001).
-      guard: new AdminGuard(),
+      // Permission-only registration: authenticate FIRST (populates
+      // req.auth), PermissionGuard('users:write') evaluates inside the
+      // register handler (PG-003). Login and password recovery bypass both
+      // (they are the entry points). GET /me: authenticate +
+      // PermissionGuard('profile:read'), then a fresh DB read by the
+      // verified subject (PR-001).
+      guard: new PermissionGuard('users:write'),
       registerMiddleware: authenticate(tokenService),
       meMiddleware: authenticate(tokenService),
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
 
-  // Alta endpoints are admin-only: authenticate runs BEFORE the router so
-  // req.auth exists when AdminGuard evaluates and when getActor resolves
-  // created_by from the token sub (PAT-005, STU-005, TEA-004).
+  // Alta endpoints require their mapped write permission: authenticate runs
+  // BEFORE the router so req.auth exists when PermissionGuard evaluates and
+  // when getActor resolves created_by from the token sub (PG-003, STU-005,
+  // TEA-004, PAT-005).
   app.use(
     '/patients',
     authenticate(tokenService),
-    createPatientRouter({ repository: patientRepository, guard: new AdminGuard() }),
+    createPatientRouter({ repository: patientRepository, guard: new PermissionGuard('patients:write') }),
   );
   app.use(
     '/students',
@@ -91,7 +94,7 @@ export function createApp(pool: Pool): express.Express {
       userRepository: repository,
       hasher,
       unitOfWork,
-      guard: new AdminGuard(),
+      guard: new PermissionGuard('students:write'),
     }),
   );
   app.use(
@@ -102,7 +105,7 @@ export function createApp(pool: Pool): express.Express {
       userRepository: repository,
       hasher,
       unitOfWork,
-      guard: new AdminGuard(),
+      guard: new PermissionGuard('teachers:write'),
     }),
   );
 

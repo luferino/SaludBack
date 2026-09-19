@@ -1,10 +1,10 @@
 /**
- * Shared token fixtures for the AdminGuard era. Every protected suite
- * (auth/students/teachers/patients + wiring) mounts authenticate +
- * AdminGuard now, so requests need a REAL signed token from a REAL admin
- * row in the test DB. This mirrors the existing actor-fixture pattern
- * (INSERT a users row, sign with JwtTokenService) used by the older
- * authenticate tests.
+ * Shared token fixtures for the protected-route suites. Every protected
+ * suite (auth/students/teachers/patients + wiring) mounts authenticate +
+ * a policy guard (AdminGuard until slice B, then PermissionGuard), so
+ * requests need a REAL signed token from a REAL admin row in the test DB.
+ * This mirrors the existing actor-fixture pattern (INSERT a users row,
+ * sign with JwtTokenService) used by the older authenticate tests.
  */
 import config from '../../../src/config.ts';
 import { JwtTokenService } from '../../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
@@ -75,4 +75,51 @@ export async function expiredTokenForRole(role) {
     role,
     permissions: ['students:write'],
   });
+}
+
+/**
+ * Signs a token with explicit role + permissions claims (PG-003
+ * permission-semantics tests: "permission gate, not role gate"). The sub
+ * defaults to a non-queryable string: guard-level rejections never reach
+ * the DB. For deny-side proofs against the OLD guard (RED), pass a real
+ * UUID sub (e.g. ADMIN_ID) so the use case runs cleanly when the old
+ * role-based guard erroneously lets the request through.
+ */
+export async function tokenForRolePermissions(
+  role,
+  permissions,
+  sub = 'non-admin-id-0000-0000-0000-000000000000',
+) {
+  return tokenService().sign({
+    sub,
+    username: 'NONADMIN',
+    role,
+    permissions,
+  });
+}
+
+/** UUID of the seeded non-admin account used by the allow-side permission tests. */
+export const STAFF_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
+
+/**
+ * Seeds a real non-admin user row and returns a signed token for it
+ * carrying the given permissions. The subject is a queryable UUID backed
+ * by an actual row, so permission-allowed requests reach the use case and
+ * any `created_by` write satisfies the FK (PG-003 allow-side proof).
+ */
+export async function seedUserWithPermissions(pool, { role = 'estudiante', permissions = [] } = {}) {
+  // Idempotent: clear a previous run's row by id (and any leftover row
+  // that reused the username constant) before inserting fresh.
+  await pool.query('DELETE FROM users WHERE id = $1 OR username = $2', [STAFF_ID, 'STAFFBOOT']);
+  await pool.query(
+    'INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)',
+    [STAFF_ID, 'STAFFBOOT', 'not-a-real-hash', role],
+  );
+  const token = await tokenService().sign({
+    sub: STAFF_ID,
+    username: 'STAFFBOOT',
+    role,
+    permissions,
+  });
+  return { id: STAFF_ID, token };
 }

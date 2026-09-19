@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
 import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
+import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
 
 function createFakeTokenService(overrides = {}) {
   return {
@@ -65,6 +66,64 @@ test('a token without a sub claim leaves both sub and userId absent', async () =
   assert.equal(req.auth.sub, undefined);
   assert.equal(req.auth.userId, undefined);
   assert.deepEqual(req.auth, { role: 'estudiante', permissions: ['profile:read'] });
+});
+
+// --- Deploy-window backfill: tokens minted BEFORE the permissions claim
+// existed carry no `permissions` claim (or a malformed one). authenticate
+// must derive the claim from the role (the same origin LoginUser uses at
+// mint time) instead of defaulting to [] — otherwise PermissionGuard 403s
+// every protected mount (including real admins) until re-login. An array
+// claim that IS present still wins verbatim.
+
+test('a token without a permissions claim is backfilled from the role matrix', async () => {
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer legacy-token' },
+  });
+  const middleware = authenticate(
+    createFakeTokenService({
+      decoded: { role: 'admin' },
+    }),
+  );
+
+  await middleware(req, res, next);
+
+  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(req.auth.permissions, ROLE_PERMISSIONS.admin);
+});
+
+test('an explicit permissions claim wins verbatim even when the role implies more', async () => {
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer scoped-token' },
+  });
+  const middleware = authenticate(
+    createFakeTokenService({
+      decoded: { role: 'admin', permissions: ['students:write'] },
+    }),
+  );
+
+  await middleware(req, res, next);
+
+  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(req.auth.permissions, ['students:write']);
+});
+
+test('a non-array permissions claim is treated as missing and backfilled from the role', async () => {
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer malformed-claim-token' },
+  });
+  const middleware = authenticate(
+    createFakeTokenService({
+      decoded: { role: 'admin', permissions: 'x' },
+    }),
+  );
+
+  await middleware(req, res, next);
+
+  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(req.auth.permissions, ROLE_PERMISSIONS.admin);
 });
 
 test('missing Authorization header rejects with 401 and does not call verify', async () => {

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError } from '../../../shared/domain/errors.js';
 import type { TokenServicePort } from '../../application/auth.ports.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
+import { permissionsForRole } from '../../domain/permissions.js';
 
 /**
  * Token-verification middleware. Reads a Bearer token from the
@@ -9,9 +10,14 @@ import type { AuthenticatedRequest } from '../../../shared/application/authentic
  * exposes `req.auth = { role, permissions, sub, userId }` to downstream
  * handlers, where `sub`/`userId` are the verified token subject (user id)
  * when the token carries a `sub` claim. When the token has no `sub` claim
- * both fields stay absent (AUTH-002). Missing, malformed, expired or
- * otherwise invalid tokens are converted to an {@link UnauthorizedError}
- * so the error handler responds 401 and the protected handler never runs.
+ * both fields stay absent (AUTH-002). A missing or non-array `permissions`
+ * claim (pre-claim tokens minted before the permission claim existed) is
+ * backfilled from `permissionsForRole(role)` — the same origin LoginUser
+ * uses at mint time — so protected mounts keep working without a forced
+ * re-login; an array claim that IS present wins verbatim. Missing,
+ * malformed, expired or otherwise invalid tokens are converted to an
+ * {@link UnauthorizedError} so the error handler responds 401 and the
+ * protected handler never runs.
  */
 export function authenticate(tokenService: TokenServicePort) {
   return async function authenticateMiddleware(
@@ -29,9 +35,12 @@ export function authenticate(tokenService: TokenServicePort) {
     try {
       const decoded = await tokenService.verify(token);
       const authReq = req as AuthenticatedRequest;
+      const role = typeof decoded.role === 'string' ? decoded.role : '';
       authReq.auth = {
-        role: typeof decoded.role === 'string' ? decoded.role : '',
-        permissions: Array.isArray(decoded.permissions) ? (decoded.permissions as string[]) : [],
+        role,
+        permissions: Array.isArray(decoded.permissions)
+          ? (decoded.permissions as string[])
+          : [...permissionsForRole(role)],
       };
       if (typeof decoded.sub === 'string') {
         authReq.auth.sub = decoded.sub;

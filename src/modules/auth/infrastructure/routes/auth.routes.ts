@@ -4,9 +4,11 @@ import { RegisterUser } from '../../application/register-user.usecase.js';
 import { LoginUser } from '../../application/login-user.usecase.js';
 import { RequestPasswordReset } from '../../application/request-password-reset.usecase.js';
 import { ResetPassword } from '../../application/reset-password.usecase.js';
+import { GetCurrentUser } from '../../application/get-current-user.usecase.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { UserRepositoryPort, PasswordHasherPort, TokenServicePort, ResetTokenRepositoryPort, MailerPort } from '../../application/auth.ports.js';
 import type { Guard } from '../../../shared/application/guard.js';
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
 
 export interface AuthRouterDeps {
@@ -25,6 +27,18 @@ export interface AuthRouterDeps {
    * stay unauthenticated. Runs BEFORE the guard inside the handler.
    */
   registerMiddleware?: RequestHandler;
+  /**
+   * Optional middleware mounted in front of `GET /me` (e.g.
+   * `authenticate(tokenService)`). The `/me` route is only mounted when
+   * BOTH `meMiddleware` and `meGuard` are provided, so the read stays
+   * unmounted until wiring explicitly arms it (PR-001).
+   */
+  meMiddleware?: RequestHandler;
+  /**
+   * Optional policy guard evaluated inside the `/me` handler after
+   * `meMiddleware` (e.g. `new PermissionGuard('profile:read')`).
+   */
+  meGuard?: Guard;
   /**
    * Resolves the acting user id for `created_by` attribution on register
    * (default: the verified token `sub`/`userId` from `req.auth` —
@@ -51,6 +65,8 @@ export function createAuthRouter({
   resetTokenTtl,
   guard = new OpenGuard(),
   registerMiddleware,
+  meMiddleware,
+  meGuard,
   getActor = defaultGetActor,
 }: AuthRouterDeps): Router {
   const router = Router();
@@ -64,6 +80,7 @@ export function createAuthRouter({
     resetTokenTtl,
   });
   const resetPassword = new ResetPassword({ repository, resetTokenRepository, hasher });
+  const getCurrentUser = new GetCurrentUser({ repository });
 
   const registerPreHandlers = registerMiddleware ? [registerMiddleware] : [];
   router.post('/register', ...registerPreHandlers, async (req: Request, res: Response) => {
@@ -85,6 +102,20 @@ export function createAuthRouter({
     });
     res.status(200).json(result);
   });
+
+  // GET /me stays unmounted until wiring provides BOTH the auth middleware
+  // and the policy guard. The payload is built from a fresh DB read by the
+  // verified subject (never from JWT claims) and carries exactly
+  // { username, email, role } (PR-001).
+  if (meMiddleware && meGuard) {
+    router.get('/me', meMiddleware, async (req: Request, res: Response) => {
+      await meGuard.authorize(req);
+      const authReq = req as AuthenticatedRequest;
+      const userId = authReq.auth?.userId ?? authReq.auth?.sub;
+      const currentUser = await getCurrentUser.execute({ userId });
+      res.status(200).json(currentUser);
+    });
+  }
 
   router.post('/forgot-password', async (req: Request, res: Response) => {
     const result = await requestPasswordReset.execute({

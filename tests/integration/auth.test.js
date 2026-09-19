@@ -12,10 +12,10 @@ import { BcryptHasher } from '../../src/modules/auth/infrastructure/services/bcr
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
-import { AdminGuard } from '../../src/modules/shared/application/guard.ts';
+import { AdminGuard, PermissionGuard } from '../../src/modules/shared/application/guard.ts';
 import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
 import { cleanDb } from './helpers/clean-db.js';
-import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
+import { seedAdmin, tokenForRole, expiredTokenForRole } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -48,21 +48,21 @@ const mailer = new RecordingMailer();
 function buildApp(guardOverride) {
   const app = express();
   app.use(express.json());
+  const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   app.use(
     '/auth',
     createAuthRouter({
       repository: new PgUserRepository(pool),
       hasher: new BcryptHasher(config.bcryptCost),
-      tokenService: new JwtTokenService({
-        secret: config.jwtSecret,
-        expiresIn: config.jwtExpiresIn,
-      }),
+      tokenService,
       resetTokenRepository: new PgResetTokenRepository(pool, config.resetTokenMaxOutstanding),
       mailer,
       clientUrl: config.clientUrl,
       resetTokenTtl: config.resetTokenTtl,
       guard: guardOverride ?? new AdminGuard(),
-      registerMiddleware: authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
+      registerMiddleware: authenticate(tokenService),
+      meMiddleware: authenticate(tokenService),
+      meGuard: new PermissionGuard('profile:read'),
     }),
   );
   app.use(errorHandler);
@@ -394,6 +394,114 @@ test('protected route rejects missing, malformed and expired tokens with 401', a
   }
 
   await new Promise((resolve) => protectedServer.close(resolve));
+});
+
+// --- GET /auth/me (PR-001 / PR-002) ---
+
+test('GET /auth/me returns exactly username, email and role for the profile-less admin (200, PR-001)', async () => {
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json();
+  assert.deepEqual(body, { username: 'ADMINBOOT', email: null, role: 'admin' });
+  assert.deepEqual(Object.keys(body).sort(), ['email', 'role', 'username']);
+  assert.equal(body.passwordHash, undefined);
+  assert.equal('id' in body, false);
+  assert.equal('sub' in body, false);
+  assert.equal('permissions' in body, false);
+  assert.equal('createdBy' in body, false);
+});
+
+test('GET /auth/me without a token is rejected with 401 and the read does not run (PR-002)', async () => {
+  const res = await fetch(`${baseUrl}/auth/me`);
+  assert.equal(res.status, 401);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+  assert.equal(body.error.message, 'Invalid or missing token');
+});
+
+test('GET /auth/me with an expired token is rejected with 401 (PR-002)', async () => {
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${await expiredTokenForRole('admin')}` },
+  });
+  assert.equal(res.status, 401);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+  assert.equal(body.error.message, 'Invalid or missing token');
+});
+
+test('GET /auth/me rejects a verified token whose userId matches no row with 401 (PR-002)', async () => {
+  const signer = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
+  const token = await signer.sign({
+    sub: 'ffffffff-ffff-4fff-9fff-ffffffffffff',
+    username: 'GHOST',
+    role: 'estudiante',
+    permissions: ['profile:read'],
+  });
+
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(res.status, 401);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+});
+
+test('GET /auth/me rejects a verified token whose userId is a non-UUID sub with 401, not 500 (PR-002)', async () => {
+  // tokenForRole signs an intentionally non-queryable sub (40-char
+  // non-UUID string). The use case must reject the malformed identity
+  // BEFORE the DB read — otherwise the WHERE id = $1 uuid cast raises
+  // Postgres 22P02 and the error handler answers 500.
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${await tokenForRole('estudiante')}` },
+  });
+  assert.equal(res.status, 401);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+  assert.equal(body.error.message, 'Invalid or missing token');
+});
+
+test('GET /auth/me rejects a verified token without profile:read with 403 (PR-002)', async () => {
+  const signer = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
+  const token = await signer.sign({
+    sub: 'no-profile-0000-0000-0000-000000000000',
+    username: 'NOPROFILE',
+    role: 'admin',
+    permissions: ['users:write'],
+  });
+
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(res.status, 403);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'FORBIDDEN');
+});
+
+test('GET /auth/me reads the email fresh from the database, not from token claims (PR-001)', async () => {
+  await register({ username: 'freshme', password: 'secret12345', email: 'old@example.com' });
+  const { body: loginBody } = await login({ username: 'freshme', password: 'secret12345' });
+
+  await pool.query('UPDATE users SET email = $1 WHERE username = $2', [
+    'new@example.com',
+    'FRESHME',
+  ]);
+
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${loginBody.token}` },
+  });
+  assert.equal(res.status, 200);
+
+  const body = await res.json();
+  assert.deepEqual(body, { username: 'FRESHME', email: 'new@example.com', role: 'estudiante' });
+  assert.deepEqual(Object.keys(body).sort(), ['email', 'role', 'username']);
 });
 
 // --- password recovery (still unauthenticated, unchanged) ---

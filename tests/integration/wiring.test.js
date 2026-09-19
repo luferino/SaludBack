@@ -30,6 +30,11 @@ async function post(path, body, options = {}) {
   return { status: res.status, body: await res.json() };
 }
 
+async function getMe(options = {}) {
+  const res = await fetch(`${baseUrl}/auth/me`, options);
+  return { status: res.status, body: await res.json() };
+}
+
 /** Default admin-authorized POST; override headers via options. */
 async function postAsAdmin(path, body, options = {}) {
   return post(path, body, {
@@ -65,6 +70,27 @@ test('GET / answers the heartbeat (index wiring boots the app)', async () => {
   const res = await fetch(`${baseUrl}/`);
   assert.equal(res.status, 200);
   assert.equal(await res.text(), 'Hello, World!');
+});
+
+test('the wiring mounts GET /auth/me behind authenticate + PermissionGuard (401/200, PR-001)', async () => {
+  const noToken = await getMe();
+  assert.equal(noToken.status, 401);
+  assert.equal(noToken.body.error.code, 'UNAUTHORIZED');
+  assert.equal(noToken.body.error.message, 'Invalid or missing token');
+
+  const expired = await getMe({
+    headers: { authorization: `Bearer ${await expiredTokenForRole('admin')}` },
+  });
+  assert.equal(expired.status, 401);
+  assert.equal(expired.body.error.code, 'UNAUTHORIZED');
+
+  const me = await getMe({ headers: { authorization: `Bearer ${adminToken}` } });
+  assert.equal(me.status, 200);
+  assert.deepEqual(me.body, { username: 'ADMINBOOT', email: null, role: 'admin' });
+  assert.deepEqual(Object.keys(me.body).sort(), ['email', 'role', 'username']);
+  assert.equal(me.body.passwordHash, undefined);
+  assert.equal('sub' in me.body, false);
+  assert.equal('permissions' in me.body, false);
 });
 
 test('the wiring mounts authenticate + AdminGuard on POST /auth/register (401/403/201)', async () => {

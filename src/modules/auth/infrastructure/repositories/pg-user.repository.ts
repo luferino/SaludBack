@@ -46,6 +46,14 @@ export class PgUserRepository implements UserRepositoryPort {
     return rows.length === 0 ? null : rowToUser(rows[0]);
   }
 
+  async findById(userId: string): Promise<User | null> {
+    const { rows } = await this.pool.query<UserRow>(
+      `SELECT ${USER_COLUMNS} FROM users WHERE id = $1`,
+      [userId],
+    );
+    return rows.length === 0 ? null : rowToUser(rows[0]);
+  }
+
   async create(user: User, client?: Queryable): Promise<User> {
     const db = client ?? this.pool;
     const { rows } = await db.query<UserRow>(

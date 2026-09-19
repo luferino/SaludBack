@@ -8,6 +8,7 @@
  */
 import config from '../../../src/config.ts';
 import { JwtTokenService } from '../../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { ROLE_PERMISSIONS } from '../../../src/modules/auth/domain/permissions.ts';
 
 export const ADMIN_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
@@ -31,12 +32,22 @@ export async function seedAdmin(pool) {
     sub: ADMIN_ID,
     username: 'ADMINBOOT',
     role: 'admin',
-    permissions: ['users:write', 'students:write', 'teachers:write', 'patients:write'],
+    // Derive from the pinned matrix (PG-003) so the admin token carries
+    // every granted permission, including profile:read for GET /auth/me.
+    permissions: [...ROLE_PERMISSIONS.admin],
   });
   return { id: ADMIN_ID, token };
 }
 
-/** Signs a token for an arbitrary role (non-admin callers for the 403 cases). */
+/**
+ * Signs a token for an arbitrary role (non-admin callers for the 403
+ * cases). The `sub` is intentionally NOT a queryable user id: a 40-char
+ * non-UUID string. Endpoints that load the account by subject must
+ * reject it BEFORE the DB read (a Postgres uuid cast would raise 22P02).
+ * Guard-level 403 tests never reach the use case; the GET /auth/me
+ * non-UUID test relies on this malformed sub on purpose (PR-002:
+ * malformed identity must answer 401, no read, never 500).
+ */
 export async function tokenForRole(role) {
   return tokenService().sign({
     sub: 'non-admin-id-0000-0000-0000-000000000000',

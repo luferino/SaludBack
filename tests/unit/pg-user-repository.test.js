@@ -84,6 +84,45 @@ test('findByEmail maps a database row to a User', async () => {
   assert.equal(user.email, 'jperez@example.com');
 });
 
+test('findById returns null when no user matches the primary key', async () => {
+  const repo = new PgUserRepository(createFakePool(async () => ({ rows: [] })));
+  assert.equal(await repo.findById('ghost-id'), null);
+});
+
+test('findById queries users by primary key and maps the full row to a User', async () => {
+  const repo = new PgUserRepository(
+    createFakePool(async (text, params) => {
+      assert.match(text, /FROM users WHERE id = \$\d+/);
+      assert.deepEqual(params, ['uuid-1']);
+      return {
+        rows: [
+          {
+            id: 'uuid-1',
+            username: 'jperez',
+            password_hash: 'hashed-value',
+            role: 'estudiante',
+            email: 'jperez@example.com',
+            created_at: CREATED_AT,
+            created_by: 'actor-1',
+            updated_by: null,
+            updated_at: null,
+          },
+        ],
+      };
+    }),
+  );
+
+  const user = await repo.findById('uuid-1');
+  assert.ok(user instanceof User);
+  assert.equal(user.id, 'uuid-1');
+  assert.equal(user.username, 'jperez');
+  assert.equal(user.passwordHash, 'hashed-value');
+  assert.equal(user.role, 'estudiante');
+  assert.equal(user.email, 'jperez@example.com');
+  assert.equal(user.createdAt, CREATED_AT);
+  assert.equal(user.createdBy, 'actor-1');
+});
+
 test('create inserts the user and returns the persisted entity', async () => {
   const repo = new PgUserRepository(
     createFakePool(async (text, params) => {

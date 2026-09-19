@@ -45,3 +45,29 @@ export class AdminGuard extends Guard {
     }
   }
 }
+
+/**
+ * Permission-based policy guard. Requires the request to carry a verified
+ * `req.auth` whose `permissions` include the required permission. A request
+ * that never ran authentication (or failed it) is unauthorized (401); a
+ * verified caller without the permission is forbidden (403). Mounted AFTER
+ * `authenticate` so the middleware populates `req.auth` before the guard
+ * evaluates it. The permission is matched by exact string, so inert claims
+ * (e.g. `materias:read`) never satisfy a different required permission
+ * (PG-002).
+ */
+export class PermissionGuard extends Guard {
+  constructor(private readonly requiredPermission: string) {
+    super();
+  }
+
+  async authorize(request: Request): Promise<void> {
+    const authReq = request as AuthenticatedRequest;
+    if (!authReq.auth) {
+      throw new UnauthorizedError('Authentication required');
+    }
+    if (!authReq.auth.permissions.includes(this.requiredPermission)) {
+      throw new ForbiddenError(`Permission '${this.requiredPermission}' required`);
+    }
+  }
+}

@@ -24,7 +24,7 @@ test('returns exactly username, email and role for an existing user (PR-001)', a
     },
   });
 
-  const result = await useCase.execute({ userId: 'uuid-1' });
+  const result = await useCase.execute({ userId: 'aaaaaaaa-aaaa-4aaa-9aaa-aaaaaaaaaaaa' });
   assert.deepEqual(Object.keys(result).sort(), ['email', 'role', 'username']);
   assert.deepEqual(result, { username: 'jperez', email: 'jperez@example.com', role: 'estudiante' });
   assert.equal('passwordHash' in result, false);
@@ -49,7 +49,7 @@ test('throws UnauthorizedError (401) when the user id matches no row (PR-002)', 
   const useCase = new GetCurrentUser({ repository: { findById: async () => null } });
 
   await assert.rejects(
-    () => useCase.execute({ userId: 'ghost-id' }),
+    () => useCase.execute({ userId: 'ffffffff-ffff-4fff-9fff-ffffffffffff' }),
     (error) => {
       assert.ok(error instanceof UnauthorizedError);
       assert.equal(error.statusCode, 401);
@@ -79,4 +79,55 @@ test('throws UnauthorizedError (401) without touching the database when no user 
     },
   );
   assert.equal(reads, 0, 'a missing identity must not trigger a database read');
+});
+
+test('throws UnauthorizedError (401) without touching the database when the user id is not a UUID (PR-002)', async () => {
+  let reads = 0;
+  const useCase = new GetCurrentUser({
+    repository: {
+      findById: async () => {
+        reads += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => useCase.execute({ userId: 'not-a-uuid' }),
+    (error) => {
+      assert.ok(error instanceof UnauthorizedError);
+      assert.equal(error.statusCode, 401);
+      assert.equal(error.code, 'UNAUTHORIZED');
+      assert.equal(error.message, 'Invalid or missing token');
+      return true;
+    },
+  );
+  assert.equal(reads, 0, 'a malformed identity must not trigger a database read');
+});
+
+test('throws UnauthorizedError (401) for a UUID-shaped but invalid sub, with no DB read (PR-002)', async () => {
+  // Mirrors the tokenForRole fixture sub: 40-char string that looks
+  // uuid-ish but is not a valid UUID (non-hex chars, wrong length). It
+  // must be rejected before the DB read — otherwise Postgres raises
+  // 22P02 on the uuid cast and the endpoint answers 500.
+  let reads = 0;
+  const useCase = new GetCurrentUser({
+    repository: {
+      findById: async () => {
+        reads += 1;
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => useCase.execute({ userId: 'non-admin-id-0000-0000-0000-000000000000' }),
+    (error) => {
+      assert.ok(error instanceof UnauthorizedError);
+      assert.equal(error.statusCode, 401);
+      assert.equal(error.code, 'UNAUTHORIZED');
+      return true;
+    },
+  );
+  assert.equal(reads, 0, 'a UUID-shaped but invalid identity must not trigger a database read');
 });

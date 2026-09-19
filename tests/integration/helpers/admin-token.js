@@ -39,7 +39,15 @@ export async function seedAdmin(pool) {
   return { id: ADMIN_ID, token };
 }
 
-/** Signs a token for an arbitrary role (non-admin callers for the 403 cases). */
+/**
+ * Signs a token for an arbitrary role (non-admin callers for the 403
+ * cases). The `sub` is intentionally NOT a queryable user id: a 40-char
+ * non-UUID string. Endpoints that load the account by subject must
+ * reject it BEFORE the DB read (a Postgres uuid cast would raise 22P02).
+ * Guard-level 403 tests never reach the use case; the GET /auth/me
+ * non-UUID test relies on this malformed sub on purpose (PR-002:
+ * malformed identity must answer 401, no read, never 500).
+ */
 export async function tokenForRole(role) {
   return tokenService().sign({
     sub: 'non-admin-id-0000-0000-0000-000000000000',

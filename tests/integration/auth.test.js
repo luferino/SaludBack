@@ -452,6 +452,21 @@ test('GET /auth/me rejects a verified token whose userId matches no row with 401
   assert.equal(body.error.code, 'UNAUTHORIZED');
 });
 
+test('GET /auth/me rejects a verified token whose userId is a non-UUID sub with 401, not 500 (PR-002)', async () => {
+  // tokenForRole signs an intentionally non-queryable sub (40-char
+  // non-UUID string). The use case must reject the malformed identity
+  // BEFORE the DB read — otherwise the WHERE id = $1 uuid cast raises
+  // Postgres 22P02 and the error handler answers 500.
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { authorization: `Bearer ${await tokenForRole('estudiante')}` },
+  });
+  assert.equal(res.status, 401);
+
+  const body = await res.json();
+  assert.equal(body.error.code, 'UNAUTHORIZED');
+  assert.equal(body.error.message, 'Invalid or missing token');
+});
+
 test('GET /auth/me rejects a verified token without profile:read with 403 (PR-002)', async () => {
   const signer = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await signer.sign({

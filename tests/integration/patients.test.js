@@ -7,7 +7,7 @@ import { createPatientRouter } from '../../src/modules/patients/infrastructure/r
 import { PgPatientRepository } from '../../src/modules/patients/infrastructure/repositories/pg-patient.repository.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
-import { AdminGuard } from '../../src/modules/shared/application/guard.ts';
+import { PermissionGuard } from '../../src/modules/shared/application/guard.ts';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
 import { cleanDb } from './helpers/clean-db.js';
 import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
@@ -41,7 +41,10 @@ const VALID_PAYLOAD = {
 
 /**
  * Production-like stack: authenticate (populates req.auth) then the router,
- * whose handler runs AdminGuard and resolves created_by from the token sub.
+ * whose handler runs PermissionGuard('patients:write') and resolves
+ * created_by from the token sub — mirrors src/app.ts, which mounts
+ * PermissionGuard('patients:write') behind authenticate on POST /patients
+ * (PAT-005).
  */
 function buildApp(overrides = {}) {
   const app = express();
@@ -51,7 +54,7 @@ function buildApp(overrides = {}) {
     authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
     createPatientRouter({
       repository: overrides.repository ?? new PgPatientRepository(pool),
-      guard: new AdminGuard(),
+      guard: new PermissionGuard('patients:write'),
     }),
   );
   app.use(errorHandler);

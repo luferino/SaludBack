@@ -308,6 +308,64 @@ test('an expired token is rejected with 401 on a real alta endpoint (POST /stude
   assert.equal(rows[0].n, 0, 'the students handler never ran for an expired token');
 });
 
+test('an expired token is rejected with 401 on a real alta endpoint (POST /teachers)', async () => {
+  const res = await post(
+    '/teachers',
+    {
+      username: 'expiredtea',
+      password: 'secret12345',
+      nombres: 'Maria',
+      apellidos: 'Ruiz',
+      email: 'expiredtea@example.com',
+      celular: '+5491100000000',
+    },
+    { headers: { authorization: `Bearer ${await expiredTokenForRole('admin')}` } },
+  );
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error.code, 'UNAUTHORIZED');
+  assert.equal(
+    res.body.error.message,
+    'Invalid or missing token',
+    'an expired token is rejected BY authenticate (token verification), not by a missing auth context',
+  );
+
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM teachers t JOIN users u ON u.id = t.user_id WHERE u.username = $1',
+    ['EXPIREDTEA'],
+  );
+  assert.equal(rows[0].n, 0, 'the teachers handler never ran for an expired token (TEA-004)');
+});
+
+test('an expired token is rejected with 401 on a real alta endpoint (POST /patients)', async () => {
+  const res = await post(
+    '/patients',
+    {
+      documento: '66666666',
+      nombres: 'Ana',
+      apellidos: 'Lopez',
+      fecha_nacimiento: '1990-04-12',
+      email: 'expiredpat@example.com',
+      celular: '+5491100000000',
+      sexo: 'F',
+      direccion: 'Av. Siempre Viva 742',
+    },
+    { headers: { authorization: `Bearer ${await expiredTokenForRole('admin')}` } },
+  );
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error.code, 'UNAUTHORIZED');
+  assert.equal(
+    res.body.error.message,
+    'Invalid or missing token',
+    'an expired token is rejected BY authenticate (token verification), not by a missing auth context',
+  );
+
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM patients WHERE documento = $1',
+    ['66666666'],
+  );
+  assert.equal(rows[0].n, 0, 'the patients handler never ran for an expired token (PAT-005)');
+});
+
 // --- PG-003: the protected mounts enforce the mapped PERMISSION, not the
 // admin ROLE. Each deny-side token carries the admin role but drops the
 // mapped write permission: the old AdminGuard let it through (role only),

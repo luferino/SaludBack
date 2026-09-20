@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Staff-originated entry of patients' personal data (`alta de datos personales`) via `POST /patients`. The route is admin-only: a verified `admin` Bearer token is required and the acting admin is recorded in `created_by`.
+Staff-originated entry of patients' personal data (`alta de datos personales`) via `POST /patients`. The route is admin-only: a verified Bearer token holding the `patients:write` permission (owned by the admin role) is required and the acting admin is recorded in `created_by`.
 
 ## Requirements
 
@@ -90,8 +90,8 @@ The create flow MUST record the acting admin in `created_by`. The route factory 
 
 ### Requirement: PAT-005: Admin-Only Guard
 
-`POST /patients` MUST require a verified `admin` Bearer token (token verified by `authenticate`, policy enforced by `AdminGuard`). A missing, malformed, or expired token MUST respond 401 with the message `Invalid or missing token` and the create MUST NOT run; a verified non-admin token MUST respond 403.
-(Previously: the seam was default-open and a `pacientes:write` permission guard was left as a non-goal.)
+`POST /patients` MUST require a verified Bearer token holding the `patients:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(patients:write)`). A missing, malformed, or expired token MUST respond 401 with the message `Invalid or missing token` and the create MUST NOT run; a verified token without `patients:write` MUST respond 403. The `admin` role owns `patients:write` via `ROLE_PERMISSIONS`, so admin access is unchanged.
+(Previously: the policy was enforced by `AdminGuard`; per-resource `patients:write` scoping was listed as a Non-Goal — now realized by this requirement.)
 
 #### Scenario: Expired token rejected
 
@@ -99,6 +99,20 @@ The create flow MUST record the acting admin in `created_by`. The route factory 
 - WHEN a client calls `POST /patients` with it
 - THEN the response is 401 with the message `Invalid or missing token`
 - AND no patient is created
+
+#### Scenario: Token without patients:write rejected
+
+- GIVEN a verified Bearer token whose `permissions` do not include `patients:write`
+- WHEN a client calls `POST /patients` with it
+- THEN the response is 403 `FORBIDDEN`
+- AND no patient is created
+
+#### Scenario: Admin token still accepted
+
+- GIVEN a verified `admin` token and a valid payload
+- WHEN `POST /patients` is called with it
+- THEN the response is 201
+- AND the row is persisted
 
 ### Requirement: PAT-006: Response Contract
 
@@ -131,6 +145,5 @@ The `patients` table MUST gain nullable `updated_by` and `updated_at` columns wh
 ## Non-Goals
 
 - Clinical data, turnos, materias, patient-user linking.
-- Permission checks beyond the admin role gate (e.g. per-resource `pacientes:write` scoping).
 - Document types / per-type validation.
 - New env vars or dependencies.

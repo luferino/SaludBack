@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Staff-originated "alta en uno" creation of students via `POST /students`: one request creates the access account (`user`, role `estudiante`) and the `students` profile row together, or links the student to an existing account. The route is admin-only: a verified `admin` Bearer token is required and the acting admin is recorded in `created_by` on both the account and the profile row.
+Staff-originated "alta en uno" creation of students via `POST /students`: one request creates the access account (`user`, role `estudiante`) and the `students` profile row together, or links the student to an existing account. The route is admin-only: a verified Bearer token holding the `students:write` permission (owned by the admin role) is required and the acting admin is recorded in `created_by` on both the account and the profile row.
 
 ## Requirements
 
@@ -81,8 +81,8 @@ The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `em
 
 ### Requirement: STU-005: Admin-Only Guard and Actor Resolution
 
-`POST /students` MUST require a verified `admin` Bearer token (token verified by `authenticate`, policy enforced by `AdminGuard`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified non-admin token MUST respond 403. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `students` row.
-(Previously: the seam was default-open and `created_by` fell back to NULL for anonymous or invalid tokens.)
+`POST /students` MUST require a verified Bearer token holding the `students:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(students:write)`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified token without `students:write` MUST respond 403. The `admin` role owns `students:write` via `ROLE_PERMISSIONS`, so admin access is unchanged. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `students` row.
+(Previously: the policy was enforced by `AdminGuard` — any verified token whose role was not `admin` was rejected with 403.)
 
 #### Scenario: Missing token rejected
 
@@ -91,9 +91,9 @@ The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `em
 - THEN the response is 401 `UNAUTHORIZED`
 - AND nothing is persisted
 
-#### Scenario: Non-admin token rejected
+#### Scenario: Token without students:write rejected
 
-- GIVEN a verified Bearer token whose role is not `admin`
+- GIVEN a verified Bearer token whose `permissions` do not include `students:write`
 - WHEN a client calls `POST /students` with it
 - THEN the response is 403 `FORBIDDEN`
 - AND nothing is persisted
@@ -111,6 +111,39 @@ The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `em
 - WHEN `POST /students` is called with it
 - THEN the response is 401 with the message `Invalid or missing token`
 - AND nothing is persisted
+
+#### Scenario: Admin token still accepted
+
+- GIVEN a verified `admin` token and a valid payload
+- WHEN `POST /students` is called with it
+- THEN the response is 201
+- AND exactly one user and one `students` row are persisted
+
+### Requirement: STU-006: One Profile Per Account
+
+The system MUST enforce at most one `students` row per account: the `students.user_id` column MUST be UNIQUE. A database migration MUST add this constraint and MUST first run a pre-migration duplicate check over existing rows. When duplicates exist (rows sharing a `user_id`), the migration MUST abort BEFORE applying any DDL, MUST fail loudly listing every affected `user_id` (with its `students.id`), and MUST NOT repair, merge, or delete data automatically. When no duplicates exist, the migration MUST apply the constraint.
+
+#### Scenario: Clean data migrates
+
+- GIVEN no existing `students` rows share a `user_id`
+- WHEN the migration pre-check runs
+- THEN the migration proceeds
+- AND a UNIQUE constraint on `students.user_id` is applied
+
+#### Scenario: Duplicates abort the migration
+
+- GIVEN two existing `students` rows with the same `user_id`
+- WHEN the migration pre-check runs
+- THEN the migration aborts before any DDL
+- AND the failure lists the affected `user_id`
+- AND no row is merged or deleted automatically
+
+#### Scenario: Second profile impossible
+
+- GIVEN a user already linked to a `students` row
+- WHEN an insert attempts a second `students` row for the same `user_id`
+- THEN the database rejects the insert on the unique constraint
+- AND no second row exists
 
 ## Non-Goals
 

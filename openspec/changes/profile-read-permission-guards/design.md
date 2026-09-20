@@ -80,11 +80,15 @@ export class PermissionGuard extends Guard {
 
 ```sql
 DO $$DECLARE d text;BEGIN
-  SELECT string_agg(format('%s -> {%s}', user_id, string_agg(id::text, ', ')), '; ')
-    INTO d FROM students GROUP BY user_id HAVING count(*) > 1;
+  SELECT string_agg(format('%s -> {%s}', user_id, ids), '; ')
+    INTO d
+    FROM (SELECT user_id, string_agg(id::text, ', ') AS ids
+          FROM students GROUP BY user_id HAVING count(*) > 1) dup;
   IF d IS NOT NULL THEN RAISE EXCEPTION 'students.user_id duplicates: %', d; END IF;
-  SELECT string_agg(format('%s -> {%s}', user_id, string_agg(id::text, ', ')), '; ')
-    INTO d FROM teachers GROUP BY user_id HAVING count(*) > 1;
+  SELECT string_agg(format('%s -> {%s}', user_id, ids), '; ')
+    INTO d
+    FROM (SELECT user_id, string_agg(id::text, ', ') AS ids
+          FROM teachers GROUP BY user_id HAVING count(*) > 1) dup;
   IF d IS NOT NULL THEN RAISE EXCEPTION 'teachers.user_id duplicates: %', d; END IF;
 END $$;
 ALTER TABLE students ADD CONSTRAINT students_user_id_unique UNIQUE (user_id);

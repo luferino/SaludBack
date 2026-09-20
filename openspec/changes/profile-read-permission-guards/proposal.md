@@ -15,7 +15,7 @@ The API has no read endpoints and its permission model is decorative: `ROLE_PERM
   - `PermissionGuard` (shared infra, mounted after `authenticate`): 401 when unauthenticated, 403 when the required permission is absent from `req.auth.permissions`.
   - Protected routes migrate to permission checks: register → `users:write`, students → `students:write`, teachers → `teachers:write`, patients → `patients:write`. Admin access preserved via `ROLE_PERMISSIONS` (admin owns every write perm). 401/403 outcomes identical to today.
   - Permission matrix pinned: implemented perms are the four write perms + `profile:read`.
-- **DECIDED (user confirmed)**: migration adding UNIQUE constraints on `students.user_id` / `teachers.user_id` to enforce the one-profile-per-account business rule (today a second profile can be linked to the same account). Includes a pre-migration duplicate-check/repair step so the constraint does not fail on existing rows.
+- **DECIDED (user confirmed)**: migration adding UNIQUE constraints on `students.user_id` / `teachers.user_id` to enforce the one-profile-per-account business rule (today a second profile can be linked to the same account). Includes a guarded pre-migration duplicate-check that aborts loudly with NO auto-repair if existing rows violate the constraint.
 
 ### Out of Scope
 - `materias:read` / `turnos:read` enforcement — teacher matrix was always TBD; stay as inert claims. **DECIDED (user confirmed): out of scope.**
@@ -58,7 +58,7 @@ Additive first: `findById` port+repo, `PermissionGuard` beside `AdminGuard` (sam
 |------|------------|------------|
 | Guard swap changes 403 semantics for non-admin tokens | Low | Identical outcomes spec-pinned; tests assert 401/403 per route |
 | `findById` leaks sensitive fields (hash) | Med | Entity `toJSON` whitelist reused; explicit response mapper |
-| Unique migration fails on existing dup rows | Med | Pre-migration dedupe/repair step (decided: include in this change) |
+| Unique migration fails on existing dup rows | Med | Guarded pre-migration duplicate-check aborts loudly, no auto-repair (decided: include in this change) |
 | Diff exceeds 400-line review budget | High | Tasks phase splits A/B + guard swaps into small tasks; chained PRs |
 
 ## Rollback Plan

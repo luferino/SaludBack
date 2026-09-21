@@ -11,6 +11,7 @@ import {
   tokenForRole,
   tokenForRolePermissions,
   expiredTokenForRole,
+  setRolePermissions,
 } from './helpers/admin-token.js';
 
 /**
@@ -378,9 +379,12 @@ test('POST /auth/register enforces users:write, not the admin role (PG-003)', as
     email: 'permreg1@example.com',
   };
 
+  // Create a role that genuinely lacks users:write in the DB.
+  await setRolePermissions(pool, 'test_deny', ['students:write', 'profile:read']);
+
   const denied = await post('/auth/register', payload, {
     headers: {
-      authorization: `Bearer ${await tokenForRolePermissions('admin', ['students:write', 'profile:read'], ADMIN_ID)}`,
+      authorization: `Bearer ${await tokenForRolePermissions('test_deny', ['students:write', 'profile:read'], ADMIN_ID)}`,
     },
   });
   assert.equal(denied.status, 403);
@@ -427,9 +431,12 @@ test('POST /students enforces students:write, not the admin role (PG-003)', asyn
     celular: '+5491100000000',
   };
 
+  // Create a role that genuinely lacks students:write in the DB.
+  await setRolePermissions(pool, 'test_deny', ['users:write', 'profile:read']);
+
   const denied = await post('/students', payload, {
     headers: {
-      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+      authorization: `Bearer ${await tokenForRolePermissions('test_deny', ['users:write', 'profile:read'], ADMIN_ID)}`,
     },
   });
   assert.equal(denied.status, 403);
@@ -451,9 +458,12 @@ test('POST /teachers enforces teachers:write, not the admin role (PG-003)', asyn
     celular: '+5491100000000',
   };
 
+  // Create a role that genuinely lacks teachers:write in the DB.
+  await setRolePermissions(pool, 'test_deny', ['users:write', 'profile:read']);
+
   const denied = await post('/teachers', payload, {
     headers: {
-      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+      authorization: `Bearer ${await tokenForRolePermissions('test_deny', ['users:write', 'profile:read'], ADMIN_ID)}`,
     },
   });
   assert.equal(denied.status, 403);
@@ -478,9 +488,12 @@ test('POST /patients enforces patients:write, not the admin role (PG-003)', asyn
     direccion: 'Av. Siempre Viva 742',
   };
 
+  // Create a role that genuinely lacks patients:write in the DB.
+  await setRolePermissions(pool, 'test_deny', ['users:write', 'profile:read']);
+
   const denied = await post('/patients', payload, {
     headers: {
-      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write', 'profile:read'], ADMIN_ID)}`,
+      authorization: `Bearer ${await tokenForRolePermissions('test_deny', ['users:write', 'profile:read'], ADMIN_ID)}`,
     },
   });
   assert.equal(denied.status, 403);
@@ -493,9 +506,12 @@ test('POST /patients enforces patients:write, not the admin role (PG-003)', asyn
 });
 
 test('GET /auth/me enforces profile:read, not the admin role (PG-003)', async () => {
+  // Create a role that genuinely lacks profile:read in the DB.
+  await setRolePermissions(pool, 'test_deny', ['users:write']);
+
   const denied = await getMe({
     headers: {
-      authorization: `Bearer ${await tokenForRolePermissions('admin', ['users:write'], ADMIN_ID)}`,
+      authorization: `Bearer ${await tokenForRolePermissions('test_deny', ['users:write'], ADMIN_ID)}`,
     },
   });
   assert.equal(denied.status, 403);

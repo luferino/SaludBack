@@ -64,6 +64,7 @@ export function createApp(pool: Pool): express.Express {
       repository,
       hasher,
       tokenService,
+      matrixReader,
       resetTokenRepository,
       mailer,
       clientUrl: config.clientUrl,

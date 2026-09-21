@@ -15,7 +15,7 @@ import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { AdminGuard, PermissionGuard } from '../../src/modules/shared/application/guard.ts';
 import { PgPermissionMatrixRepository } from '../../src/modules/auth/infrastructure/repositories/pg-permission-matrix.repository.ts';
 import { cleanDb } from './helpers/clean-db.js';
-import { seedAdmin, tokenForRole, expiredTokenForRole } from './helpers/admin-token.js';
+import { seedAdmin, tokenForRole, expiredTokenForRole, setRolePermissions } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -470,11 +470,16 @@ test('GET /auth/me rejects a verified token whose userId is a non-UUID sub with 
 });
 
 test('GET /auth/me rejects a verified token without profile:read with 403 (PR-002)', async () => {
+  // Use a custom role that genuinely lacks profile:read in the DB, so the
+  // PermissionGuard('profile:read') rejects before the use case runs.
+  const NO_PROFILE_ROLE = 'test_noprofile';
+  await setRolePermissions(pool, NO_PROFILE_ROLE, ['users:write']);
+
   const signer = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await signer.sign({
     sub: 'no-profile-0000-0000-0000-000000000000',
     username: 'NOPROFILE',
-    role: 'admin',
+    role: NO_PROFILE_ROLE,
     permissions: ['users:write'],
   });
 

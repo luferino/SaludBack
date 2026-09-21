@@ -103,7 +103,20 @@ export async function tokenForRolePermissions(
   });
 }
 
-/** UUID of the seeded non-admin account used by the allow-side permission tests. */
+/**
+ * Replaces the permission grants for a role (DELETE all + INSERT new).
+ * Order-independent: the set of permissions is what matters, not insertion
+ * order. Used by tests that need the DB to serve a specific permission set
+ * for a role so the authenticate middleware populates req.auth correctly
+ * (permission-matrix-in-db: the DB is the single source of truth).
+ */
+export async function setRolePermissions(pool, role, permissions) {
+  await pool.query('DELETE FROM role_permissions WHERE role = $1', [role]);
+  for (const perm of permissions) {
+    await pool.query('INSERT INTO role_permissions (role, permission) VALUES ($1, $2)', [role, perm]);
+  }
+}
+
 export const STAFF_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 
 /**
@@ -111,8 +124,16 @@ export const STAFF_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
  * carrying the given permissions. The subject is a queryable UUID backed
  * by an actual row, so permission-allowed requests reach the use case and
  * any `created_by` write satisfies the FK (PG-003 allow-side proof).
+ *
+ * Calls setRolePermissions to set the DB grants for the role BEFORE signing
+ * the token, so the authenticate middleware reads the correct permissions
+ * from the DB on every request (the token's permissions claim is advisory
+ * and ignored — the DB wins).
  */
 export async function seedUserWithPermissions(pool, { role = 'estudiante', permissions = [] } = {}) {
+  // Set the DB permissions for this role so the middleware reads the right set.
+  await setRolePermissions(pool, role, permissions);
+
   // Idempotent re-seed: clear the actor's leftovers before the row itself.
   // The profile rows it created (students/teachers/patients created_by) and
   // the child user rows stamped with it (users.created_by) must go first:

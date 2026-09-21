@@ -56,7 +56,7 @@ The response MUST contain exactly `id`, `nombres`, `apellidos`, `email`, `celula
 
 ### Requirement: TEA-004: Admin-Only Guard and Actor Resolution
 
-`POST /teachers` MUST require a verified Bearer token holding the `teachers:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(teachers:write)`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified token without `teachers:write` MUST respond 403. The `admin` role owns `teachers:write` via `ROLE_PERMISSIONS`, so admin access is unchanged. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `teachers` row.
+`POST /teachers` MUST require a verified Bearer token holding the `teachers:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(teachers:write)`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified token without `teachers:write` MUST respond 403. The `admin` role owns `teachers:write` via the seeded `role_permissions` table, so admin access is unchanged. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `teachers` row.
 (Previously: the policy was enforced by `AdminGuard` — any verified token whose role was not `admin` was rejected with 403.)
 
 #### Scenario: Missing token rejected

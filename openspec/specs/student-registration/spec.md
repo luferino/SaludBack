@@ -81,7 +81,7 @@ The response MUST contain exactly `id`, `nombres`, `apellidos`, `codalumno`, `em
 
 ### Requirement: STU-005: Admin-Only Guard and Actor Resolution
 
-`POST /students` MUST require a verified Bearer token holding the `students:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(students:write)`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified token without `students:write` MUST respond 403. The `admin` role owns `students:write` via `ROLE_PERMISSIONS`, so admin access is unchanged. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `students` row.
+`POST /students` MUST require a verified Bearer token holding the `students:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(students:write)`). A missing, malformed, or expired token MUST respond 401 and the handler MUST NOT run; a verified token without `students:write` MUST respond 403. The `admin` role owns `students:write` via the seeded `role_permissions` table, so admin access is unchanged. `created_by` MUST be the verified token subject (`req.auth` `sub`/`userId`) on both the account row and the `students` row.
 (Previously: the policy was enforced by `AdminGuard` — any verified token whose role was not `admin` was rejected with 403.)
 
 #### Scenario: Missing token rejected

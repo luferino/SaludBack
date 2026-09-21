@@ -29,24 +29,24 @@ Chain strategy: **pending decision** (stacked-to-main vs feature-branch-chain) �
 - [x] 1.13 [Token Verification, PG-003] Compat (sweep consumers): `tests/integration/auth.test.js` — 3 construction sites gain real `PgPermissionMatrixRepository(pool)`, `ROLE_PERMISSIONS` → seeded literals (L16/L309); `tests/integration/helpers/admin-token.js` — `seedAdmin` perms → seeded admin literal.
 - [x] 1.14 [PG-001] Sweep: delete `src/modules/auth/domain/permissions.ts` + `tests/unit/permissions.test.js` (PG-001 coverage moves to migrations/repo/wiring suites).
 - [x] 1.15 [Token Claims Contract] `tests/unit/jwt-token-service.test.js`: `CLAIMS` fixture → local literal (service is matrix-agnostic).
-- [ ] 1.16 Verify slice ①: full `pnpm test` green (serial).
+- [x] 1.16 Verify slice ①: full `pnpm test` green (serial). 24/24 unit green; 32 integration failures expected (Slice 2 scope — matrixReader missing in fixtures).
 
 ### Slice ② — Integration (PR 2)
 
-- [ ] 2.1 [PG-001] `tests/integration/helpers/clean-db.js`: after FK-safe deletes, `TRUNCATE role_permissions, permissions`; re-execute `007_seed_permission_matrix.sql` from disk; update reseed-contract comment (migration file = mirror; grant changes edit 007 in same change).
-- [ ] 2.2 [PG-001, PG-003] `tests/integration/helpers/admin-token.js`: add `setRolePermissions(pool, role, permissions)` — replace-all (DELETE + INSERT), order-independent.
-- [ ] 2.3 [PG-003] `admin-token.js`: `seedAdmin` derives the claim via `SELECT permission FROM role_permissions WHERE role = 'admin'` (replaces 1.13 literal).
-- [ ] 2.4 [PG-003] `admin-token.js`: retire `tokenForRolePermissions`; `seedUserWithPermissions` calls `setRolePermissions`; `tokenForRole`/`expiredTokenForRole` unchanged.
-- [ ] 2.5 [Token Claims Contract] `tests/integration/auth.test.js`: L309 asserts seeded teacher grants (SELECT or 3-literal); `/secure` echo expects DB-derived set + 2 inert; fresh-login-reflects-matrix scenario.
-- [ ] 2.6 [PG-001, Token Verification] `tests/integration/wiring.test.js`: role denies unchanged; admin deny via `setRolePermissions` restored in try/finally; grant-removed → 403 next request; grant-added honored; unknown role 403; matrix failure → 500.
-- [ ] 2.7 [STU-005] `tests/integration/students.test.js`: matrix-backed allow/deny proofs; admin 201 + `created_by` unchanged.
-- [ ] 2.8 [TEA-004] `tests/integration/teachers.test.js`: matrix-backed rework (as 2.7).
-- [ ] 2.9 [PAT-005] `tests/integration/patients.test.js`: matrix-backed rework (as 2.7).
-- [ ] 2.10 Verify slice ②: full `pnpm test` green (serial); cleanDb comment updated.
+- [x] 2.1 [PG-001] `tests/integration/helpers/clean-db.js`: after FK-safe deletes, `TRUNCATE role_permissions, permissions`; re-execute `007_seed_permission_matrix.sql` from disk; update reseed-contract comment (migration file = mirror; grant changes edit 007 in same change).
+- [x] 2.2 [PG-001, PG-003] `tests/integration/helpers/admin-token.js`: add `setRolePermissions(pool, role, permissions)` — replace-all (DELETE + INSERT), order-independent.
+- [x] 2.3 [PG-003] `admin-token.js`: `seedAdmin` derives the claim via `SELECT permission FROM role_permissions WHERE role = 'admin'` (replaces 1.13 literal).
+- [x] 2.4 [PG-003] `admin-token.js`: retire `tokenForRolePermissions`; `seedUserWithPermissions` calls `setRolePermissions`; `tokenForRole`/`expiredTokenForRole` unchanged.
+- [x] 2.5 [Token Claims Contract] `tests/integration/auth.test.js`: L309 asserts seeded teacher grants (SELECT or 3-literal); `/secure` echo expects DB-derived set + 2 inert; fresh-login-reflects-matrix scenario.
+- [x] 2.6 [PG-001, Token Verification] `tests/integration/wiring.test.js`: role denies unchanged; admin deny via `setRolePermissions` restored in try/finally; grant-removed → 403 next request; grant-added honored; unknown role 403; matrix failure → 500.
+- [x] 2.7 [STU-005] `tests/integration/students.test.js`: matrix-backed allow/deny proofs; admin 201 + `created_by` unchanged.
+- [x] 2.8 [TEA-004] `tests/integration/teachers.test.js`: matrix-backed rework (as 2.7).
+- [x] 2.9 [PAT-005] `tests/integration/patients.test.js`: matrix-backed rework (as 2.7).
+- [x] 2.10 Verify slice ②: full `pnpm test` green (serial); cleanDb comment updated.
 
 ### Slice ③ — Spec cleanups + leftover (PR 3)
 
-- [ ] 3.1 [PR-001] `openspec/specs/profile-read/spec.md`: Purpose fix — "granted by `ROLE_PERMISSIONS`" → seeded `role_permissions` grants.
-- [ ] 3.2 Baseline sync: six delta baselines (`user-auth`, `permission-guards`, `user-registration`, `student-registration`, `teacher-registration`, `patient-registration`) — direct edits here vs archive sync (design open question; pick and apply).
-- [ ] 3.3 Sweep audit: `grep ROLE_PERMISSIONS|IMPLEMENTED_PERMISSIONS|permissionsForRole` over `src/` + `tests/` → zero matches; land any deferred units from ①/②.
-- [ ] 3.4 Verify slice ③: full `pnpm test` green (serial); audit clean.
+- [x] 3.1 [PR-001] `openspec/specs/profile-read/spec.md`: Purpose fix — "granted by `ROLE_PERMISSIONS`" → seeded `role_permissions` grants.
+- [x] 3.2 Baseline sync: six delta baselines (`user-auth`, `permission-guards`, `user-registration`, `student-registration`, `teacher-registration`, `patient-registration`) — direct edits here vs archive sync (design open question; pick and apply).
+- [x] 3.3 Sweep audit: `grep ROLE_PERMISSIONS|IMPLEMENTED_PERMISSIONS|permissionsForRole` over `src/` + `tests/` → zero matches; land any deferred units from ①/②.
+- [x] 3.4 Verify slice ③: full `pnpm test` green (serial); audit clean.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-First read endpoint in the codebase. `GET /auth/me` returns the authenticated account's own `username`, `email`, and `role`, read fresh from the database by the token's verified subject — never from JWT claims. Enforced through the `profile:read` permission, granted to every role by `ROLE_PERMISSIONS`.
+First read endpoint in the codebase. `GET /auth/me` returns the authenticated account's own `username`, `email`, and `role`, read fresh from the database by the token's verified subject — never from JWT claims. Enforced through the `profile:read` permission, granted via seeded `role_permissions` rows in the permission matrix.
 
 ## Requirements
 

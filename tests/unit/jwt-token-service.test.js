@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
-import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
 
 const SECRET = 'unit-test-secret';
 const service = new JwtTokenService({ secret: SECRET, expiresIn: '2h' });
@@ -11,7 +10,7 @@ const CLAIMS = {
   sub: 'uuid-1',
   username: 'jperez',
   role: 'estudiante',
-  permissions: ROLE_PERMISSIONS.estudiante,
+  permissions: ['materias:read', 'profile:read', 'turnos:read'],
 };
 
 test('sign returns a token carrying the full claims contract', async () => {
@@ -21,7 +20,7 @@ test('sign returns a token carrying the full claims contract', async () => {
   assert.equal(decoded.sub, 'uuid-1');
   assert.equal(decoded.username, 'jperez');
   assert.equal(decoded.role, 'estudiante');
-  assert.deepEqual(decoded.permissions, ROLE_PERMISSIONS.estudiante);
+  assert.deepEqual(decoded.permissions, ['materias:read', 'profile:read', 'turnos:read']);
 });
 
 test('token carries iss, aud, iat and a future exp', async () => {

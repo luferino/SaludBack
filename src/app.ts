@@ -4,6 +4,7 @@ import config from './config.js';
 import { createAuthRouter } from './modules/auth/infrastructure/routes/auth.routes.js';
 import { PgUserRepository } from './modules/auth/infrastructure/repositories/pg-user.repository.js';
 import { PgResetTokenRepository } from './modules/auth/infrastructure/repositories/pg-reset-token.repository.js';
+import { PgPermissionMatrixRepository } from './modules/auth/infrastructure/repositories/pg-permission-matrix.repository.js';
 import { BcryptHasher } from './modules/auth/infrastructure/services/bcrypt-hasher.service.js';
 import { JwtTokenService } from './modules/auth/infrastructure/services/jwt-token.service.js';
 import { ConsoleMailer } from './modules/auth/infrastructure/services/console-mailer.service.js';
@@ -26,10 +27,12 @@ import { errorHandler } from './middleware/error-handler.js';
  * the permission mapped in PG-003 via `PermissionGuard` after `authenticate`
  * populates `req.auth`: register -> `users:write`, students/teachers/patients
  * -> their own write permission, `GET /auth/me` -> `profile:read`. The admin
- * role owns every implemented permission through `ROLE_PERMISSIONS`, so
- * admin behavior is unchanged. Login and password recovery stay
- * unauthenticated. The verified token `sub` flows into `created_by` through
- * the default actor hook once `req.auth` is set (AUD-003).
+ * role owns every implemented permission through its seeded
+ * `role_permissions` grants (PG-001), so admin behavior is unchanged. Login
+ * and password recovery stay unauthenticated. The verified token `sub`
+ * flows into `created_by` through the default actor hook once `req.auth` is
+ * set (AUD-003). One shared `PgPermissionMatrixRepository` instance feeds
+ * `authenticate` on every protected mount (DB wins per request).
  */
 export function createApp(pool: Pool): express.Express {
   const repository = new PgUserRepository(pool);
@@ -46,6 +49,7 @@ export function createApp(pool: Pool): express.Express {
     previousSecrets: config.jwtPreviousSecrets,
     expiresIn: config.jwtExpiresIn,
   });
+  const matrixReader = new PgPermissionMatrixRepository(pool);
 
   const app = express();
   app.use(express.json());
@@ -71,8 +75,8 @@ export function createApp(pool: Pool): express.Express {
       // PermissionGuard('profile:read'), then a fresh DB read by the
       // verified subject (PR-001).
       guard: new PermissionGuard('users:write'),
-      registerMiddleware: authenticate(tokenService),
-      meMiddleware: authenticate(tokenService),
+      registerMiddleware: authenticate(tokenService, matrixReader),
+      meMiddleware: authenticate(tokenService, matrixReader),
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
@@ -83,12 +87,12 @@ export function createApp(pool: Pool): express.Express {
   // TEA-004, PAT-005).
   app.use(
     '/patients',
-    authenticate(tokenService),
+    authenticate(tokenService, matrixReader),
     createPatientRouter({ repository: patientRepository, guard: new PermissionGuard('patients:write') }),
   );
   app.use(
     '/students',
-    authenticate(tokenService),
+    authenticate(tokenService, matrixReader),
     createStudentRouter({
       repository: studentRepository,
       userRepository: repository,
@@ -99,7 +103,7 @@ export function createApp(pool: Pool): express.Express {
   );
   app.use(
     '/teachers',
-    authenticate(tokenService),
+    authenticate(tokenService, matrixReader),
     createTeacherRouter({
       repository: teacherRepository,
       userRepository: repository,

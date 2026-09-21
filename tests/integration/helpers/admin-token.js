@@ -8,7 +8,7 @@
  */
 import config from '../../../src/config.ts';
 import { JwtTokenService } from '../../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
-import { ROLE_PERMISSIONS } from '../../../src/modules/auth/domain/permissions.ts';
+import { PgPermissionMatrixRepository } from '../../../src/modules/auth/infrastructure/repositories/pg-permission-matrix.repository.ts';
 
 export const ADMIN_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
@@ -28,13 +28,15 @@ export async function seedAdmin(pool) {
     'INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)',
     [ADMIN_ID, 'ADMINBOOT', 'not-a-real-hash', 'admin'],
   );
+  const matrixReader = new PgPermissionMatrixRepository(pool);
+  const permissions = await matrixReader.permissionsForRole('admin');
   const token = await tokenService().sign({
     sub: ADMIN_ID,
     username: 'ADMINBOOT',
     role: 'admin',
-    // Derive from the pinned matrix (PG-003) so the admin token carries
-    // every granted permission, including profile:read for GET /auth/me.
-    permissions: [...ROLE_PERMISSIONS.admin],
+    // Derive from the seeded role_permissions (PG-003) so the admin token
+    // carries every granted permission, including profile:read for GET /auth/me.
+    permissions,
   });
   return { id: ADMIN_ID, token };
 }

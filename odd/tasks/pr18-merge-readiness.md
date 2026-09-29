@@ -73,14 +73,17 @@ Status: in progress.
 
 ## Follow-ups (from advisory review findings, not in scope)
 
-- (a) Slice 04 dropped the `authenticate` 401-path unit tests and the `LoginUser`
-  input-validation unit tests that existed before the rewire — restore them.
-- (b) `authenticate` ignores the token's `permissions` claim and grants the role's full DB
-  set on every request; if a future caller ever mints scoped tokens, those scopes would be
-  silently widened back to the full role grant. Only `LoginUser` mints tokens today, so this
-  is latent — document the behavior or add a guard before any scoped-token issuer exists.
-- (c) Every authenticated request does one uncached DB read (`permissionsForRole`) — consider
-  a short-TTL cache keyed by role if this becomes a hot path.
+- [x] (a) Slice 04 dropped the `authenticate` 401-path unit tests and the `LoginUser`
+  input-validation unit tests. Done in PR #26 (`39f09f0`): 7 tests restored, 222/222 unit pass,
+  fail-to-pass proven by temporarily breaking src.
+- [x] (b) `authenticate` ignores the token's `permissions` claim and grants the role's full DB set.
+  No change: DB-wins is a deliberate, documented design (PG-001) and only `LoginUser` mints tokens,
+  always with the full role set. Revisit only if a scoped-token issuer is ever added.
+- [ ] (c) Deferred by user decision (2026-09-29): keep one uncached DB read per authenticated
+  request. Future improvement: a short-TTL in-process cache keyed by role (e.g. 30 s) would cut
+  most matrix reads. Trade-off: a revoked grant could stay effective up to the TTL, which
+  requires amending the immediate-revocation spec (user-auth, PG-001). Do it only when load is
+  measured as a problem.
 - (d) `tasks.md`/`apply-progress.md` (carried over from `8c3727e`) contain status claims that
   do not all match independently verified state — reconcile or annotate them.
 

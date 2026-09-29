@@ -13,9 +13,9 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { AdminGuard, PermissionGuard } from '../../src/modules/shared/application/guard.ts';
-import { ROLE_PERMISSIONS } from '../../src/modules/auth/domain/permissions.ts';
+import { PgPermissionMatrixRepository } from '../../src/modules/auth/infrastructure/repositories/pg-permission-matrix.repository.ts';
 import { cleanDb } from './helpers/clean-db.js';
-import { seedAdmin, tokenForRole, expiredTokenForRole } from './helpers/admin-token.js';
+import { seedAdmin, tokenForRole, expiredTokenForRole, setRolePermissions } from './helpers/admin-token.js';
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -49,19 +49,21 @@ function buildApp(guardOverride) {
   const app = express();
   app.use(express.json());
   const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
+  const matrixReader = new PgPermissionMatrixRepository(pool);
   app.use(
     '/auth',
     createAuthRouter({
       repository: new PgUserRepository(pool),
       hasher: new BcryptHasher(config.bcryptCost),
       tokenService,
+      matrixReader,
       resetTokenRepository: new PgResetTokenRepository(pool, config.resetTokenMaxOutstanding),
       mailer,
       clientUrl: config.clientUrl,
       resetTokenTtl: config.resetTokenTtl,
       guard: guardOverride ?? new AdminGuard(),
-      registerMiddleware: authenticate(tokenService),
-      meMiddleware: authenticate(tokenService),
+      registerMiddleware: authenticate(tokenService, matrixReader),
+      meMiddleware: authenticate(tokenService, matrixReader),
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
@@ -69,10 +71,10 @@ function buildApp(guardOverride) {
   return app;
 }
 
-function buildProtectedApp(tokenService) {
+function buildProtectedApp(tokenService, matrixReader) {
   const app = express();
   app.use(express.json());
-  app.use('/secure', authenticate(tokenService), (req, res) => {
+  app.use('/secure', authenticate(tokenService, matrixReader), (req, res) => {
     res.json({ auth: req.auth });
   });
   app.use(errorHandler);
@@ -306,7 +308,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'teacher');
-  assert.deepEqual(decoded.permissions, [...ROLE_PERMISSIONS.teacher], 'derived from ROLE_PERMISSIONS');
+  assert.deepEqual(decoded.permissions, ['materias:read', 'profile:read', 'turnos:read'], 'derived from seeded role_permissions');
   assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
 });
 
@@ -353,7 +355,7 @@ test('protected route passes a valid token and exposes role, permissions, sub an
     permissions: ['profile:read'],
   });
 
-  const protectedServer = buildProtectedApp(tokenService).listen(0);
+  const protectedServer = buildProtectedApp(tokenService, new PgPermissionMatrixRepository(pool)).listen(0);
   await new Promise((resolve) => protectedServer.once('listening', resolve));
   const url = `http://127.0.0.1:${protectedServer.address().port}`;
 
@@ -362,7 +364,7 @@ test('protected route passes a valid token and exposes role, permissions, sub an
   });
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), {
-    auth: { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1', userId: 'uuid-1' },
+    auth: { role: 'estudiante', permissions: ['materias:read', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
   });
 
   await new Promise((resolve) => protectedServer.close(resolve));
@@ -377,7 +379,7 @@ test('protected route rejects missing, malformed and expired tokens with 401', a
     permissions: [],
   });
 
-  const protectedServer = buildProtectedApp(tokenService).listen(0);
+  const protectedServer = buildProtectedApp(tokenService, new PgPermissionMatrixRepository(pool)).listen(0);
   await new Promise((resolve) => protectedServer.once('listening', resolve));
   const url = `http://127.0.0.1:${protectedServer.address().port}`;
 
@@ -468,11 +470,16 @@ test('GET /auth/me rejects a verified token whose userId is a non-UUID sub with 
 });
 
 test('GET /auth/me rejects a verified token without profile:read with 403 (PR-002)', async () => {
+  // Use a custom role that genuinely lacks profile:read in the DB, so the
+  // PermissionGuard('profile:read') rejects before the use case runs.
+  const NO_PROFILE_ROLE = 'test_noprofile';
+  await setRolePermissions(pool, NO_PROFILE_ROLE, ['users:write']);
+
   const signer = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
   const token = await signer.sign({
     sub: 'no-profile-0000-0000-0000-000000000000',
     username: 'NOPROFILE',
-    role: 'admin',
+    role: NO_PROFILE_ROLE,
     permissions: ['users:write'],
   });
 

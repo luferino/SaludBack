@@ -9,6 +9,7 @@ import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
 import { PermissionGuard } from '../../src/modules/shared/application/guard.ts';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { PgPermissionMatrixRepository } from '../../src/modules/auth/infrastructure/repositories/pg-permission-matrix.repository.ts';
 import { cleanDb } from './helpers/clean-db.js';
 import { seedAdmin, tokenForRole } from './helpers/admin-token.js';
 
@@ -51,7 +52,10 @@ function buildApp(overrides = {}) {
   app.use(express.json());
   app.use(
     '/patients',
-    authenticate(new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn })),
+    authenticate(
+      new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn }),
+      new PgPermissionMatrixRepository(pool),
+    ),
     createPatientRouter({
       repository: overrides.repository ?? new PgPatientRepository(pool),
       guard: new PermissionGuard('patients:write'),

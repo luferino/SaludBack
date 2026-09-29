@@ -6,7 +6,7 @@ import { RequestPasswordReset } from '../../application/request-password-reset.u
 import { ResetPassword } from '../../application/reset-password.usecase.js';
 import { GetCurrentUser } from '../../application/get-current-user.usecase.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
-import type { UserRepositoryPort, PasswordHasherPort, TokenServicePort, ResetTokenRepositoryPort, MailerPort } from '../../application/auth.ports.js';
+import type { UserRepositoryPort, PasswordHasherPort, TokenServicePort, ResetTokenRepositoryPort, MailerPort, PermissionMatrixReader } from '../../application/auth.ports.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
@@ -15,6 +15,7 @@ export interface AuthRouterDeps {
   repository: UserRepositoryPort;
   hasher: PasswordHasherPort;
   tokenService: TokenServicePort;
+  matrixReader: PermissionMatrixReader;
   resetTokenRepository: ResetTokenRepositoryPort;
   mailer: MailerPort;
   clientUrl: string;
@@ -22,16 +23,15 @@ export interface AuthRouterDeps {
   guard?: Guard;
   /**
    * Optional Express middleware mounted in front of the register handler
-   * only (e.g. `authenticate(tokenService)`), so register can sit behind
-   * token verification while login and the password-recovery endpoints
-   * stay unauthenticated. Runs BEFORE the guard inside the handler.
+   * only (e.g. `authenticate(tokenService, matrixReader)`), so register can
+   * sit behind token verification while login and password recovery keep
+   * working unauthenticated.
    */
   registerMiddleware?: RequestHandler;
   /**
    * Optional middleware mounted in front of `GET /me` (e.g.
-   * `authenticate(tokenService)`). The `/me` route is only mounted when
-   * BOTH `meMiddleware` and `meGuard` are provided, so the read stays
-   * unmounted until wiring explicitly arms it (PR-001).
+   * `authenticate(tokenService, matrixReader)`). `/me` is only mounted when
+   * BOTH `meMiddleware` and `meGuard` are provided.
    */
   meMiddleware?: RequestHandler;
   /**
@@ -41,8 +41,8 @@ export interface AuthRouterDeps {
   meGuard?: Guard;
   /**
    * Resolves the acting user id for `created_by` attribution on register
-   * (default: the verified token `sub`/`userId` from `req.auth` —
-   * AUD-003). Login, forgot-password and reset-password never use it.
+   * (default: the verified token `sub`/`userId` from `req.auth` — AUD-003).
+   * Login and password recovery never use it.
    */
   getActor?: (req: Request) => Promise<string | null>;
 }
@@ -51,14 +51,15 @@ export interface AuthRouterDeps {
  * Auth routes. Use cases receive injected ports; the guard is the policy
  * boundary in front of each endpoint. OpenGuard keeps registration open
  * until an admin-only guard replaces it at wiring time. Login and both
- * password-recovery endpoints are the unauthenticated entry points, so
- * they bypass the guard. `getActor` resolves the acting admin id for the
- * register `created_by` audit column from the verified token subject.
+ * password-recovery endpoints are the unauthenticated entry points, so they
+ * bypass the guard. `getActor` resolves the acting admin id for the register
+ * `created_by` audit column from the verified token subject.
  */
 export function createAuthRouter({
   repository,
   hasher,
   tokenService,
+  matrixReader,
   resetTokenRepository,
   mailer,
   clientUrl,
@@ -71,7 +72,7 @@ export function createAuthRouter({
 }: AuthRouterDeps): Router {
   const router = Router();
   const registerUser = new RegisterUser({ repository, hasher });
-  const loginUser = new LoginUser({ repository, hasher, tokenService });
+  const loginUser = new LoginUser({ repository, hasher, tokenService, matrixReader });
   const requestPasswordReset = new RequestPasswordReset({
     repository,
     resetTokenRepository,

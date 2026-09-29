@@ -43,7 +43,7 @@ Status: in progress.
 - TDD: not applicable; this is a re-slicing of already written code, no new behavior.
 - Per slice: `pnpm exec tsc --noEmit`, `node --import tsx --test --test-concurrency=1 tests/unit/*.test.js` (no DB), `git diff --check`.
 - Final invariant: the last code slice's tree equals `8c3727e` (excluding `odd/` and `README.md`).
-- Integration suite (291 historical passes) is not re-run in this scope; the evidence gap stays declared in every PR.
+- Current full-suite evidence: `pnpm test` passed once at `dacfe43bb1bc6d0c7df41bf26989995b14232cef`: 298 total, 298 passed, 0 failed, 0 skipped, 0 cancelled (43.38 seconds). The integration evidence gap is closed. Build/lint were not re-run in this verification.
 
 ## README acceptance criteria
 
@@ -89,18 +89,28 @@ Status: in progress.
 
 ## Next step
 
-Paused 2026-09-29. Done: #20-#25 and follow-up #26 merged into the tracker branch
+Previous pause (2026-09-29): #20-#25 and follow-up #26 merged into the tracker branch
 `feat/permission-matrix-db` (merge `7cdb3c2`); #18 closed; tracker PR #19 still draft; `main` untouched.
 
-Resume with:
+Integration verification completed after explicit user authorization, superseding the earlier
+no-database boundary only for the disposable `.env.test` database:
 
-1. Run the integration suite against the `.env.test` database (user confirmed it is disposable
-   and credentials are loaded). It applies pending migrations, deletes all app data, truncates
-   and reseeds the permission matrix, and exercises the 005 precheck (drops/restores UNIQUE
-   constraints). From `feat/permission-matrix-db`: `pnpm test` (pretest migrates `.env.test`),
-   or `node --import tsx --env-file=.env.test src/db/migrate.ts` then
-   `node --import tsx --env-file=.env.test --test --test-concurrency=1 tests/integration/*.test.js`.
-   Record the real counts here; do not reuse the historical 291.
-2. If green, mark #19 ready and let the user decide the merge to `main`.
+- Route: delegated to `gentle-ai-verify`; exact command `pnpm test`, executed once, exit 0.
+- Tested commit: `dacfe43bb1bc6d0c7df41bf26989995b14232cef` on `feat/permission-matrix-db`.
+- Results: 298 total, 298 passed, 0 failed, 0 skipped, 0 cancelled; 43.38 seconds.
+- Preflight confirmed complete `.env.test` configuration, no inherited database overrides,
+  and no `.env` fallback. No credentials exposed.
+- Pretest confirmed migrations 001–007 already applied; 0 new migrations.
+  Migration-005 reapplication/rollback scenarios passed.
+- Working tree and HEAD unchanged by verification; only pre-existing untracked
+  `.pi/gentle-ai/profile.json`. No Docker, installations, repairs, or retries.
+- Build/lint not run in this verification. No source changes requiring a new native review.
+
+Remaining:
+
+1. PR #19 is now ready for review (confirmed OPEN, isDraft=false, head unchanged at
+   `dacfe43bb1bc6d0c7df41bf26989995b14232cef`). Merging to `main` remains a separate decision.
+2. User authorized committing and pushing this documentation-only evidence update to
+   `feat/permission-matrix-db`, without merging PR #19.
 3. Optional: follow-up (d) reconcile `tasks.md`/`apply-progress.md` status claims; drop the
    redundant stash "pr18 README readiness draft" (content lives in `e0db120`).

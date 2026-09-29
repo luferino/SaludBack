@@ -89,5 +89,18 @@ Status: in progress.
 
 ## Next step
 
-User reviews and merges #20 → #21 → #22 → #23 → #24 → #25 in order into the tracker branch,
-runs the integration suite on a disposable database, then merges tracker PR #19.
+Paused 2026-09-29. Done: #20-#25 and follow-up #26 merged into the tracker branch
+`feat/permission-matrix-db` (merge `7cdb3c2`); #18 closed; tracker PR #19 still draft; `main` untouched.
+
+Resume with:
+
+1. Run the integration suite against the `.env.test` database (user confirmed it is disposable
+   and credentials are loaded). It applies pending migrations, deletes all app data, truncates
+   and reseeds the permission matrix, and exercises the 005 precheck (drops/restores UNIQUE
+   constraints). From `feat/permission-matrix-db`: `pnpm test` (pretest migrates `.env.test`),
+   or `node --import tsx --env-file=.env.test src/db/migrate.ts` then
+   `node --import tsx --env-file=.env.test --test --test-concurrency=1 tests/integration/*.test.js`.
+   Record the real counts here; do not reuse the historical 291.
+2. If green, mark #19 ready and let the user decide the merge to `main`.
+3. Optional: follow-up (d) reconcile `tasks.md`/`apply-progress.md` status claims; drop the
+   redundant stash "pr18 README readiness draft" (content lives in `e0db120`).

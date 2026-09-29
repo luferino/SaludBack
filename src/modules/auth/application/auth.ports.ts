@@ -47,6 +47,19 @@ export interface TokenServicePort {
   verify(token: string): Promise<TokenClaims>;
 }
 
+/**
+ * Reads the role→permission matrix from the database (PG-001): the seeded
+ * `role_permissions` grants are the single source of truth. `authenticate`
+ * recomputes `req.auth.permissions` through this port on every protected
+ * request (DB wins; the token `permissions` claim is advisory) and
+ * `LoginUser` signs fresh claims from it. An unknown role or a role with
+ * no grants resolves to an empty array — NOT an error; only thrown errors
+ * are failures (fail closed → 500).
+ */
+export interface PermissionMatrixReader {
+  permissionsForRole(role: string): Promise<readonly string[]>;
+}
+
 export interface ResetTokenCreateParams {
   userId: string;
   tokenHash: string;

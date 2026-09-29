@@ -8,11 +8,11 @@ Makes the permission system enforceable. A shared `PermissionGuard` implements t
 
 ### Requirement: PG-001: Permission Matrix
 
-The system MUST pin the permission matrix to these implemented permissions: `users:write`, `students:write`, `teachers:write`, `patients:write`, and `profile:read`. `materias:read` and `turnos:read` MUST remain inert claims: they MAY appear in `ROLE_PERMISSIONS` and in tokens, but no guard MUST enforce them. `ROLE_PERMISSIONS` MUST grant the `admin` role all four write permissions plus `profile:read`, so admin access to protected routes is preserved without role-specific guard logic.
+The system MUST pin the permission matrix to these implemented permissions: `users:write`, `students:write`, `teachers:write`, `patients:write`, and `profile:read`. `materias:read` and `turnos:read` MUST remain inert claims: they MAY appear in the seeded `role_permissions` table and in tokens, but no guard MUST enforce them. The seeded `role_permissions` table MUST grant the `admin` role all four write permissions plus `profile:read`, so admin access to protected routes is preserved without role-specific guard logic.
 
 #### Scenario: Admin owns every write permission
 
-- GIVEN the `admin` entry in `ROLE_PERMISSIONS`
+- GIVEN the `admin` entry in the seeded `role_permissions` table
 - WHEN the entry is inspected
 - THEN it includes `users:write`, `students:write`, `teachers:write`, `patients:write`, and `profile:read`
 

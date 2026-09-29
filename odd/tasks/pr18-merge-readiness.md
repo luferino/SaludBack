@@ -36,7 +36,7 @@ Status: in progress.
   - SP-5: delete `domain/permissions.ts` + `tests/unit/permissions.test.js`, main-spec sweep from `8c3727e`, `apply-progress.md` (~268). Evidence: PR #24, commit `dd31b58`, ~238 lines.
 - [x] **SP-6 — README readiness docs (former MR-2).** Review the uncommitted draft against the acceptance criteria below; commit as the last slice.
   Evidence: PR #25 (`feat/permission-matrix-db-06-readme-readiness`, this slice).
-- [ ] **SP-7 — Close PR #18** as superseded, linking the tracker, once the chain is published.
+- [x] **SP-7 — Close PR #18** as superseded, linking the tracker, once the chain is published. Done: #18 closed with a comment pointing to #19 (#20-#25); branch `feat/permission-matrix-in-db` kept as backup.
 
 ## Verification
 

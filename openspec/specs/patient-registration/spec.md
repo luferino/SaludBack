@@ -90,7 +90,7 @@ The create flow MUST record the acting admin in `created_by`. The route factory 
 
 ### Requirement: PAT-005: Admin-Only Guard
 
-`POST /patients` MUST require a verified Bearer token holding the `patients:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(patients:write)`). A missing, malformed, or expired token MUST respond 401 with the message `Invalid or missing token` and the create MUST NOT run; a verified token without `patients:write` MUST respond 403. The `admin` role owns `patients:write` via `ROLE_PERMISSIONS`, so admin access is unchanged.
+`POST /patients` MUST require a verified Bearer token holding the `patients:write` permission (token verified by `authenticate`, policy enforced by `PermissionGuard(patients:write)`). A missing, malformed, or expired token MUST respond 401 with the message `Invalid or missing token` and the create MUST NOT run; a verified token without `patients:write` MUST respond 403. The `admin` role owns `patients:write` via the seeded `role_permissions` table, so admin access is unchanged.
 (Previously: the policy was enforced by `AdminGuard`; per-resource `patients:write` scoping was listed as a Non-Goal — now realized by this requirement.)
 
 #### Scenario: Expired token rejected

@@ -43,7 +43,7 @@ The system MUST accept `POST /auth/login` with `username` and `password`. The us
 
 ### Requirement: Token Claims Contract
 
-The access token MUST carry a `role` claim, a `permissions` claim, and a `sub` claim equal to the authenticated user's id. For `estudiante` users the `role` claim SHALL be `estudiante`; for `teacher` users it SHALL be `teacher`; `permissions` SHALL be derived from the role via `ROLE_PERMISSIONS`. The token MUST NOT carry the password hash or other secrets. In addition, the token header MUST carry a `kid` (key id) identifying the signing secret (default `"current"`, configurable via `JWT_SECRET_KID`) — `kid` is a HEADER field, not a claim.
+The access token MUST carry a `role` claim, a `permissions` claim, and a `sub` claim equal to the authenticated user's id. For `estudiante` users the `role` claim SHALL be `estudiante`; for `teacher` users it SHALL be `teacher`; `permissions` SHALL be derived from the role via the seeded `role_permissions` table. The token MUST NOT carry the password hash or other secrets. In addition, the token header MUST carry a `kid` (key id) identifying the signing secret (default `"current"`, configurable via `JWT_SECRET_KID`) — `kid` is a HEADER field, not a claim.
 (Previously: only `role` and `permissions` claims were pinned; `sub` and the `teacher` role were unspecified.)
 
 #### Scenario: Token carries role and permissions
@@ -64,7 +64,7 @@ The access token MUST carry a `role` claim, a `permissions` claim, and a `sub` c
 - GIVEN a successful login as a `teacher`
 - WHEN the returned token is decoded
 - THEN the `role` claim equals `teacher`
-- AND `permissions` are derived from the `teacher` entry in `ROLE_PERMISSIONS`
+- AND `permissions` are derived from the `teacher` entry in the seeded `role_permissions` table
 
 ### Requirement: Token Verification
 

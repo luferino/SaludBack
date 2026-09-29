@@ -41,30 +41,35 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/` | health check |
-| `POST` | `/auth/register` | create `estudiante` account — **admin Bearer token required** |
+| `GET` | `/` | heartbeat only (no database check) |
+| `POST` | `/auth/register` | create `estudiante` account — Bearer token + `users:write` |
 | `POST` | `/auth/login` | username + password → token |
+| `GET` | `/auth/me` | own profile — Bearer token + `profile:read` |
 | `POST` | `/auth/forgot-password` | request a password-reset link |
 | `POST` | `/auth/reset-password` | redeem a reset token |
-| `POST` | `/students` | alta en uno: account + student profile — **admin Bearer token required** |
-| `POST` | `/teachers` | alta en uno: account + teacher profile — **admin Bearer token required** |
-| `POST` | `/patients` | patient record (no account) — **admin Bearer token required** |
+| `POST` | `/students` | account + student profile — Bearer token + `students:write` |
+| `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
+| `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
 
-Protected endpoints (`/auth/register`, `/students`, `/teachers`, `/patients`)
-verify the Bearer token first: `401` without a valid token, `403` when the
-token's role is not `admin`, `201` otherwise. `POST /auth/login` and both
-password-recovery endpoints stay public — they are the entry points.
+For the five permission-protected routes above, production wiring in `src/app.ts`
+verifies the token, reloads grants from `role_permissions` for its verified role,
+then applies `PermissionGuard`: invalid token → `401`; missing required grant →
+`403`; unreadable/missing matrix tables → `500`. Admin has no bypass; other roles
+can pass with the required grant. Authorization does not bypass input validation.
+Login and password recovery stay public; login also reads the matrix after
+credential validation and fails with `500` if that read fails. This policy does
+not redefine the separate role-only `AdminGuard` used by custom router wiring.
 
 ### POST /auth/register
 
-Creates an `estudiante` account. Requires an **admin Bearer token**
-(`Authorization: Bearer <token>`); an `admin` token is created via the
-first-admin bootstrap below.
+Creates an `estudiante` account. Requires a Bearer token
+(`Authorization: Bearer <token>`) whose role has `users:write` in the database.
+The seeded admin role has this grant; see the first-admin bootstrap below.
 
 - Body: `{ "username", "password", "email" }` — all required
 - `201` → `{ "id", "username", "role": "estudiante", "email", "createdAt" }`
 - `400` — validation failure (see [Validation rules](#validation-rules));
-  `401` — missing/invalid token; `403` — non-admin token;
+  `401` — missing/invalid token; `403` — missing `users:write` grant;
   `409` — duplicate username or email
 
 ```bash
@@ -109,15 +114,15 @@ curl.exe -X POST http://localhost:3000/auth/reset-password -H "Content-Type: app
 ### POST /students
 
 Alta en uno: creates the access account (role `estudiante`) and the `students`
-profile row in one transaction. Requires an **admin Bearer token**;
-`created_by` records the admin user id from the token.
+profile row in one transaction. Requires a Bearer token and `students:write`;
+`created_by` records the acting user's verified token subject.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "codalumno", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "codalumno", "email", "celular", "created_by", "created_at" }`
 - `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
   `password` under 10 chars or without a letter+digit; `codalumno` not purely
   alphanumeric (`^[A-Za-z0-9]+$`); `email` present but not a valid address;
-  `401` — missing/invalid token; `403` — non-admin token;
+  `401` — missing/invalid token; `403` — missing `students:write` grant;
   `409` — duplicate `codalumno`
 
 ```bash
@@ -127,14 +132,14 @@ curl.exe -X POST http://localhost:3000/students -H "Content-Type: application/js
 ### POST /teachers
 
 Alta en uno: creates the access account (role `teacher`) and the `teachers`
-profile row in one transaction. Requires an **admin Bearer token**;
-`created_by` records the admin user id from the token.
+profile row in one transaction. Requires a Bearer token and `teachers:write`;
+`created_by` records the acting user's verified token subject.
 
 - Body: `{ "username", "password", "nombres", "apellidos", "email"?, "celular"? }`
 - `201` → `{ "id", "nombres", "apellidos", "email", "celular", "created_by", "created_at" }`
 - `400` — missing required field; `username` not A-Z0-9 (stored UPPERCASE);
   `password` under 10 chars or without a letter+digit; `email` present but not
-  a valid address; `401` — missing/invalid token; `403` — non-admin token
+  a valid address; `401` — missing/invalid token; `403` — missing `teachers:write` grant
 
 ```bash
 curl.exe -X POST http://localhost:3000/teachers -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"username":"mruiz","password":"secret12345","nombres":"Maria","apellidos":"Ruiz","email":"mruiz@example.com"}'
@@ -142,15 +147,15 @@ curl.exe -X POST http://localhost:3000/teachers -H "Content-Type: application/js
 
 ### POST /patients
 
-Clinical entity only — no account is created. Requires an **admin Bearer
-token**; `created_by` records the admin user id from the token.
+Clinical entity only — no account is created. Requires a Bearer token and
+`patients:write`; `created_by` records the acting user's verified token subject.
 
 - Body: `{ "documento", "nombres", "apellidos", "fecha_nacimiento", "email", "celular", "sexo", "direccion" }` — all required
 - `201` → `{ "id", "documento", "nombres", "apellidos", "fecha_nacimiento", "email", "celular", "sexo", "direccion", "created_by", "created_at" }`
 - `400` — missing field; `documento` not 4-8 digits; `sexo` not `M` or `F`;
   `fecha_nacimiento` not a real `YYYY-MM-DD` date or in the future; `email`
   not a valid address; `401` — missing/invalid token;
-  `403` — non-admin token; `409` — duplicate `documento`
+  `403` — missing `patients:write` grant; `409` — duplicate `documento`
 
 ```bash
 curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
@@ -158,8 +163,8 @@ curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/js
 
 ### First admin bootstrap
 
-Once register is admin-only, the first admin cannot be created through the
-API. The bootstrap CLI creates one directly in the database (dev-only):
+Registration requires `users:write` and creates only `estudiante` accounts.
+The first admin is created directly in the database by the bootstrap CLI (dev-only):
 
 ```bash
 pnpm create-admin -- --username ROOTUSER --password <PASSWORD>
@@ -204,10 +209,10 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 
 - Claims: `sub` (user id), `username`, `role`, `permissions`, `iat`, `exp`,
   `iss: "SaludBack"`, `aud: "SaludBack-api"`. No secrets in the payload.
-- Roles: `estudiante`, `teacher`, `admin` — `permissions` is derived from the
-  role at login time; `admin` carries an explicit management set
-  (`users:write`, `students:write`, `teachers:write`, `patients:write`,
-  `profile:read`, `materias:read`, `turnos:read`).
+- Seeded roles: `estudiante`, `teacher`, `admin`. Login derives `permissions`
+  from database grants. This claim is advisory: each authenticated request
+  reloads grants for the token's role, ignoring even a stale or absent permissions
+  claim. Grant changes take effect on the next request without token renewal.
 - Header: every signed token carries a `kid` (key id) header identifying the
   signing secret — default `"current"`, configurable via `JWT_SECRET_KID`.
 - Verification: the token's `kid` selects the secret — matches
@@ -244,8 +249,49 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 | `RESET_TOKEN_MAX_OUTSTANDING` | `3` | cap on outstanding reset tokens per user |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | optional; fallback credentials when `pnpm create-admin` runs without `--username`/`--password` |
 
+## Permission-matrix deployment and rollback
+
+These are prerequisites for a separately authorized deployment, not evidence
+that migrations or database checks have been performed.
+
+### Deploying
+
+1. Confirm the target and preserve a recoverable database/policy backup and
+   migration ledger. Review customized grants against the approved access policy.
+2. Run the migration runner with the approved target configuration before routing
+   traffic to the new application: `006_create_permission_matrix.sql` creates
+   the tables, then `007_seed_permission_matrix.sql` seeds them. The runner in
+   `src/db/migrate.ts` commits each file and its ledger entry separately: if `007`
+   fails, `006` can remain committed. Keep new application traffic blocked.
+3. Before releasing traffic, verify both ledger entries, matrix readability by
+   the application DB role, and expected role grants. A fresh untouched seed has
+   **7 catalog rows and 13 grants**; these are not universal counts for customized
+   deployments. Verify authorized login and permission allow/deny scenarios;
+   `GET /` is only a heartbeat and does not establish matrix health.
+
+`007` uses plain inserts and is **not idempotent**. The ledger prevents normal
+replay; do not reset it, rerun the seed over existing rows, or drop customized
+grants to recover from an error. Diagnose partial application before retrying.
+Readable tables with no matching grant produce `403` on permission-protected
+routes; a missing/unreadable matrix produces `500`, not a role denial.
+
+### Rolling back
+
+Stop the rollout and preserve matrix data and ledger entries. Deploy only an
+application version verified compatible with the retained schema **and
+approved policy**: reverting to token/static permissions may restore revoked
+access. There is no automated down-migration in this runner. Any schema/data
+reversal requires a separately reviewed backup/restore plan, not table drops.
+
 ## Testing
 
-`pnpm test` runs the full suite (unit + integration against `saludback_test`).
-The `pretest` hook migrates the test database automatically, so a fresh
-`pnpm test` exercises the real schema.
+**Destructive:** integration cleanup deletes application records, truncates
+`role_permissions` and `permissions`, and replays seed `007`. The `pretest` hook
+also changes schema. Never run this suite against a shared or valuable database.
+
+Only after explicit authorization and independent verification of a disposable
+target, use `pnpm test` (unit + integration, serial, with `.env.test`). The actual
+target is `DATABASE_URL`, not a guaranteed database named `saludback_test`.
+Supply all required configuration (`DATABASE_URL`, `JWT_SECRET`, `CLIENT_URL`):
+`src/config.ts` attempts to load `.env` when any of these is missing.
+For a static-only check without starting the application, use `pnpm exec tsc --noEmit`.

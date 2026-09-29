@@ -101,8 +101,47 @@ test('username not found is rejected as UnauthorizedError and never consults the
       return true;
     },
   );
+  // Anti-enumeration: an unknown username must never reach the hasher (that
+  // would let a timing/behavior difference reveal whether the account
+  // exists) and must never consult the permission matrix either.
+  assert.equal(calls.compare.length, 0);
   assert.equal(calls.sign.length, 0);
   assert.equal(calls.permissionsForRole.length, 0);
+});
+
+test('lowercase input username is normalized to uppercase before lookup', async () => {
+  const { repository, hasher, tokenService, matrixReader, calls } = createFakes({
+    user: EXISTING_USER,
+    passwordMatches: true,
+  });
+  const useCase = new LoginUser({ repository, hasher, tokenService, matrixReader });
+
+  const result = await useCase.execute({ username: 'jperez', password: 'secret12345' });
+
+  assert.equal(calls.findByUsername[0], 'JPEREZ');
+  assert.equal(result.token, 'signed:JPEREZ');
+});
+
+test('missing or blank username throws BadRequestError', async () => {
+  const { repository, hasher, tokenService, matrixReader } = createFakes({
+    user: EXISTING_USER,
+    passwordMatches: true,
+  });
+  const useCase = new LoginUser({ repository, hasher, tokenService, matrixReader });
+
+  await assert.rejects(() => useCase.execute({ password: 'secret12345' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ username: '   ', password: 'secret12345' }), BadRequestError);
+});
+
+test('missing or empty password throws BadRequestError', async () => {
+  const { repository, hasher, tokenService, matrixReader } = createFakes({
+    user: EXISTING_USER,
+    passwordMatches: true,
+  });
+  const useCase = new LoginUser({ repository, hasher, tokenService, matrixReader });
+
+  await assert.rejects(() => useCase.execute({ username: 'JPEREZ' }), BadRequestError);
+  await assert.rejects(() => useCase.execute({ username: 'JPEREZ', password: '' }), BadRequestError);
 });
 
 test('a matrix-read failure is propagated unchanged (fail closed -> 500, not a fabricated 401)', async () => {

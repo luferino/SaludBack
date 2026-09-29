@@ -14,9 +14,15 @@ import { UnauthorizedError } from '../../src/modules/shared/domain/errors.ts';
 const DB_ESTUDIANTE_PERMISSIONS = ['profile:read', 'materias:read', 'turnos:read'];
 const DB_ESTUDIANTE_PERMISSIONS_LOCAL = DB_ESTUDIANTE_PERMISSIONS;
 
-function createFakeTokenService({ decoded = { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1' } } = {}) {
+function createFakeTokenService({
+  decoded = { role: 'estudiante', permissions: ['profile:read'], sub: 'uuid-1' },
+  throwError,
+} = {}) {
   return {
     async verify() {
+      if (throwError) {
+        throw throwError;
+      }
       return decoded;
     },
   };
@@ -28,6 +34,21 @@ function createFakeMatrixReader({ permissions = DB_ESTUDIANTE_PERMISSIONS_LOCAL 
       return permissions;
     },
   };
+}
+
+// Counting matrix reader: used by the 401 paths below to prove the DB is
+// NEVER consulted when the token itself is missing, malformed or invalid —
+// fail-fast before the permission-matrix read (see authenticate.ts's
+// verify-catch comment).
+function createCountingMatrixReader({ permissions = DB_ESTUDIANTE_PERMISSIONS_LOCAL } = {}) {
+  const calls = { permissionsForRole: [] };
+  const reader = {
+    async permissionsForRole(role) {
+      calls.permissionsForRole.push(role);
+      return permissions;
+    },
+  };
+  return { reader, calls };
 }
 
 function createContext({ headers = {} } = {}) {
@@ -126,4 +147,71 @@ test('a matrix-read failure is propagated unchanged (fail closed -> 500, not 401
 
   assert.equal(state.calls.length, 1);
   assert.equal(state.calls[0], matrixFailure); // unchanged -> 500, not 401
+});
+
+test('missing Authorization header rejects with 401, does not call verify and never consults the matrix', async () => {
+  const service = createFakeTokenService();
+  let verifyCalls = 0;
+  const originalVerify = service.verify.bind(service);
+  service.verify = async (...args) => {
+    verifyCalls += 1;
+    return originalVerify(...args);
+  };
+  const { reader, calls } = createCountingMatrixReader();
+
+  const { req, res, next, state } = createContext({ headers: {} });
+  await authenticate(service, reader)(req, res, next);
+
+  assert.equal(verifyCalls, 0);
+  assert.equal(calls.permissionsForRole.length, 0);
+  assert.equal(state.calls.length, 1);
+  assert.ok(state.calls[0] instanceof UnauthorizedError);
+  assert.equal(req.auth, undefined);
+});
+
+test('non-Bearer Authorization header rejects with 401 and never consults the matrix', async () => {
+  const { reader, calls } = createCountingMatrixReader();
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Basic abc123' },
+  });
+  await authenticate(createFakeTokenService(), reader)(req, res, next);
+
+  assert.equal(calls.permissionsForRole.length, 0);
+  assert.equal(state.calls.length, 1);
+  assert.ok(state.calls[0] instanceof UnauthorizedError);
+  assert.equal(req.auth, undefined);
+});
+
+test('a malformed token rejects with 401, req.auth is not set, and the matrix is never consulted', async () => {
+  const { reader, calls } = createCountingMatrixReader();
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer not.a.token' },
+  });
+  await authenticate(
+    createFakeTokenService({ throwError: new Error('invalid signature') }),
+    reader,
+  )(req, res, next);
+
+  assert.equal(calls.permissionsForRole.length, 0);
+  assert.equal(state.calls.length, 1);
+  assert.ok(state.calls[0] instanceof UnauthorizedError);
+  assert.equal(state.calls[0].statusCode, 401);
+  assert.equal(req.auth, undefined);
+});
+
+test('an expired or otherwise invalid token rejects with the same generic 401 and never consults the matrix', async () => {
+  const { reader, calls } = createCountingMatrixReader();
+  const { req, res, next, state } = createContext({
+    headers: { authorization: 'Bearer expired-token' },
+  });
+  await authenticate(
+    createFakeTokenService({ throwError: new Error('jwt expired') }),
+    reader,
+  )(req, res, next);
+
+  assert.equal(calls.permissionsForRole.length, 0);
+  assert.equal(state.calls.length, 1);
+  assert.ok(state.calls[0] instanceof UnauthorizedError);
+  assert.equal(state.calls[0].message, 'Invalid or missing token');
+  assert.equal(req.auth, undefined);
 });

@@ -26,14 +26,16 @@ Status: in progress.
 
 ## Tasks
 
-- [ ] **SP-0 — Tracker.** Route: inline (one mechanical file). Commit this document on the tracker branch, push, open draft tracker PR.
-- [ ] **SP-1..SP-5 — Rebuild slices.** Route: delegated direct (writer trigger: many non-trivial files). One work-unit commit per slice; typecheck + unit tests per slice; push and open child PR with Chain Context.
-  - SP-1: `openspec/changes/permission-matrix-in-db/{proposal.md,specs/**}` (~382).
-  - SP-2: `design.md`, `tasks.md` at `8c3727e` state (~367).
-  - SP-3: migrations `006`/`007`, `auth.ports.ts`, `pg-permission-matrix.repository.ts` + unit test (~160).
-  - SP-4: `app.ts`, `login-user.usecase.ts`, `authenticate.ts`, `auth.routes.ts`, unit tests, integration fixtures from `6460a9f` (~540; over budget unless a cohesive split exists).
-  - SP-5: delete `domain/permissions.ts` + `tests/unit/permissions.test.js`, main-spec sweep from `8c3727e`, `apply-progress.md` (~268).
-- [ ] **SP-6 — README readiness docs (former MR-2).** Review the uncommitted draft against the acceptance criteria below; commit as the last slice.
+- [x] **SP-0 — Tracker.** Route: inline (one mechanical file). Commit this document on the tracker branch, push, open draft tracker PR.
+  Evidence: tracker PR #19, commit `f68f395`.
+- [x] **SP-1..SP-5 — Rebuild slices.** Route: delegated direct (writer trigger: many non-trivial files). One work-unit commit per slice; typecheck + unit tests per slice; push and open child PR with Chain Context.
+  - SP-1: `openspec/changes/permission-matrix-in-db/{proposal.md,specs/**}` (~382). Evidence: PR #20, commit `1c3d9ab`, ~382 lines.
+  - SP-2: `design.md`, `tasks.md` at `8c3727e` state (~367). Evidence: PR #21, commit `517d527`, ~337 lines.
+  - SP-3: migrations `006`/`007`, `auth.ports.ts`, `pg-permission-matrix.repository.ts` + unit test (~160). Evidence: PR #22, commit `0e98e2a`, ~162 lines.
+  - SP-4: `app.ts`, `login-user.usecase.ts`, `authenticate.ts`, `auth.routes.ts`, unit tests, integration fixtures from `6460a9f` (~540; over budget unless a cohesive split exists). Evidence: PR #23, commit `6935767`, ~537 lines. No cohesive split exists: `createApp` wires `matrixReader` into both `LoginUser` and `authenticate`'s changed signature in the same unit, so the slice stayed a single over-budget commit.
+  - SP-5: delete `domain/permissions.ts` + `tests/unit/permissions.test.js`, main-spec sweep from `8c3727e`, `apply-progress.md` (~268). Evidence: PR #24, commit `dd31b58`, ~238 lines.
+- [x] **SP-6 — README readiness docs (former MR-2).** Review the uncommitted draft against the acceptance criteria below; commit as the last slice.
+  Evidence: PR #25 (`feat/permission-matrix-db-06-readme-readiness`, this slice).
 - [ ] **SP-7 — Close PR #18** as superseded, linking the tracker, once the chain is published.
 
 ## Verification
@@ -54,8 +56,35 @@ Status: in progress.
 
 ## Progress
 
-- (none yet)
+- Tracker PR #19 (`f68f395`).
+- Slices: #20 `1c3d9ab` (~382 lines), #21 `517d527` (~337 lines), #22 `0e98e2a` (~162 lines),
+  #23 `6935767` (~537 lines — no cohesive split: `createApp` wires `matrixReader` into both
+  `LoginUser` and `authenticate`'s changed signature), #24 `dd31b58` (~238 lines), #25 (this
+  06 PR).
+- Invariant verified: slice 05's tree equals `8c3727e` (excluding `odd/` and `README.md`) —
+  `git diff 8c3727e feat/permission-matrix-db-05-remove-hardcoded -- . ':!odd' ':!README.md'`
+  is empty.
+- Unit test counts per slice (`node --import tsx --test --test-concurrency=1 tests/unit/*.test.js`):
+  229 / 229 / 233 / 226 / 215 (slices 01-05 in order); 06 does not touch `src/`, still 215.
+- RDD native reviews: 01 approved and acknowledged (`review-05142475c9518dd1`); 02+03 reviewed
+  together and approved (`review-ba0f71ec379fdcb8`; 02 alone was medium/`under_budget`); 04
+  approved (`review-09e351b349a6206a`); 05 approved (`review-3008560b107040f1`). All advisory
+  findings across these reviews were non-blocking.
+
+## Follow-ups (from advisory review findings, not in scope)
+
+- (a) Slice 04 dropped the `authenticate` 401-path unit tests and the `LoginUser`
+  input-validation unit tests that existed before the rewire — restore them.
+- (b) `authenticate` ignores the token's `permissions` claim and grants the role's full DB
+  set on every request; if a future caller ever mints scoped tokens, those scopes would be
+  silently widened back to the full role grant. Only `LoginUser` mints tokens today, so this
+  is latent — document the behavior or add a guard before any scoped-token issuer exists.
+- (c) Every authenticated request does one uncached DB read (`permissionsForRole`) — consider
+  a short-TTL cache keyed by role if this becomes a hot path.
+- (d) `tasks.md`/`apply-progress.md` (carried over from `8c3727e`) contain status claims that
+  do not all match independently verified state — reconcile or annotate them.
 
 ## Next step
 
-SP-0.
+User reviews and merges #20 → #21 → #22 → #23 → #24 → #25 in order into the tracker branch,
+runs the integration suite on a disposable database, then merges tracker PR #19.

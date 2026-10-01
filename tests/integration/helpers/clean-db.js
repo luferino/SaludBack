@@ -1,10 +1,10 @@
 /**
  * FK-safe cleanup for the shared integration test DB (AUD-001 / PR 4 task 4.2).
  *
- * Deletes the profile tables (students, teachers, patients) and reset tokens
- * BEFORE users, so no suite's before()/after() ever trips a FK constraint on
- * rows another suite left behind. The order below is the contract:
- * `students -> teachers -> patients -> password_reset_tokens -> users`.
+ * Deletes profile/clinical tables and reset tokens BEFORE users, so no suite's
+ * before()/after() ever trips a FK constraint on rows another suite left behind.
+ * The order below is the contract:
+ * `students -> teachers -> clinical_records -> patients -> password_reset_tokens -> users`.
  * Every integration file runs this in before() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
@@ -24,6 +24,7 @@ const seedSql = readFileSync(
 export async function cleanDb(pool) {
   await pool.query('DELETE FROM students');
   await pool.query('DELETE FROM teachers');
+  await pool.query('DELETE FROM clinical_records');
   await pool.query('DELETE FROM patients');
   await pool.query('DELETE FROM password_reset_tokens');
   await pool.query('DELETE FROM users');

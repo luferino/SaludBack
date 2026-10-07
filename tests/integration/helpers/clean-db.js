@@ -2,16 +2,16 @@
  * FK-safe cleanup for the shared integration test DB (AUD-001 / PR 4 task 4.2).
  *
  * Deletes dependent habilitation, profile, catalog and clinical tables BEFORE
- * their parents and users, so no suite trips a FK constraint on leftover rows.
- * The order below is the contract:
+ * their parents and users, so no suite's beforeEach()/after() trips a FK
+ * constraint on leftover rows. The order below is the contract:
  * `student_academic_habilitations -> teacher_academic_habilitations ->
  * students -> teachers -> subject_academic_groups -> academic_groups ->
  * subjects -> clinical_records -> patients -> password_reset_tokens -> users`.
- * Every integration file runs this in before() and after().
+ * Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
- * (role_permissions, permissions) and re-execute the seed migration so every
- * suite starts from the canonical permission state (permission-matrix-in-db).
+ * (role_permissions, permissions), then re-execute migrations 007 and 011
+ * so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,10 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const seedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/007_seed_permission_matrix.sql'),
+  'utf8',
+);
+const subjectPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/011_seed_subject_permissions.sql'),
   'utf8',
 );
 
@@ -39,4 +43,5 @@ export async function cleanDb(pool) {
   // TRUNCATE child first (role_permissions FK -> permissions), then parent.
   await pool.query('TRUNCATE role_permissions, permissions RESTART IDENTITY');
   await pool.query(seedSql);
+  await pool.query(subjectPermissionSeedSql);
 }

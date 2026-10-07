@@ -1,10 +1,11 @@
 /**
  * FK-safe cleanup for the shared integration test DB (AUD-001 / PR 4 task 4.2).
  *
- * Deletes dependent profile, catalog and clinical tables BEFORE their parents
- * and users, so no suite trips a FK constraint on leftover rows. The order below
- * is the contract:
- * `students -> teachers -> subject_academic_groups -> academic_groups ->
+ * Deletes dependent habilitation, profile, catalog and clinical tables BEFORE
+ * their parents and users, so no suite trips a FK constraint on leftover rows.
+ * The order below is the contract:
+ * `student_academic_habilitations -> teacher_academic_habilitations ->
+ * students -> teachers -> subject_academic_groups -> academic_groups ->
  * subjects -> clinical_records -> patients -> password_reset_tokens -> users`.
  * Every integration file runs this in before() and after().
  *
@@ -23,6 +24,8 @@ const seedSql = readFileSync(
 );
 
 export async function cleanDb(pool) {
+  await pool.query('DELETE FROM student_academic_habilitations');
+  await pool.query('DELETE FROM teacher_academic_habilitations');
   await pool.query('DELETE FROM students');
   await pool.query('DELETE FROM teachers');
   await pool.query('DELETE FROM subject_academic_groups');

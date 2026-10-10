@@ -54,6 +54,8 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/subjects` | list subjects — Bearer token + `subjects:read` |
 | `POST` | `/groups` | create academic group — Bearer token + `groups:write` |
 | `GET` | `/groups` | list academic groups — Bearer token + `groups:read` |
+| `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
+| `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -191,8 +193,9 @@ is independent from the write grant.
 - `400` — invalid pagination; `401` — missing/invalid token;
   `403` — missing `subjects:read` grant
 
-No subject update or delete endpoints are provided. Subject/group association
-and habilitation APIs remain outside this slice.
+No subject update or delete endpoints are provided. Subject/group associations
+are a separate API from habilitations; creating a link does not enable teacher
+or student access.
 
 ### POST /groups
 
@@ -225,6 +228,41 @@ be explicitly delegated either permission.
 
 No group update or delete endpoints are provided.
 
+### POST /subject-groups
+
+Creates a subject-to-academic-group association. Requires a Bearer token whose
+database role has `subject-groups:write`; the independently enforced permission
+is initially granted only to admin and can be delegated to other roles. Admin
+has no bypass. Client-supplied actor fields are ignored; `created_by` is the
+verified token subject or `null`.
+
+- Body: `{ "subject_id", "academic_group_id" }` — both values must be UUIDs.
+- `201` → `{ "subject_id", "academic_group_id", "created_by", "created_at" }`;
+  timestamps are ISO strings.
+- `400` — malformed UUID or invalid request; `401` — missing/invalid token;
+  `403` — missing `subject-groups:write` grant; `404` — a referenced subject or
+  academic group does not exist; `409` — this subject/group pair is already linked.
+
+### GET /subject-groups
+
+Lists associations for a role with `subject-groups:read` in the database. This
+permission is independent from `subject-groups:write`; admin has no bypass and
+other roles can be delegated either grant separately.
+
+- Optional `subject_id` must be one UUID string; repeated or malformed values
+  return `400`. A valid subject with no links returns an empty page.
+- `limit` defaults to `50` and accepts `1`–`100`; `offset` defaults to `0` and
+  accepts `0`–`10000`. Values must be decimal digits only; repeated parameters,
+  fractions and out-of-range values return `400`.
+- `200` → `{ "items", "limit", "offset" }`; each item contains only
+  `subject_id`, `academic_group_id`, `created_by`, and ISO `created_at`. Results
+  are ordered by subject ID and academic-group ID ascending. There are no totals.
+- `401` — missing/invalid token; `403` — missing `subject-groups:read` grant.
+
+Associations establish academic context only. They do not create, revoke, or
+otherwise alter teacher/student habilitations. Catalog prerequisites are
+migration `009_create_academic_contexts.sql` and migration 013.
+
 ### Clinical record schema foundation
 
 Migration `008_create_clinical_records.sql` adds one schema-only longitudinal
@@ -253,7 +291,8 @@ selected DB-free unit tests also passed; the full regression suite was not run f
 that slice. Group HTTP routes and their separately seeded permissions are added
 by this API slice; migration `012_seed_group_permissions.sql` adds enforced,
 independent `groups:write` and `groups:read` grants initially assigned only to
-admin. Group creation/listing does not create habilitation records.
+admin. Group creation/listing does not create subject/group associations or
+habilitation records.
 
 ### Academic habilitation history
 
@@ -375,24 +414,25 @@ that migrations or database checks have been performed.
 
 1. Confirm the target and preserve a recoverable database/policy backup and
    migration ledger. Review customized grants against the approved access policy.
-2. Apply migrations through `012_seed_group_permissions.sql` before
-   routing subject or group traffic. Migration `006` creates the permission
-   tables, `007` seeds the original matrix, `009` creates academic catalog
-   tables, and `011` and `012` add independent subject and group permissions
-   with initial admin grants. The runner in
+2. Apply migrations through `013_seed_subject_group_permissions.sql` before
+   routing subject, group, or association traffic. Migration `006` creates the
+   permission tables, `007` seeds the original matrix, `009` creates academic
+   catalog tables, and `011`, `012` and `013` add independent subject, group and
+   association permissions with initial admin grants. The runner in
    `src/db/migrate.ts` commits each file and its ledger entry separately; a later
    migration can fail while earlier files remain committed. Keep new application
    traffic blocked until the required migrations are verified.
-3. Verify the migration ledger through `012`, matrix readability by the
+3. Verify the migration ledger through `013`, matrix readability by the
    application DB role, and expected role grants. A fresh untouched `007` seed
    alone has **7 permission rows and 13 grants**. After `011`, the canonical
    matrix has **9 permission rows and 15 grants**; after `012`, it has **11
-   permission rows and 17 grants**. These are not universal counts for customized
+   permission rows and 17 grants**; after `013`, it has **13 permission rows
+   and 19 grants**. These are not universal counts for customized
    deployments. Verify authorized login and
    permission allow/deny scenarios; `GET /` is only a heartbeat and does not
    establish matrix health.
 
-Migrations `007`, `011` and `012` use plain inserts and are **not idempotent**.
+Migrations `007`, `011`, `012` and `013` use plain inserts and are **not idempotent**.
 The ledger prevents normal replay; do not reset it, rerun any seed over existing
 rows, or drop customized grants to recover from an error. Diagnose partial
 application before retrying. Readable tables with no matching grant produce
@@ -413,14 +453,14 @@ reversal requires a separately reviewed backup/restore plan, not table drops.
 
 **Destructive:** integration cleanup deletes application records, truncates
 `role_permissions` and `permissions`, then restores the matrix by replaying
-`007`, `011` and `012`. The `pretest` hook also changes schema. Never run these
+`007`, `011`, `012` and `013`. The `pretest` hook also changes schema. Never run these
 tests against a shared or valuable database.
 
 The subjects integration test additionally requires
 `SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
 configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
-bcrypt cost and reset-token settings). Apply migrations `011` and `012`
-beforehand; the test verifies those ledger entries and grants before invoking
+bcrypt cost and reset-token settings). Apply migrations `011`, `012` and `013`
+beforehand; the test verifies all ledger entries and grants before invoking
 destructive cleanup. Run it
 only after explicit authorization and independent verification of a dedicated
 disposable target. Cleanup is destructive even after the test assertions finish.

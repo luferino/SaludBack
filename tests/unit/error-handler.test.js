@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
-import { BadRequestError, ConflictError, UnauthorizedError, ForbiddenError } from '../../src/modules/shared/domain/errors.ts';
+import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError, ForbiddenError } from '../../src/modules/shared/domain/errors.ts';
 
 function createRes() {
   const state = {};
@@ -20,6 +20,7 @@ test('AppError maps to its status code with a stable error code', () => {
   const cases = [
     [new BadRequestError(), 400, 'BAD_REQUEST'],
     [new ConflictError(), 409, 'CONFLICT'],
+    [new NotFoundError(), 404, 'NOT_FOUND'],
     [new UnauthorizedError(), 401, 'UNAUTHORIZED'],
     [new ForbiddenError(), 403, 'FORBIDDEN'],
   ];

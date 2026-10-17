@@ -14,6 +14,8 @@ import { createStudentRouter } from './modules/students/infrastructure/routes/st
 import { PgStudentRepository } from './modules/students/infrastructure/repositories/pg-student.repository.js';
 import { createTeacherRouter } from './modules/teachers/infrastructure/routes/teacher.routes.js';
 import { PgTeacherRepository } from './modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
+import { createSubjectRouter } from './modules/subjects/infrastructure/routes/subject.routes.js';
+import { PgSubjectRepository } from './modules/subjects/infrastructure/repositories/pg-subject.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
 import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
@@ -23,11 +25,12 @@ import { errorHandler } from './middleware/error-handler.js';
  * Production app factory (PR 4 wiring). Builds the shared pool-backed
  * repositories, hasher, token service and unit of work once and mounts every
  * router on one Express app: `/auth` (register/login/me/password recovery),
- * `/patients`, `/students` and `/teachers`. Every protected mount enforces
- * the permission mapped in PG-003 via `PermissionGuard` after `authenticate`
- * populates `req.auth`: register -> `users:write`, students/teachers/patients
- * -> their own write permission, `GET /auth/me` -> `profile:read`. The admin
- * role owns every implemented permission through its seeded
+ * `/patients`, `/students`, `/teachers` and `/subjects`. Every protected mount
+ * enforces the permission mapped in PG-003 via `PermissionGuard` after
+ * `authenticate` populates `req.auth`: register -> `users:write`,
+ * students/teachers/patients -> their own write permission, `GET /auth/me` ->
+ * `profile:read`, subject creation/listing -> independent `subjects:write` /
+ * `subjects:read`. The admin role owns every implemented permission through its seeded
  * `role_permissions` grants (PG-001), so admin behavior is unchanged. Login
  * and password recovery stay unauthenticated. The verified token `sub`
  * flows into `created_by` through the default actor hook once `req.auth` is
@@ -41,6 +44,7 @@ export function createApp(pool: Pool): express.Express {
   const patientRepository = new PgPatientRepository(pool);
   const studentRepository = new PgStudentRepository(pool);
   const teacherRepository = new PgTeacherRepository(pool);
+  const subjectRepository = new PgSubjectRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
@@ -111,6 +115,16 @@ export function createApp(pool: Pool): express.Express {
       hasher,
       unitOfWork,
       guard: new PermissionGuard('teachers:write'),
+    }),
+  );
+
+  app.use(
+    '/subjects',
+    authenticate(tokenService, matrixReader),
+    createSubjectRouter({
+      repository: subjectRepository,
+      createGuard: new PermissionGuard('subjects:write'),
+      listGuard: new PermissionGuard('subjects:read'),
     }),
   );
 

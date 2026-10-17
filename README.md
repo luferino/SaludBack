@@ -50,8 +50,10 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/students` | account + student profile — Bearer token + `students:write` |
 | `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
 | `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
+| `POST` | `/subjects` | create subject — Bearer token + `subjects:write` |
+| `GET` | `/subjects` | list subjects — Bearer token + `subjects:read` |
 
-For the five permission-protected routes above, production wiring in `src/app.ts`
+For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
 then applies `PermissionGuard`: invalid token → `401`; missing required grant →
 `403`; unreadable/missing matrix tables → `500`. Admin has no bypass; other roles
@@ -161,6 +163,35 @@ Clinical entity only — no account is created. Requires a Bearer token and
 curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
 ```
 
+### POST /subjects
+
+Creates a subject catalog entry. Requires a Bearer token whose database role
+has `subjects:write`; client-supplied actor fields are ignored. Subject names
+are trimmed nonblank strings, and duplicate names are allowed.
+
+- Body: `{ "name" }` — required string; whitespace-only values are rejected
+- `201` → `{ "id", "name", "created_by", "created_at" }`; `id` is a UUID,
+  `created_by` is the verified token subject or `null`, and `created_at` is an
+  ISO timestamp
+- `400` — invalid name; `401` — missing/invalid token;
+  `403` — missing `subjects:write` grant
+
+### GET /subjects
+
+Lists subjects for a role with `subjects:read` in the database. The read grant
+is independent from the write grant.
+
+- Query: `limit` defaults to `50` and accepts `1`–`100`; `offset` defaults to
+  `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
+  parameters, fractions and out-of-range values return `400`.
+- `200` → `{ "items", "limit", "offset" }`; items are ordered by `name ASC`,
+  then `id ASC`. There are no totals or filters.
+- `400` — invalid pagination; `401` — missing/invalid token;
+  `403` — missing `subjects:read` grant
+
+No subject update or delete endpoints are provided. Group, subject/group
+association and habilitation APIs are also outside this slice.
+
 ### Clinical record schema foundation
 
 Migration `008_create_clinical_records.sql` adds one schema-only longitudinal
@@ -181,8 +212,8 @@ user/catalog identity convention (the clinical-record BIGINT remains an
 intentional table-specific exception). Required names are nonblank, year and
 curriculum semester are positive, and linked catalogs cannot be deleted while
 associations remain. Migration 009 itself is schema only: it adds no API,
-permissions, habilitations or automatic expiry.
-
+permissions, habilitations or automatic expiry. Subject endpoints and their
+independent permissions were added separately by the subject API slice.
 Migration 009 was applied to an explicitly authorized disposable test database,
 and all six focused academic integration tests passed. TypeScript checks and 24
 selected DB-free unit tests also passed; the full regression suite was not run for
@@ -207,8 +238,9 @@ schema; no cascade is inferred here.
 The migration runner owns each migration's transaction and ledger entry; the
 migration itself does not begin or commit transactions. Running integration
 tests requires an explicitly authorized disposable database because shared
-cleanup deletes application rows. No down migration is supplied: any reversal
-requires a separately reviewed recovery plan, not routine table drops.
+cleanup deletes application rows. No down migration is supplied:
+any reversal requires a separately reviewed recovery plan, not routine table
+drops.
 
 ### First admin bootstrap
 
@@ -307,22 +339,29 @@ that migrations or database checks have been performed.
 
 1. Confirm the target and preserve a recoverable database/policy backup and
    migration ledger. Review customized grants against the approved access policy.
-2. Run the migration runner with the approved target configuration before routing
-   traffic to the new application: `006_create_permission_matrix.sql` creates
-   the tables, then `007_seed_permission_matrix.sql` seeds them. The runner in
-   `src/db/migrate.ts` commits each file and its ledger entry separately: if `007`
-   fails, `006` can remain committed. Keep new application traffic blocked.
-3. Before releasing traffic, verify both ledger entries, matrix readability by
-   the application DB role, and expected role grants. A fresh untouched seed has
-   **7 catalog rows and 13 grants**; these are not universal counts for customized
-   deployments. Verify authorized login and permission allow/deny scenarios;
-   `GET /` is only a heartbeat and does not establish matrix health.
+2. Apply migrations through `011_seed_subject_permissions.sql` before routing
+   subject traffic. Migration `006` creates the permission tables, `007` seeds
+   the original matrix, `009` creates the subject table, and `011` adds the
+   independent subject permissions and admin grants. The runner in
+   `src/db/migrate.ts` commits each file and its ledger entry separately; a later
+   migration can fail while earlier files remain committed. Keep new application
+   traffic blocked until the required migrations are verified.
+3. Verify the migration ledger through `011`, matrix readability by the
+   application DB role, and expected role grants. A fresh untouched `007` seed
+   alone has **7 permission rows and 13 grants**. After `011`, the canonical
+   untouched matrix has **9 permission rows and 15 grants**. These are not
+   universal counts for customized deployments. Verify authorized login and
+   permission allow/deny scenarios; `GET /` is only a heartbeat and does not
+   establish matrix health.
 
-`007` uses plain inserts and is **not idempotent**. The ledger prevents normal
-replay; do not reset it, rerun the seed over existing rows, or drop customized
-grants to recover from an error. Diagnose partial application before retrying.
-Readable tables with no matching grant produce `403` on permission-protected
-routes; a missing/unreadable matrix produces `500`, not a role denial.
+Migrations `007` and `011` use plain inserts and are **not idempotent**. The
+ledger prevents normal replay; do not reset it, rerun either seed over existing
+rows, or drop customized grants to recover from an error. Diagnose partial
+application before retrying. Readable tables with no matching grant produce
+`403` on permission-protected routes; a missing/unreadable matrix produces
+`500`, not a role denial. `materias:read` does not grant subject access; the
+subject read and write grants are independent and may be explicitly delegated
+through database role grants.
 
 ### Rolling back
 
@@ -335,12 +374,23 @@ reversal requires a separately reviewed backup/restore plan, not table drops.
 ## Testing
 
 **Destructive:** integration cleanup deletes application records, truncates
-`role_permissions` and `permissions`, and replays seed `007`. The `pretest` hook
-also changes schema. Never run this suite against a shared or valuable database.
+`role_permissions` and `permissions`, then restores the matrix by replaying
+`007` followed by `011`. The `pretest` hook also changes schema. Never run these
+tests against a shared or valuable database.
 
-Only after explicit authorization and independent verification of a disposable
-target, use `pnpm test` (unit + integration, serial, with `.env.test`). The actual
-target is `DATABASE_URL`, not a guaranteed database named `saludback_test`.
-Supply all required configuration (`DATABASE_URL`, `JWT_SECRET`, `CLIENT_URL`):
-`src/config.ts` attempts to load `.env` when any of these is missing.
-For a static-only check without starting the application, use `pnpm exec tsc --noEmit`.
+The subjects integration test additionally requires
+`SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
+configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
+bcrypt cost and reset-token settings). Apply migration `011` beforehand; the
+test verifies its ledger and grants before invoking destructive cleanup. Run it
+only after explicit authorization and independent verification of a dedicated
+disposable target. Cleanup is destructive even after the test assertions finish.
+
+For the general suite, use `pnpm test` only after explicit authorization and
+independent verification of a disposable target (unit + integration, serial,
+with `.env.test`). The actual target is `DATABASE_URL`, not a guaranteed database
+named `saludback_test`. Supply all required configuration (`DATABASE_URL`,
+`JWT_SECRET`, `CLIENT_URL`): `src/config.ts` attempts to load `.env` when any of
+these is missing. For a static-only check without starting the application, use
+`pnpm exec tsc --noEmit`. All database test runs require explicit authorization
+and independent target verification; this README provides no database command.

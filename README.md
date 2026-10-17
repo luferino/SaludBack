@@ -188,6 +188,22 @@ and all six focused academic integration tests passed. TypeScript checks and 24
 selected DB-free unit tests also passed; the full regression suite was not run for
 that slice.
 
+### Academic habilitation history
+
+Migration `010_create_academic_habilitations.sql` stores separate teacher and
+student habilitation periods. Each period records a required activation actor
+and timestamp; revocation actor and timestamp are optional but must be supplied
+together, and revocation cannot precede activation. Closing a period retains it;
+reactivation inserts a new period. Only one unrevoked period per profile and
+subject/group context is allowed. Contexts must exist in
+`subject_academic_groups`, and profile, context and actor references restrict
+deletes to preserve history.
+
+These foreign keys prove that referenced rows exist, not that the actor was
+authorized to activate or revoke access. Application authorization and any
+teacher-to-student revocation cascade remain outside this persistence-only
+schema; no cascade is inferred here.
+
 The migration runner owns each migration's transaction and ledger entry; the
 migration itself does not begin or commit transactions. Running integration
 tests requires an explicitly authorized disposable database because shared

@@ -10,7 +10,8 @@
  * Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
- * (role_permissions, permissions), then re-execute migrations 007, 011 and 012 so every suite starts from the canonical permission state.
+ * (role_permissions, permissions), then re-execute migrations 007, 011 and 012
+ * and 013 so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +28,10 @@ const subjectPermissionSeedSql = readFileSync(
 );
 const groupPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/012_seed_group_permissions.sql'),
+  'utf8',
+);
+const subjectGroupPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/013_seed_subject_group_permissions.sql'),
   'utf8',
 );
 
@@ -48,4 +53,5 @@ export async function cleanDb(pool) {
   await pool.query(seedSql);
   await pool.query(subjectPermissionSeedSql);
   await pool.query(groupPermissionSeedSql);
+  await pool.query(subjectGroupPermissionSeedSql);
 }

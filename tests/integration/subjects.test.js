@@ -39,6 +39,7 @@ const SUBJECT_IDS = [
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
+  'subject-groups:write', 'subject-groups:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -46,6 +47,7 @@ const EXPECTED_GRANTS = new Set([
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
   'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
+  'admin:subject-groups:write', 'admin:subject-groups:read',
 ]);
 
 let pool;
@@ -154,13 +156,14 @@ after(async () => {
   }
 });
 
-test('migrations 011 and 012 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011, 012 and 013 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
   const ledgerNamesBefore = new Set(ledgerBefore.map(({ name }) => name));
   assert.ok(ledgerNamesBefore.has('011_seed_subject_permissions.sql'), 'migration 011 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('012_seed_group_permissions.sql'), 'migration 012 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('013_seed_subject_group_permissions.sql'), 'migration 013 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -191,15 +194,30 @@ test('migrations 011 and 012 are present before cleanup and cleanup restores the
     { role: 'admin', permission: 'groups:write' },
   ]);
 
-  // Only the already-proven 011/012 baseline authorizes invoking broad cleanup.
+  const { rows: subjectGroupPermissions } = await pool.query(
+    "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subject-groups:%' ORDER BY permission",
+  );
+  assert.deepEqual(subjectGroupPermissions, [
+    { permission: 'subject-groups:read', enforced: true },
+    { permission: 'subject-groups:write', enforced: true },
+  ]);
+  const { rows: subjectGroupGrants } = await pool.query(
+    "SELECT role, permission FROM role_permissions WHERE permission LIKE 'subject-groups:%' ORDER BY role, permission",
+  );
+  assert.deepEqual(subjectGroupGrants, [
+    { role: 'admin', permission: 'subject-groups:read' },
+    { role: 'admin', permission: 'subject-groups:write' },
+  ]);
+
+  // Only the already-proven 011/012/013 baseline authorizes invoking broad cleanup.
   cleanUpAuthorized = true;
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 11);
+  assert.equal(permissions.length, 13);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 17);
+  assert.equal(grants.length, 19);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

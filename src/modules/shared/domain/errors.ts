@@ -27,6 +27,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class NotFoundError extends AppError {
+  constructor(message = 'Not found') {
+    super(404, message, 'NOT_FOUND');
+  }
+}
+
 export class UnauthorizedError extends AppError {
   constructor(message = 'Unauthorized') {
     super(401, message, 'UNAUTHORIZED');

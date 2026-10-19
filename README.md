@@ -57,6 +57,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
+| `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -331,11 +332,29 @@ endpoint; it grants no clinical-record access.
   or subject/group context does not exist; `409` — an active period already
   exists for this teacher/context.
 
-Revocation, listing, student habilitation management, assignment, and clinical
-recording are not delivered. This API does not cascade changes to student
-periods, assignments, or clinical documents. Apply migration
-`014_seed_teacher_habilitation_permissions.sql` before routing this endpoint;
-existing migration 010 and its UUID identifiers are unchanged.
+### POST /teacher-habilitations/:id/revoke
+
+Revokes only the selected teacher habilitation period. The separately enforced
+`teacher-habilitations:revoke` permission is initially granted only to `admin`
+by migration 015 and can be delegated through the fresh permission matrix;
+`teacher-habilitations:write` does not authorize revocation, and admin has no
+bypass. The verified UUID token subject supplies `revoked_by`, while the
+database clock supplies `revoked_at`; client-supplied audit/context fields are
+ignored. No request body is required.
+
+- `200` → the stored period with the same eight fields as activation; timestamps
+  are ISO strings. Repeating the operation returns the original revocation facts.
+- `400` — malformed period UUID; `401` — missing/invalid token or verified UUID
+  actor; `403` — missing `teacher-habilitations:revoke`; `404` — period not found;
+  `500` — unexpected persistence failure, including an invalid revocation actor FK.
+
+Revocation does not cascade to student periods, assignments, accounts, or
+clinical documents. Reactivation creates a distinct new period through the
+existing activation endpoint; retrying an old period cannot revoke it. Apply
+migration `015_seed_teacher_habilitation_revocation_permission.sql` before
+routing revocation. Existing migration 010 and migrations 014 are unchanged.
+Listing, student habilitation management, assignment, and clinical recording
+are not delivered.
 
 The migration runner owns each migration's transaction and ledger entry; the
 migration itself does not begin or commit transactions. Running integration
@@ -441,11 +460,11 @@ that migrations or database checks have been performed.
 
 1. Confirm the target and preserve a recoverable database/policy backup and
    migration ledger. Review customized grants against the approved access policy.
-2. Apply migrations through `014_seed_teacher_habilitation_permissions.sql`
+2. Apply migrations through `015_seed_teacher_habilitation_revocation_permission.sql`
    before routing subject, group, association, or teacher-habilitation traffic.
    Migration `006` creates the permission tables, `007` seeds the original matrix,
-   `009` creates academic catalog tables, and `011`–`014` add independent subject,
-   group, association, and teacher-habilitation permissions with initial admin
+   `009` creates academic catalog tables, and `011`–`015` add independent subject,
+   group, association, activation, and revocation permissions with initial admin
    grants. The runner in
    `src/db/migrate.ts` commits each file and its ledger entry separately; a later
    migration can fail while earlier files remain committed. Keep new application
@@ -455,13 +474,14 @@ that migrations or database checks have been performed.
    alone has **7 permission rows and 13 grants**. After `011`, the canonical
    matrix has **9 permission rows and 15 grants**; after `012`, it has **11
    permission rows and 17 grants**; after `013`, it has **13 permission rows
-   and 19 grants**; after `014`, it has **14 permission rows and 20 grants**.
+   and 19 grants**; after `014`, it has **14 permission rows and 20 grants**;
+   after `015`, it has **15 permission rows and 21 grants**.
    These are not universal counts for customized
    deployments. Verify authorized login and
    permission allow/deny scenarios; `GET /` is only a heartbeat and does not
    establish matrix health.
 
-Migrations `007` and `011`–`014` use plain inserts and are **not idempotent**.
+Migrations `007` and `011`–`015` use plain inserts and are **not idempotent**.
 The ledger prevents normal replay; do not reset it, rerun any seed over existing
 rows, or drop customized grants to recover from an error. Diagnose partial
 application before retrying. Readable tables with no matching grant produce
@@ -482,13 +502,13 @@ reversal requires a separately reviewed backup/restore plan, not table drops.
 
 **Destructive:** integration cleanup deletes application records, truncates
 `role_permissions` and `permissions`, then restores the matrix by replaying
-`007` and `011`–`014`. The `pretest` hook also changes schema. Never run these
+`007` and `011`–`015`. The `pretest` hook also changes schema. Never run these
 tests against a shared or valuable database.
 
 The subjects integration test additionally requires
 `SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
 configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
-bcrypt cost and reset-token settings). Apply migrations `011`–`014`
+bcrypt cost and reset-token settings). Apply migrations `011`–`015`
 beforehand; the test verifies all ledger entries and grants before invoking
 destructive cleanup. Run it
 only after explicit authorization and independent verification of a dedicated

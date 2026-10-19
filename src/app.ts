@@ -158,14 +158,15 @@ export function createApp(pool: Pool): express.Express {
     }),
   );
 
-  // Activation is an audited prerequisite only; no revocation, student cascade,
-  // assignment, or clinical access behavior is exposed by this route.
+  // Teacher habilitation activation and period-specific revocation are audited
+  // separately; neither changes student periods, assignments, or clinical access.
   app.use(
     '/teacher-habilitations',
     authenticate(tokenService, matrixReader),
     createTeacherHabilitationRouter({
       repository: teacherHabilitationRepository,
       guard: new PermissionGuard('teacher-habilitations:write'),
+      revokeGuard: new PermissionGuard('teacher-habilitations:revoke'),
     }),
   );
 

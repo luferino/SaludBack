@@ -7,4 +7,5 @@ export interface TeacherHabilitationRepositoryPort {
     academicGroupId: string;
     activatedBy: string;
   }): Promise<TeacherHabilitation>;
+  revoke(input: { id: string; revokedBy: string }): Promise<TeacherHabilitation>;
 }

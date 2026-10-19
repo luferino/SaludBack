@@ -31,6 +31,22 @@ export class PgTeacherHabilitationRepository implements TeacherHabilitationRepos
     this.pool = pool;
   }
 
+  async revoke(input: { id: string; revokedBy: string }): Promise<TeacherHabilitation> {
+    const { rows } = await this.pool.query<TeacherHabilitationRow>(
+      `UPDATE teacher_academic_habilitations
+       SET revoked_by = CASE WHEN revoked_at IS NULL THEN $2 ELSE revoked_by END,
+           revoked_at = CASE WHEN revoked_at IS NULL
+             THEN GREATEST(clock_timestamp(), activated_at)
+             ELSE revoked_at
+           END
+       WHERE id = $1
+       RETURNING ${COLUMNS}`,
+      [input.id, input.revokedBy],
+    );
+    if (rows.length === 0) throw new NotFoundError('teacher habilitation period was not found');
+    return rowToTeacherHabilitation(rows[0]);
+  }
+
   async activate(input: {
     teacherId: string;
     subjectId: string;

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanDb } from '../integration/helpers/clean-db.js';
 
-test('cleanDb preserves FK-safe deletion order and restores permission seeds 007 and 011–014 with a fake query pool', async () => {
+test('cleanDb preserves FK-safe deletion order and restores permission seeds 007 and 011–015 with a fake query pool', async () => {
   const calls = [];
   await cleanDb({ async query(text) { calls.push(text); return { rows: [] }; } });
   assert.deepEqual(calls.slice(0, 11), [
@@ -24,5 +24,6 @@ test('cleanDb preserves FK-safe deletion order and restores permission seeds 007
   assert.match(calls[14], /groups:write[\s\S]*groups:read/);
   assert.match(calls[15], /subject-groups:write[\s\S]*subject-groups:read/);
   assert.match(calls[16], /teacher-habilitations:write/);
-  assert.equal(calls.length, 17);
+  assert.match(calls[17], /teacher-habilitations:revoke/);
+  assert.equal(calls.length, 18);
 });

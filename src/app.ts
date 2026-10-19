@@ -20,6 +20,8 @@ import { createGroupRouter } from './modules/groups/infrastructure/routes/group.
 import { PgGroupRepository } from './modules/groups/infrastructure/repositories/pg-group.repository.js';
 import { createSubjectGroupRouter } from './modules/subject-groups/infrastructure/routes/subject-group.routes.js';
 import { PgSubjectGroupRepository } from './modules/subject-groups/infrastructure/repositories/pg-subject-group.repository.js';
+import { createTeacherHabilitationRouter } from './modules/teacher-habilitations/infrastructure/routes/teacher-habilitation.routes.js';
+import { PgTeacherHabilitationRepository } from './modules/teacher-habilitations/infrastructure/repositories/pg-teacher-habilitation.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
 import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
@@ -52,6 +54,7 @@ export function createApp(pool: Pool): express.Express {
   const subjectRepository = new PgSubjectRepository(pool);
   const groupRepository = new PgGroupRepository(pool);
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
+  const teacherHabilitationRepository = new PgTeacherHabilitationRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
@@ -152,6 +155,17 @@ export function createApp(pool: Pool): express.Express {
       repository: subjectGroupRepository,
       createGuard: new PermissionGuard('subject-groups:write'),
       listGuard: new PermissionGuard('subject-groups:read'),
+    }),
+  );
+
+  // Activation is an audited prerequisite only; no revocation, student cascade,
+  // assignment, or clinical access behavior is exposed by this route.
+  app.use(
+    '/teacher-habilitations',
+    authenticate(tokenService, matrixReader),
+    createTeacherHabilitationRouter({
+      repository: teacherHabilitationRepository,
+      guard: new PermissionGuard('teacher-habilitations:write'),
     }),
   );
 

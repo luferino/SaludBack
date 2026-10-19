@@ -56,6 +56,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/groups` | list academic groups — Bearer token + `groups:read` |
 | `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
+| `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -310,6 +311,32 @@ authorized to activate or revoke access. Application authorization and any
 teacher-to-student revocation cascade remain outside this persistence-only
 schema; no cascade is inferred here.
 
+### Teacher habilitation activation API
+
+`POST /teacher-habilitations` is the activation-only first slice. Its fresh,
+independently enforced `teacher-habilitations:write` permission is granted only
+to `admin` by migration 014; admin has no bypass, and the grant can be
+explicitly delegated through the permission matrix. Authorization reads fresh
+role grants on every request. This permission enables only the activation
+endpoint; it grants no clinical-record access.
+
+- Body: `{ "teacher_id", "subject_id", "academic_group_id" }` — each value
+  must be a UUID, and the subject/group pair must already be associated.
+- `201` → `{ "id", "teacher_id", "subject_id", "academic_group_id",
+  "activated_by", "activated_at", "revoked_by": null, "revoked_at": null }`.
+  The verified token subject supplies `activated_by`; the database clock
+  supplies `activated_at`. Client attribution and timestamp fields are ignored.
+- `400` — invalid UUID or body; `401` — missing/invalid token or verified UUID
+  actor; `403` — missing `teacher-habilitations:write` grant; `404` — teacher
+  or subject/group context does not exist; `409` — an active period already
+  exists for this teacher/context.
+
+Revocation, listing, student habilitation management, assignment, and clinical
+recording are not delivered. This API does not cascade changes to student
+periods, assignments, or clinical documents. Apply migration
+`014_seed_teacher_habilitation_permissions.sql` before routing this endpoint;
+existing migration 010 and its UUID identifiers are unchanged.
+
 The migration runner owns each migration's transaction and ledger entry; the
 migration itself does not begin or commit transactions. Running integration
 tests requires an explicitly authorized disposable database because shared
@@ -414,25 +441,27 @@ that migrations or database checks have been performed.
 
 1. Confirm the target and preserve a recoverable database/policy backup and
    migration ledger. Review customized grants against the approved access policy.
-2. Apply migrations through `013_seed_subject_group_permissions.sql` before
-   routing subject, group, or association traffic. Migration `006` creates the
-   permission tables, `007` seeds the original matrix, `009` creates academic
-   catalog tables, and `011`, `012` and `013` add independent subject, group and
-   association permissions with initial admin grants. The runner in
+2. Apply migrations through `014_seed_teacher_habilitation_permissions.sql`
+   before routing subject, group, association, or teacher-habilitation traffic.
+   Migration `006` creates the permission tables, `007` seeds the original matrix,
+   `009` creates academic catalog tables, and `011`–`014` add independent subject,
+   group, association, and teacher-habilitation permissions with initial admin
+   grants. The runner in
    `src/db/migrate.ts` commits each file and its ledger entry separately; a later
    migration can fail while earlier files remain committed. Keep new application
    traffic blocked until the required migrations are verified.
-3. Verify the migration ledger through `013`, matrix readability by the
+3. Verify the migration ledger through `014`, matrix readability by the
    application DB role, and expected role grants. A fresh untouched `007` seed
    alone has **7 permission rows and 13 grants**. After `011`, the canonical
    matrix has **9 permission rows and 15 grants**; after `012`, it has **11
    permission rows and 17 grants**; after `013`, it has **13 permission rows
-   and 19 grants**. These are not universal counts for customized
+   and 19 grants**; after `014`, it has **14 permission rows and 20 grants**.
+   These are not universal counts for customized
    deployments. Verify authorized login and
    permission allow/deny scenarios; `GET /` is only a heartbeat and does not
    establish matrix health.
 
-Migrations `007`, `011`, `012` and `013` use plain inserts and are **not idempotent**.
+Migrations `007` and `011`–`014` use plain inserts and are **not idempotent**.
 The ledger prevents normal replay; do not reset it, rerun any seed over existing
 rows, or drop customized grants to recover from an error. Diagnose partial
 application before retrying. Readable tables with no matching grant produce
@@ -453,13 +482,13 @@ reversal requires a separately reviewed backup/restore plan, not table drops.
 
 **Destructive:** integration cleanup deletes application records, truncates
 `role_permissions` and `permissions`, then restores the matrix by replaying
-`007`, `011`, `012` and `013`. The `pretest` hook also changes schema. Never run these
+`007` and `011`–`014`. The `pretest` hook also changes schema. Never run these
 tests against a shared or valuable database.
 
 The subjects integration test additionally requires
 `SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
 configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
-bcrypt cost and reset-token settings). Apply migrations `011`, `012` and `013`
+bcrypt cost and reset-token settings). Apply migrations `011`–`014`
 beforehand; the test verifies all ledger entries and grants before invoking
 destructive cleanup. Run it
 only after explicit authorization and independent verification of a dedicated

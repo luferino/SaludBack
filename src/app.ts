@@ -24,6 +24,7 @@ import { createTeacherHabilitationRouter } from './modules/teacher-habilitations
 import { PgTeacherHabilitationRepository } from './modules/teacher-habilitations/infrastructure/repositories/pg-teacher-habilitation.repository.js';
 import { createStudentHabilitationRouter } from './modules/student-habilitations/infrastructure/routes/student-habilitation.routes.js';
 import { PgStudentHabilitationRepository } from './modules/student-habilitations/infrastructure/repositories/pg-student-habilitation.repository.js';
+import { createPatientAssignmentRouter, PgPatientAssignmentRepository } from './modules/patient-assignments/index.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
 import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
@@ -59,6 +60,7 @@ export function createApp(pool: Pool): express.Express {
   const teacherHabilitationRepository = new PgTeacherHabilitationRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
   const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork);
+  const patientAssignmentRepository = new PgPatientAssignmentRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -165,6 +167,12 @@ export function createApp(pool: Pool): express.Express {
     '/student-habilitations',
     authenticate(tokenService, matrixReader),
     createStudentHabilitationRouter({ repository: studentHabilitationRepository, guard: new PermissionGuard('student-habilitations:write') }),
+  );
+
+  app.use(
+    '/patient-assignments',
+    authenticate(tokenService, matrixReader),
+    createPatientAssignmentRouter({ repository: patientAssignmentRepository }),
   );
 
   // Teacher habilitation activation and period-specific revocation are audited

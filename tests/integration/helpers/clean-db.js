@@ -42,6 +42,10 @@ const teacherHabilitationRevocationPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/015_seed_teacher_habilitation_revocation_permission.sql'),
   'utf8',
 );
+const studentHabilitationPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/016_seed_student_habilitation_permissions.sql'),
+  'utf8',
+);
 
 export async function cleanDb(pool) {
   await pool.query('DELETE FROM student_academic_habilitations');
@@ -64,4 +68,5 @@ export async function cleanDb(pool) {
   await pool.query(subjectGroupPermissionSeedSql);
   await pool.query(teacherHabilitationPermissionSeedSql);
   await pool.query(teacherHabilitationRevocationPermissionSeedSql);
+  await pool.query(studentHabilitationPermissionSeedSql);
 }

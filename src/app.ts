@@ -22,6 +22,8 @@ import { createSubjectGroupRouter } from './modules/subject-groups/infrastructur
 import { PgSubjectGroupRepository } from './modules/subject-groups/infrastructure/repositories/pg-subject-group.repository.js';
 import { createTeacherHabilitationRouter } from './modules/teacher-habilitations/infrastructure/routes/teacher-habilitation.routes.js';
 import { PgTeacherHabilitationRepository } from './modules/teacher-habilitations/infrastructure/repositories/pg-teacher-habilitation.repository.js';
+import { createStudentHabilitationRouter } from './modules/student-habilitations/infrastructure/routes/student-habilitation.routes.js';
+import { PgStudentHabilitationRepository } from './modules/student-habilitations/infrastructure/repositories/pg-student-habilitation.repository.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
 import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
@@ -56,6 +58,7 @@ export function createApp(pool: Pool): express.Express {
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
   const teacherHabilitationRepository = new PgTeacherHabilitationRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
+  const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -156,6 +159,12 @@ export function createApp(pool: Pool): express.Express {
       createGuard: new PermissionGuard('subject-groups:write'),
       listGuard: new PermissionGuard('subject-groups:read'),
     }),
+  );
+
+  app.use(
+    '/student-habilitations',
+    authenticate(tokenService, matrixReader),
+    createStudentHabilitationRouter({ repository: studentHabilitationRepository, guard: new PermissionGuard('student-habilitations:write') }),
   );
 
   // Teacher habilitation activation and period-specific revocation are audited

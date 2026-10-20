@@ -39,7 +39,7 @@ const SUBJECT_IDS = [
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
-  'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke',
+  'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -47,7 +47,7 @@ const EXPECTED_GRANTS = new Set([
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
   'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
-  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke',
+  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write',
 ]);
 
 let pool;
@@ -166,6 +166,7 @@ test('migrations 011–015 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('013_seed_subject_group_permissions.sql'), 'migration 013 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('014_seed_teacher_habilitation_permissions.sql'), 'migration 014 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('015_seed_teacher_habilitation_revocation_permission.sql'), 'migration 015 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('016_seed_student_habilitation_permissions.sql'), 'migration 016 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -211,6 +212,15 @@ test('migrations 011–015 are present before cleanup and cleanup restores the c
     { role: 'admin', permission: 'subject-groups:write' },
   ]);
 
+  const { rows: studentHabilitationPermissions } = await pool.query(
+    "SELECT permission, enforced FROM permissions WHERE permission LIKE 'student-habilitations:%' ORDER BY permission",
+  );
+  assert.deepEqual(studentHabilitationPermissions, [{ permission: 'student-habilitations:write', enforced: true }]);
+  const { rows: studentHabilitationGrants } = await pool.query(
+    "SELECT role, permission FROM role_permissions WHERE permission LIKE 'student-habilitations:%' ORDER BY role, permission",
+  );
+  assert.deepEqual(studentHabilitationGrants, [{ role: 'teacher', permission: 'student-habilitations:write' }]);
+
   const { rows: teacherHabilitationPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'teacher-habilitations:%' ORDER BY permission",
   );
@@ -231,10 +241,10 @@ test('migrations 011–015 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 15);
+  assert.equal(permissions.length, 16);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 21);
+  assert.equal(grants.length, 22);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

@@ -319,7 +319,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'teacher');
-  assert.deepEqual(decoded.permissions, ['materias:read', 'patient-assignments:read', 'patient-assignments:write', 'profile:read', 'student-habilitations:revoke', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
+  assert.deepEqual(decoded.permissions, ['kinesiology-evaluations:read', 'kinesiology-evaluations:review', 'kinesiology-evaluations:verify-consent', 'materias:read', 'patient-assignments:read', 'patient-assignments:write', 'profile:read', 'student-habilitations:revoke', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
   assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
 });
 
@@ -372,7 +372,7 @@ test('protected route passes a valid token and exposes role, permissions, sub an
     });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), {
-      auth: { role: 'estudiante', permissions: ['materias:read', 'patient-assignments:read-own', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
+      auth: { role: 'estudiante', permissions: ['kinesiology-evaluations:read', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:write', 'materias:read', 'patient-assignments:read-own', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
     });
   });
 });

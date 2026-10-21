@@ -11,7 +11,7 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME = 'student-habilitation-revocation-integration';
 const TIMEOUT = 5000;
-const MIGRATIONS = Array.from({ length: 19 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const MIGRATIONS = Array.from({ length: 21 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -19,6 +19,7 @@ const MIGRATIONS = Array.from({ length: 19 }, (_, i) => `${String(i + 1).padStar
   'seed_teacher_habilitation_permissions.sql', 'seed_teacher_habilitation_revocation_permission.sql',
   'seed_student_habilitation_permissions.sql', 'create_patient_assignments.sql',
   'seed_patient_assignment_permissions.sql', 'seed_student_habilitation_revocation_permission.sql',
+  'create_kinesiology_evaluations.sql', 'seed_kinesiology_evaluation_permissions.sql',
 ][i]}`);
 let pool, server, baseUrl, safeToClean = false;
 function normalize(value) { const ip = value?.replace(/^\[|\]$/g, '').split('/')[0].toLowerCase(); return ip?.startsWith('::ffff:') ? ip.slice(7) : ip; }
@@ -48,7 +49,7 @@ async function verifyTarget() {
       (SELECT count(*)::int FROM public.users) users,
       (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 20, grants: 26 });
+    assert.deepEqual(baseline[0], { assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 25, grants: 32 });
     console.log('Verified disposable localhost:5432/saludback_test; migration ledger, exact permission baseline and empty fixtures confirmed.');
   } finally { await client.end(); }
   return value;

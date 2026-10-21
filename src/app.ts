@@ -26,6 +26,7 @@ import { createStudentHabilitationRouter } from './modules/student-habilitations
 import { PgStudentHabilitationRepository } from './modules/student-habilitations/infrastructure/repositories/pg-student-habilitation.repository.js';
 import { createPatientAssignmentRouter, PgPatientAssignmentRepository } from './modules/patient-assignments/index.js';
 import { PgUnitOfWork } from './modules/shared/infrastructure/pg-unit-of-work.js';
+import { createKinesiologyEvaluationRouter, PgKinesiologyEvaluationRepository } from './modules/kinesiology-evaluations/index.js';
 import { PermissionGuard } from './modules/shared/application/guard.js';
 import { authenticate } from './modules/auth/infrastructure/middleware/authenticate.js';
 import { errorHandler } from './middleware/error-handler.js';
@@ -61,6 +62,7 @@ export function createApp(pool: Pool): express.Express {
   const unitOfWork = new PgUnitOfWork(pool);
   const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork);
   const patientAssignmentRepository = new PgPatientAssignmentRepository(unitOfWork, pool);
+  const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -173,6 +175,12 @@ export function createApp(pool: Pool): express.Express {
     '/patient-assignments',
     authenticate(tokenService, matrixReader),
     createPatientAssignmentRouter({ repository: patientAssignmentRepository }),
+  );
+
+  app.use(
+    '/kinesiology-evaluations',
+    authenticate(tokenService, matrixReader),
+    createKinesiologyEvaluationRouter({ repository: kinesiologyEvaluationRepository }),
   );
 
   // Teacher habilitation activation and period-specific revocation are audited

@@ -59,6 +59,9 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 | `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
 | `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
+| `POST` | `/patient-assignments` | assign a patient to an active student period — `patient-assignments:write` + active teacher context |
+| `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
+| `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -68,6 +71,14 @@ can pass with the required grant. Authorization does not bypass input validation
 Login and password recovery stay public; login also reads the matrix after
 credential validation and fails with `500` if that read fails. This policy does
 not redefine the separate role-only `AdminGuard` used by custom router wiring.
+
+### Patient assignments (T2)
+
+`POST /patient-assignments` accepts `{ "patient_id", "student_habilitation_id", "subject_id", "academic_group_id" }`, all UUIDs. A successful `201` returns assignment `id` as a decimal string (BIGINT-safe), patient and exact-period/context identifiers, `assigned_by`, `assigned_at`, and null end facts. Actor identity always comes from the authenticated token. The teacher grant is seeded only for `teacher`; the own-list grant only for `estudiante`. Admin grants do not bypass linked-profile or active-context checks.
+
+Creation locks/revalidates the teacher context, exact active student period, then patient, and relies on a database uniqueness guard for one active patient/subject assignment across groups. Errors: `400` malformed UUID/pagination; `401` missing or invalid token; `403` missing permission or active teacher context; `404` missing patient/active matching period; `409` active patient/subject assignment already exists. Transaction failures roll back.
+
+`GET /patient-assignments` and `/patient-assignments/mine` accept bounded `limit` (1–100, default 50) and nonnegative `offset` (default 0), returning `{ "items": [...], "limit", "offset" }`. Results include only patient `id`, `nombres`, `apellidos`, `documento` and assignment/period/context/audit metadata. They expose no contact or clinical fields and do not provide clinical-record access. Ended assignments and revoked student periods are excluded. T3 reassignment/end and T4 student revocation remain future work.
 
 ### POST /auth/register
 

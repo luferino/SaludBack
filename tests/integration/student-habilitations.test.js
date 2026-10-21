@@ -16,6 +16,7 @@ const MIGRATIONS = [
   '014_seed_teacher_habilitation_permissions.sql',
   '015_seed_teacher_habilitation_revocation_permission.sql',
   '016_seed_student_habilitation_permissions.sql',
+  '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';
@@ -113,11 +114,11 @@ async function verifyDisposableTarget() {
        WHERE schemaname = 'public'
          AND tablename = ANY($1::text[])
        ORDER BY tablename`, [[
-      'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+      'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
       'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
       'password_reset_tokens', 'users', 'permissions', 'role_permissions', 'schema_migrations',
     ]]);
-    assert.equal(required.length, 14, 'required integration schema is incomplete');
+    assert.equal(required.length, 15, 'required integration schema is incomplete');
   } finally {
     await client.end();
   }

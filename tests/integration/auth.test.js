@@ -81,6 +81,17 @@ function buildProtectedApp(tokenService, matrixReader) {
   return app;
 }
 
+async function withProtectedServer(tokenService, matrixReader, run) {
+  const protectedServer = buildProtectedApp(tokenService, matrixReader).listen(0);
+  await new Promise((resolve) => protectedServer.once('listening', resolve));
+  try {
+    const url = `http://127.0.0.1:${protectedServer.address().port}`;
+    return await run(url, protectedServer);
+  } finally {
+    await new Promise((resolve, reject) => protectedServer.close((error) => error ? reject(error) : resolve()));
+  }
+}
+
 let server;
 let baseUrl;
 let adminId;
@@ -308,7 +319,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'teacher');
-  assert.deepEqual(decoded.permissions, ['materias:read', 'profile:read', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
+  assert.deepEqual(decoded.permissions, ['materias:read', 'patient-assignments:read', 'patient-assignments:write', 'profile:read', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
   assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
 });
 
@@ -355,19 +366,28 @@ test('protected route passes a valid token and exposes role, permissions, sub an
     permissions: ['profile:read'],
   });
 
-  const protectedServer = buildProtectedApp(tokenService, new PgPermissionMatrixRepository(pool)).listen(0);
-  await new Promise((resolve) => protectedServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${protectedServer.address().port}`;
-
-  const res = await fetch(`${url}/secure`, {
-    headers: { authorization: `Bearer ${token}` },
+  await withProtectedServer(tokenService, new PgPermissionMatrixRepository(pool), async (url) => {
+    const res = await fetch(`${url}/secure`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      auth: { role: 'estudiante', permissions: ['materias:read', 'patient-assignments:read-own', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
+    });
   });
-  assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), {
-    auth: { role: 'estudiante', permissions: ['materias:read', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
-  });
+});
 
-  await new Promise((resolve) => protectedServer.close(resolve));
+test('protected server closes when its test callback rejects', async () => {
+  const tokenService = new JwtTokenService({ secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
+  let protectedServer;
+  await assert.rejects(
+    withProtectedServer(tokenService, {}, async (_url, server) => {
+      protectedServer = server;
+      throw new Error('injected protected-route assertion failure');
+    }),
+    /injected protected-route assertion failure/,
+  );
+  assert.equal(protectedServer.listening, false);
 });
 
 test('protected route rejects missing, malformed and expired tokens with 401', async () => {
@@ -379,23 +399,19 @@ test('protected route rejects missing, malformed and expired tokens with 401', a
     permissions: [],
   });
 
-  const protectedServer = buildProtectedApp(tokenService, new PgPermissionMatrixRepository(pool)).listen(0);
-  await new Promise((resolve) => protectedServer.once('listening', resolve));
-  const url = `http://127.0.0.1:${protectedServer.address().port}`;
-
-  const requests = [
-    fetch(`${url}/secure`),
-    fetch(`${url}/secure`, { headers: { authorization: 'Bearer not.a.jwt' } }),
-    fetch(`${url}/secure`, { headers: { authorization: `Bearer ${expired}` } }),
-  ];
-  for (const request of requests) {
-    const res = await request;
-    assert.equal(res.status, 401);
-    const body = await res.json();
-    assert.equal(body.error.code, 'UNAUTHORIZED');
-  }
-
-  await new Promise((resolve) => protectedServer.close(resolve));
+  await withProtectedServer(tokenService, new PgPermissionMatrixRepository(pool), async (url) => {
+    const requests = [
+      fetch(`${url}/secure`),
+      fetch(`${url}/secure`, { headers: { authorization: 'Bearer not.a.jwt' } }),
+      fetch(`${url}/secure`, { headers: { authorization: `Bearer ${expired}` } }),
+    ];
+    for (const request of requests) {
+      const res = await request;
+      assert.equal(res.status, 401);
+      const body = await res.json();
+      assert.equal(body.error.code, 'UNAUTHORIZED');
+    }
+  });
 });
 
 // --- GET /auth/me (PR-001 / PR-002) ---

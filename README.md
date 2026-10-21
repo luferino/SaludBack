@@ -58,6 +58,11 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 | `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
+| `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
+| `POST` | `/student-habilitations/:id/revoke` | revoke one student period and atomically close its active assignments — Bearer token + `student-habilitations:revoke` + active teacher context |
+| `POST` | `/patient-assignments` | assign a patient to an active student period — `patient-assignments:write` + active teacher context |
+| `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
+| `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -67,6 +72,18 @@ can pass with the required grant. Authorization does not bypass input validation
 Login and password recovery stay public; login also reads the matrix after
 credential validation and fails with `500` if that read fails. This policy does
 not redefine the separate role-only `AdminGuard` used by custom router wiring.
+
+### Patient assignments (T2)
+
+`POST /patient-assignments` accepts `{ "patient_id", "student_habilitation_id", "subject_id", "academic_group_id" }`, all UUIDs. A successful `201` returns assignment `id` as a decimal string (BIGINT-safe), patient and exact-period/context identifiers, `assigned_by`, `assigned_at`, and null end facts. Actor identity always comes from the authenticated token. The teacher grant is seeded only for `teacher`; the own-list grant only for `estudiante`. Admin grants do not bypass linked-profile or active-context checks.
+
+Creation locks/revalidates the teacher context, exact active student period, then patient, and relies on a database uniqueness guard for one active patient/subject assignment across groups. Errors: `400` malformed UUID/pagination; `401` missing or invalid token; `403` missing permission or active teacher context; `404` missing patient/active matching period; `409` active patient/subject assignment already exists. Transaction failures roll back.
+
+`GET /patient-assignments` and `/patient-assignments/mine` accept bounded `limit` (1–100, default 50) and nonnegative `offset` (default 0), returning `{ "items": [...], "limit", "offset" }`. Results include only patient `id`, `nombres`, `apellidos`, `documento` and assignment/period/context/audit metadata. They expose no contact or clinical fields and do not provide clinical-record access. Ended assignments and revoked student periods are excluded.
+
+`POST /patient-assignments/:id/reassign` accepts `{ "student_habilitation_id", "subject_id", "academic_group_id" }` and returns `200` with the replacement assignment. `id` is a positive BIGINT decimal string. The actor must have `patient-assignments:write` and active teacher contexts for both source and destination groups in the same subject; the destination period must be active and match that subject/group. The old row is closed with server-owned actor/time and null `end_reason`, and the replacement row is inserted atomically. Errors include `400` malformed ID/UUID or cross-subject request, `401` missing/invalid authentication, `403` missing permission/context, `404` missing assignment/active destination period, and `409` ended source or active-assignment uniqueness conflict.
+
+`POST /patient-assignments/:id/end` requires `{ "end_reason": "..." }` and returns `200` with the closed assignment. The reason must be a string containing non-whitespace and is persisted trimmed; actor and timestamp are server-owned. Missing, null, non-string, or blank reasons return `400` with `end_reason must be a non-empty string`, without changing state. Already-ended assignments return `409` and retain their original end facts. Both lifecycle routes require the fresh `patient-assignments:write` grant and an active teacher context. They lock teacher contexts, student periods, patient, then assignment and revalidate inside one transaction. Automatic closure during reassignment or student revocation does not require a user reason. T4 student revocation remains future work.
 
 ### POST /auth/register
 
@@ -331,6 +348,44 @@ endpoint; it grants no clinical-record access.
   actor; `403` — missing `teacher-habilitations:write` grant; `404` — teacher
   or subject/group context does not exist; `409` — an active period already
   exists for this teacher/context.
+
+### POST /student-habilitations
+
+Activates a new student habilitation period; it does not revoke periods, create
+assignments, restore old assignments, or grant clinical-record access. The
+fresh `student-habilitations:write` permission is seeded for the `teacher` role
+by migration 016, but the grant alone is insufficient: the authenticated user
+must resolve to a teacher profile with an active habilitation in the exact
+subject/group context. Admin has no bypass. The verified user's UUID is stored
+as `activated_by`; body-supplied actor fields are ignored. Existing period UUIDs
+and the existing active-period unique index remain in force.
+
+- Body: `{ "student_id", "subject_id", "academic_group_id" }` — each value
+  must be a UUID; the student and linked subject/group context must exist.
+- `201` → the stored period with `id`, `student_id`, `subject_id`,
+  `academic_group_id`, `activated_by`, `activated_at`, `revoked_by: null`,
+  and `revoked_at: null`.
+- `400` — malformed UUID; `401` — missing/invalid token or actor; `403` —
+  missing permission, teacher profile, or active teacher context; `404` —
+  missing student or subject/group context; `409` — an active period already
+  exists for this student/context.
+
+### POST /student-habilitations/:id/revoke
+
+Revokes only the selected student period and atomically ends its active patient
+assignments without a user-supplied reason. The separately enforced
+`student-habilitations:revoke` permission is initially granted to `teacher` by
+migration 019; activation's `student-habilitations:write` permission is not
+sufficient. The authenticated actor must also have an active teacher
+habilitation in that period's subject/group. Admin has no bypass. Repeated
+revocation returns the original period audit facts and does not rewrite ended
+assignment history. Later activation creates a new period and never restores
+assignments attached to the revoked period.
+
+- `200` → the stored period with activation and original revocation audit facts.
+- `400` — malformed period UUID; `401` — missing/invalid token or verified UUID
+  actor; `403` — missing `student-habilitations:revoke` or active teacher context;
+  `404` — period not found after contextual authorization.
 
 ### POST /teacher-habilitations/:id/revoke
 

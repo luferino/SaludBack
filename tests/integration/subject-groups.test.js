@@ -21,13 +21,14 @@ const MIGRATIONS = [
   '008_create_clinical_records.sql', '009_create_academic_contexts.sql',
   '010_create_academic_habilitations.sql', '011_seed_subject_permissions.sql',
   '012_seed_group_permissions.sql', '013_seed_subject_group_permissions.sql',
-  '014_seed_teacher_habilitation_permissions.sql', '015_seed_teacher_habilitation_revocation_permission.sql',
+  '014_seed_teacher_habilitation_permissions.sql', '015_seed_teacher_habilitation_revocation_permission.sql', '016_seed_student_habilitation_permissions.sql', '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql', '019_seed_student_habilitation_revocation_permission.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read',
   'groups:write', 'groups:read', 'subject-groups:write', 'subject-groups:read',
-  'teacher-habilitations:write', 'teacher-habilitations:revoke',
+  'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
+  'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -35,10 +36,11 @@ const EXPECTED_GRANTS = new Set([
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
   'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
-  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke',
+  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write', 'teacher:student-habilitations:revoke',
+  'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
 ]);
 const CLEANUP_TABLES = [
-  'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+  'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
   'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users',
 ];
@@ -63,6 +65,7 @@ let baseUrl;
 let config;
 let createApp;
 let cleanDb;
+let cleanupAuthorized = false;
 let JwtTokenService;
 
 function privateConnectionSettings() {
@@ -192,7 +195,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 15, 'Expected the full 15-permission baseline before cleanup.');
+  assert.equal(permissions.length, 20, 'Expected the full 20-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -201,7 +204,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 21, 'Expected the full 21-grant baseline before cleanup.');
+  assert.equal(grants.length, 26, 'Expected the full 26-grant baseline before cleanup.');
 
   const checks = [
     ...CLEANUP_TABLES.map((table_name) => ({ table_name, privilege: 'DELETE' })),
@@ -315,6 +318,7 @@ before(async () => {
     options: PG_OPTIONS,
   });
   await verifyDestructivePreflight();
+  cleanupAuthorized = true;
   // cleanDb issues 17 non-transactional query calls containing 22 SQL statements:
   // 11 ordered DELETEs, one TRUNCATE, and ten INSERTs across five seed batches.
   // Its destructive scope is not atomic; failed preflight never reaches cleanup.
@@ -346,11 +350,13 @@ after(async () => {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     } catch (error) { errors.push(error); }
   }
+  if (pool && cleanupAuthorized) {
+    try { await cleanDb(pool); } catch (error) { errors.push(error); }
+  }
   if (pool) {
     try { await pool.end(); } catch (error) { errors.push(error); }
   }
-  // Teardown only closes resources: fixture rows intentionally remain for inspection.
-  if (errors.length) throw new AggregateError(errors, 'Subject-group integration resource teardown failed.');
+  if (errors.length) throw new AggregateError(errors, 'Subject-group integration cleanup failed.');
 });
 
 test('GET lists persisted associations in stable subject/group order with explicit serialization and pagination', async () => {

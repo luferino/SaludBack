@@ -59,6 +59,7 @@ let baseUrl;
 let config;
 let createApp;
 let cleanDb;
+let cleanupAuthorized = false;
 let JwtTokenService;
 
 function privateConnectionSettings() {
@@ -323,6 +324,7 @@ before(async () => {
     options: PG_OPTIONS,
   });
   await verifyDestructivePreflight();
+  cleanupAuthorized = true;
   // cleanDb issues 17 non-transactional query calls containing 22 SQL statements:
   // 11 ordered DELETEs, one TRUNCATE, and ten INSERTs across five seed batches.
   // Its destructive scope is not atomic; failed preflight never reaches cleanup.
@@ -345,11 +347,13 @@ after(async () => {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     } catch (error) { errors.push(error); }
   }
+  if (pool && cleanupAuthorized) {
+    try { await cleanDb(pool); } catch (error) { errors.push(error); }
+  }
   if (pool) {
     try { await pool.end(); } catch (error) { errors.push(error); }
   }
-  // Teardown only closes resources: fixture rows intentionally remain for inspection.
-  if (errors.length) throw new AggregateError(errors, 'Groups integration resource teardown failed.');
+  if (errors.length) throw new AggregateError(errors, 'Groups integration cleanup failed.');
 });
 
 test('POST persists a trimmed group, returns explicit fields, rejects duplicates, and trusts only the verified actor', async () => {

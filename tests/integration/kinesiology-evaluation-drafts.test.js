@@ -405,6 +405,52 @@ test('initial submission freezes public snapshot and GET returns it unchanged af
   assert.deepEqual(afterState,beforeState,'rejected edit/repeat and later snapshot reads leave the submitted document unchanged');
 });
 
+test('cross-context readers see only the last submitted snapshot while current patient care access remains active',async()=>{
+  const f=await fixture(), {draft,studentJwt,teacherJwt,consent}=await readyForSubmission(f);
+  const otherStudentJwt=await token(f.otherStudent), otherTeacherJwt=await token(f.otherTeacher);
+  const detailPath=`/kinesiology-evaluations/${draft.id}`;
+  const historyPath=`${detailPath}/submissions`;
+  assert.equal((await request('GET',detailPath,otherStudentJwt)).status,404,'a current patient assignment does not reveal a never-submitted draft');
+  assert.deepEqual((await request('GET',`/kinesiology-evaluations?patient_id=${f.patient}`,otherStudentJwt)).body,{items:[]});
+  const submitted=await request('POST',historyPath,studentJwt,{});
+  assert.equal(submitted.status,201);
+  const snapshot=submitted.body;
+  const detail=await request('GET',detailPath,otherStudentJwt);
+  assert.equal(detail.status,200); assert.equal(detail.body.status,'submitted');
+  assert.equal(detail.body.validation_status,'pending_validation');
+  assert.deepEqual(detail.body.content,completeContent());
+  assert.deepEqual(detail.body.patient,snapshot.patient); assert.equal(detail.body.age,snapshot.age_at_admission);
+  assert.deepEqual(detail.body.consent,snapshot.consent);
+  assert.equal(detail.body.submission_id,snapshot.id); assert.equal(detail.body.submitted_by,f.student.id);
+  const listing=await request('GET',`/kinesiology-evaluations?patient_id=${f.patient}&subject_id=${f.origin.subject}&academic_group_id=${f.origin.group}`,otherStudentJwt);
+  assert.equal(listing.status,200); assert.deepEqual(listing.body.items,[detail.body]);
+  assert.deepEqual((await request('GET',historyPath,otherStudentJwt)).body.items,[snapshot]);
+  const teacherRead=await request('GET',detailPath,otherTeacherJwt);
+  assert.equal(teacherRead.status,200); assert.deepEqual(teacherRead.body,detail.body);
+  assert.deepEqual((await request('GET',historyPath,otherTeacherJwt)).body.items,[snapshot]);
+  assert.equal((await request('GET',`${detailPath}/consent`,otherTeacherJwt)).status,404,'cross-context access never widens latest-working-consent GET');
+  const before=(await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+  const deniedEdit=await request('PATCH',detailPath,otherStudentJwt,{content:completeContent({illness_history:'unauthorized'})});
+  assert.equal(deniedEdit.status,404); assert.deepEqual((await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0],before);
+  await pool.query("UPDATE patients SET nombres='Later name',direccion='Later address' WHERE id=$1",[f.patient]);
+  const laterConsent=await request('POST',`${detailPath}/consent`,teacherJwt,{paper_signature_date:'2026-01-13'});
+  assert.equal(laterConsent.status,201);
+  assert.deepEqual((await request('GET',detailPath,otherStudentJwt)).body,detail.body,'later demographics and consent do not change the cross-context snapshot');
+  assert.deepEqual((await request('GET',historyPath,otherTeacherJwt)).body.items,[snapshot]);
+  await pool.query('UPDATE patient_assignments SET ended_at=clock_timestamp(),ended_by=$2 WHERE patient_id=$1 AND student_habilitation_id=$3 AND ended_at IS NULL',[f.patient,f.teacher.id,f.otherPeriod]);
+  assert.equal((await request('GET',detailPath,otherStudentJwt)).status,404,'revoked student care assignment removes cross-context access');
+  assert.equal((await request('GET',detailPath,otherTeacherJwt)).status,404,'an active teacher habilitation without a matching current patient assignment is insufficient');
+  const revokedHistory=await request('GET',historyPath,otherStudentJwt);
+  assert.equal(revokedHistory.status,404);
+  assert.deepEqual(revokedHistory.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+  assert.deepEqual(await request('GET','/kinesiology-evaluations/9223372036854775807/submissions',otherStudentJwt),revokedHistory);
+  assert.equal((await request('GET',detailPath,studentJwt)).status,200,'origin author retains current origin access');
+  const adminDenied=await request('GET',detailPath,await token(f.admin));
+  assert.equal(adminDenied.status,403,'administrator without a fresh read grant is denied before contextual lookup');
+  assert.deepEqual(adminDenied.body,{error:{code:'FORBIDDEN',message:"Permission 'kinesiology-evaluations:read' required"}});
+  assert.deepEqual(consent,snapshot.consent);
+});
+
 test('submission content, consent, fresh grant, and private target denials preserve documents and versions',async()=>{
   const f=await fixture(), {draft,studentJwt,teacherJwt}=await readyForSubmission(f,completeContent({illness_history:'   '}));
   const path=`/kinesiology-evaluations/${draft.id}/submissions`;

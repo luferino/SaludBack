@@ -63,6 +63,12 @@ interface EvaluationRow {
 }
 
 interface EvaluationReadRow extends EvaluationRow {
+  projected_submission_id?: string | null;
+  projected_submission_ordinal?: string | null;
+  projected_submitted_by?: string | null;
+  projected_submitted_at?: Date | string | null;
+  projected_age_at_admission?: number | null;
+  projected_consent?: Record<string, unknown> | null;
   patient_documento: string;
   patient_nombres: string;
   patient_apellidos: string;
@@ -82,6 +88,58 @@ const MAX_BIGINT = 9223372036854775807n;
 const EVALUATION_COLUMNS = `e.id::text AS id, e.clinical_record_id::text AS clinical_record_id,
   e.patient_id, e.author_id, e.origin_student_habilitation_id, e.origin_subject_id,
   e.origin_group_id, e.content, e.created_at, e.updated_at, e.status`;
+
+function originRead(actor: string): string {
+  return `((e.author_id = ${actor} AND EXISTS (
+    SELECT 1 FROM students s JOIN student_academic_habilitations sp ON sp.student_id = s.id
+    JOIN patient_assignments a ON a.student_habilitation_id = sp.id
+    WHERE s.user_id = ${actor} AND a.patient_id = e.patient_id
+      AND sp.subject_id = e.origin_subject_id AND sp.academic_group_id = e.origin_group_id
+      AND sp.revoked_at IS NULL AND a.ended_at IS NULL
+  )) OR EXISTS (
+    SELECT 1 FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+    WHERE t.user_id = ${actor} AND th.subject_id = e.origin_subject_id
+      AND th.academic_group_id = e.origin_group_id AND th.revoked_at IS NULL
+  ))`;
+}
+
+function crossContextRead(actor: string): string {
+  return `(EXISTS (
+    SELECT 1 FROM students s JOIN student_academic_habilitations sp ON sp.student_id = s.id
+    JOIN patient_assignments a ON a.student_habilitation_id = sp.id
+    WHERE s.user_id = ${actor} AND a.patient_id = e.patient_id
+      AND a.subject_id = sp.subject_id AND sp.revoked_at IS NULL AND a.ended_at IS NULL
+  ) OR EXISTS (
+    SELECT 1 FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+    JOIN patient_assignments a ON a.patient_id = e.patient_id AND a.subject_id = th.subject_id AND a.ended_at IS NULL
+    JOIN student_academic_habilitations sp ON sp.id = a.student_habilitation_id
+      AND sp.subject_id = th.subject_id AND sp.academic_group_id = th.academic_group_id AND sp.revoked_at IS NULL
+    WHERE t.user_id = ${actor} AND th.revoked_at IS NULL
+  ))`;
+}
+
+function projectedReadColumns(origin: string): string {
+  return `e.id::text AS id, e.clinical_record_id::text AS clinical_record_id, e.patient_id,
+    e.author_id, e.origin_student_habilitation_id, e.origin_subject_id, e.origin_group_id,
+    CASE WHEN ${origin} THEN e.content ELSE snapshot.clinical_content END AS content,
+    CASE WHEN ${origin} THEN e.created_at ELSE snapshot.submitted_at END AS created_at,
+    CASE WHEN ${origin} THEN e.updated_at ELSE snapshot.submitted_at END AS updated_at,
+    CASE WHEN ${origin} THEN e.status ELSE 'submitted' END AS status,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.id::text END AS projected_submission_id,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.ordinal::text END AS projected_submission_ordinal,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.submitted_by::text END AS projected_submitted_by,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.submitted_at END AS projected_submitted_at,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.age_at_admission END AS projected_age_at_admission,
+    CASE WHEN ${origin} THEN NULL ELSE snapshot.verified_consent_snapshot END AS projected_consent,
+    CASE WHEN ${origin} THEN p.documento ELSE snapshot.patient_snapshot->>'documento' END AS patient_documento,
+    CASE WHEN ${origin} THEN p.nombres ELSE snapshot.patient_snapshot->>'nombres' END AS patient_nombres,
+    CASE WHEN ${origin} THEN p.apellidos ELSE snapshot.patient_snapshot->>'apellidos' END AS patient_apellidos,
+    CASE WHEN ${origin} THEN p.fecha_nacimiento::text ELSE snapshot.patient_snapshot->>'fecha_nacimiento' END AS patient_fecha_nacimiento,
+    CASE WHEN ${origin} THEN p.email ELSE snapshot.patient_snapshot->>'email' END AS patient_email,
+    CASE WHEN ${origin} THEN p.celular ELSE snapshot.patient_snapshot->>'celular' END AS patient_celular,
+    CASE WHEN ${origin} THEN p.sexo ELSE snapshot.patient_snapshot->>'sexo' END AS patient_sexo,
+    CASE WHEN ${origin} THEN p.direccion ELSE snapshot.patient_snapshot->>'direccion' END AS patient_direccion`;
+}
 
 function evaluationId(value: unknown): string {
   if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || BigInt(value) > MAX_BIGINT) {
@@ -198,6 +256,7 @@ function ageAtAdmission(birthDate: Date | string, admissionDate?: string | null)
 
 function serialize(row: EvaluationRow) {
   const patient = row.patient;
+  const projected = row as EvaluationReadRow;
   return {
     id: row.id,
     clinical_record_id: row.clinical_record_id,
@@ -214,9 +273,18 @@ function serialize(row: EvaluationRow) {
       apellidos: patient.apellidos, fecha_nacimiento: dateOnly(patient.fecha_nacimiento),
       email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion,
     } : null,
-    age: patient ? ageAtAdmission(patient.fecha_nacimiento, row.content.admission_date) : null,
+    age: projected.projected_submission_id
+      ? projected.projected_age_at_admission ?? null
+      : patient ? ageAtAdmission(patient.fecha_nacimiento, row.content.admission_date) : null,
     created_at: new Date(row.created_at).toISOString(),
     updated_at: new Date(row.updated_at).toISOString(),
+    ...(projected.projected_submission_id ? {
+      submission_id: projected.projected_submission_id,
+      submission_ordinal: projected.projected_submission_ordinal,
+      submitted_by: projected.projected_submitted_by,
+      submitted_at: projected.projected_submitted_at && new Date(projected.projected_submitted_at).toISOString(),
+      consent: projected.projected_consent,
+    } : {}),
   };
 }
 
@@ -378,24 +446,29 @@ export class PgKinesiologyEvaluationRepository {
   }
 
   async submissions(evaluationId: string, actorId: string) {
-    await this.detail(evaluationId, actorId);
+    const origin = originRead('$2');
+    const cross = crossContextRead('$2');
     const result = await this.pool.query<Record<string, unknown>>(
       `SELECT s.id::text AS id, s.evaluation_id::text AS evaluation_id,
               s.ordinal::text AS ordinal, s.submitted_by, s.submitted_at,
               s.clinical_content, s.patient_snapshot AS patient, s.age_at_admission,
-              s.verified_consent_snapshot AS consent
+              s.verified_consent_snapshot AS consent,
+              COALESCE((SELECT json_agg(json_build_object('type', study.study_type,
+                'description', study.description, 'date', study.study_date::text) ORDER BY study.ordinal)
+                FROM kinesiology_evaluation_submission_studies study WHERE study.submission_id = s.id), '[]'::json) AS studies
          FROM kinesiology_evaluation_submissions s
-         WHERE s.evaluation_id = $1 ORDER BY s.ordinal`, [evaluationId],
+         JOIN kinesiology_evaluations e ON e.id = s.evaluation_id
+        WHERE s.evaluation_id = $1 AND (
+          ${origin} OR (${cross} AND s.id = (
+            SELECT latest.id FROM kinesiology_evaluation_submissions latest
+             WHERE latest.evaluation_id = e.id ORDER BY latest.ordinal DESC LIMIT 1
+          ))
+        ) ORDER BY s.ordinal`, [evaluationId, actorId],
     );
-    const items = [];
-    for (const row of result.rows) {
-      const studies = await this.pool.query(
-        `SELECT study_type AS type, description, study_date::text AS date
-           FROM kinesiology_evaluation_submission_studies WHERE submission_id = $1 ORDER BY ordinal`, [row.id],
-      );
-      items.push({ ...row, submitted_at: new Date(row.submitted_at as string).toISOString(),
-        status: 'pending_validation', studies: studies.rows });
-    }
+    // An empty authorized history is valid; private or absent evaluations are not.
+    if (result.rows.length === 0) await this.detail(evaluationId, actorId);
+    const items = result.rows.map(({ studies, ...row }) => ({ ...row,
+      submitted_at: new Date(row.submitted_at as string).toISOString(), status: 'pending_validation', studies }));
     return { evaluation_id: evaluationId, items };
   }
 
@@ -480,7 +553,7 @@ export class PgKinesiologyEvaluationRepository {
   }
 
   async consent(evaluationId: string, actorId: string) {
-    const evaluation = await this.detail(evaluationId, actorId);
+    const evaluation = await this.originDetail(evaluationId, actorId);
     const result = await this.pool.query<{ id: string; paper_signature_date: string; verified_by: string; verified_at: Date | string }>(
       `SELECT id::text AS id, paper_signature_date::text AS paper_signature_date,
               verified_by, verified_at
@@ -537,27 +610,33 @@ export class PgKinesiologyEvaluationRepository {
   }
 
   async detail(evaluationId: string, actorId: string): Promise<EvaluationRow> {
+    const origin = originRead('$2');
+    const cross = crossContextRead('$2');
+    const result = await this.pool.query<EvaluationReadRow>(
+      `SELECT ${projectedReadColumns(origin)}
+         FROM kinesiology_evaluations e JOIN patients p ON p.id = e.patient_id
+         LEFT JOIN LATERAL (
+           SELECT s.id, s.ordinal, s.submitted_by, s.submitted_at, s.clinical_content,
+                  s.patient_snapshot, s.age_at_admission, s.verified_consent_snapshot
+             FROM kinesiology_evaluation_submissions s
+            WHERE s.evaluation_id = e.id ORDER BY s.ordinal DESC LIMIT 1
+         ) snapshot ON true
+        WHERE e.id = $1 AND (${origin} OR (snapshot.id IS NOT NULL AND ${cross}))`,
+      [evaluationId, actorId],
+    );
+    if (!result.rows.length) throw new NotFoundError('evaluation was not found');
+    return withPatient(result.rows[0]);
+  }
+
+  private async originDetail(evaluationId: string, actorId: string): Promise<EvaluationRow> {
     const result = await this.pool.query<EvaluationReadRow>(
       `SELECT ${EVALUATION_COLUMNS}, p.documento AS patient_documento, p.nombres AS patient_nombres,
               p.apellidos AS patient_apellidos, p.fecha_nacimiento AS patient_fecha_nacimiento,
               p.email AS patient_email, p.celular AS patient_celular, p.sexo AS patient_sexo,
               p.direccion AS patient_direccion
          FROM kinesiology_evaluations e JOIN patients p ON p.id = e.patient_id
-        WHERE e.id = $1 AND (
-          (e.author_id = $2 AND EXISTS (
-            SELECT 1 FROM students s
-            JOIN student_academic_habilitations p ON p.student_id = s.id
-            JOIN patient_assignments a ON a.student_habilitation_id = p.id
-            WHERE s.user_id = $2 AND a.patient_id = e.patient_id
-              AND p.subject_id = e.origin_subject_id AND p.academic_group_id = e.origin_group_id
-              AND p.revoked_at IS NULL AND a.ended_at IS NULL
-          )) OR EXISTS (
-            SELECT 1 FROM teachers t
-            JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
-            WHERE t.user_id = $2 AND th.subject_id = e.origin_subject_id
-              AND th.academic_group_id = e.origin_group_id AND th.revoked_at IS NULL
-          )
-        )`, [evaluationId, actorId],
+        WHERE e.id = $1 AND ${originRead('$2')}`,
+      [evaluationId, actorId],
     );
     if (!result.rows.length) throw new NotFoundError('evaluation was not found');
     return withPatient(result.rows[0]);
@@ -568,27 +647,19 @@ export class PgKinesiologyEvaluationRepository {
     const filters: string[] = ['e.patient_id = $2'];
     if (subjectId) { params.push(subjectId); filters.push(`e.origin_subject_id = $${params.length}`); }
     if (groupId) { params.push(groupId); filters.push(`e.origin_group_id = $${params.length}`); }
+    const origin = originRead('$1');
+    const cross = crossContextRead('$1');
     const result = await this.pool.query<EvaluationReadRow>(
-      `SELECT ${EVALUATION_COLUMNS}, p.documento AS patient_documento, p.nombres AS patient_nombres,
-              p.apellidos AS patient_apellidos, p.fecha_nacimiento AS patient_fecha_nacimiento,
-              p.email AS patient_email, p.celular AS patient_celular, p.sexo AS patient_sexo,
-              p.direccion AS patient_direccion
+      `SELECT ${projectedReadColumns(origin)}
          FROM kinesiology_evaluations e JOIN patients p ON p.id = e.patient_id
-        WHERE ${filters.join(' AND ')} AND (
-          (e.author_id = $1 AND EXISTS (
-            SELECT 1 FROM students s
-            JOIN student_academic_habilitations p ON p.student_id = s.id
-            JOIN patient_assignments a ON a.student_habilitation_id = p.id
-            WHERE s.user_id = $1 AND a.patient_id = e.patient_id
-              AND p.subject_id = e.origin_subject_id AND p.academic_group_id = e.origin_group_id
-              AND p.revoked_at IS NULL AND a.ended_at IS NULL
-          )) OR EXISTS (
-            SELECT 1 FROM teachers t
-            JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
-            WHERE t.user_id = $1 AND th.subject_id = e.origin_subject_id
-              AND th.academic_group_id = e.origin_group_id AND th.revoked_at IS NULL
-          )
-        ) ORDER BY e.id`, params,
+         LEFT JOIN LATERAL (
+           SELECT s.id, s.ordinal, s.submitted_by, s.submitted_at, s.clinical_content,
+                  s.patient_snapshot, s.age_at_admission, s.verified_consent_snapshot
+             FROM kinesiology_evaluation_submissions s
+            WHERE s.evaluation_id = e.id ORDER BY s.ordinal DESC LIMIT 1
+         ) snapshot ON true
+        WHERE ${filters.join(' AND ')} AND (${origin} OR (snapshot.id IS NOT NULL AND ${cross}))
+        ORDER BY e.id`, params,
     );
     return result.rows.map(withPatient);
   }

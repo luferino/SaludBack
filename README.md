@@ -58,6 +58,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 | `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
+| `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
 verifies the token, reloads grants from `role_permissions` for its verified role,
@@ -331,6 +332,27 @@ endpoint; it grants no clinical-record access.
   actor; `403` — missing `teacher-habilitations:write` grant; `404` — teacher
   or subject/group context does not exist; `409` — an active period already
   exists for this teacher/context.
+
+### POST /student-habilitations
+
+Activates a new student habilitation period; it does not revoke periods, create
+assignments, restore old assignments, or grant clinical-record access. The
+fresh `student-habilitations:write` permission is seeded for the `teacher` role
+by migration 016, but the grant alone is insufficient: the authenticated user
+must resolve to a teacher profile with an active habilitation in the exact
+subject/group context. Admin has no bypass. The verified user's UUID is stored
+as `activated_by`; body-supplied actor fields are ignored. Existing period UUIDs
+and the existing active-period unique index remain in force.
+
+- Body: `{ "student_id", "subject_id", "academic_group_id" }` — each value
+  must be a UUID; the student and linked subject/group context must exist.
+- `201` → the stored period with `id`, `student_id`, `subject_id`,
+  `academic_group_id`, `activated_by`, `activated_at`, `revoked_by: null`,
+  and `revoked_at: null`.
+- `400` — malformed UUID; `401` — missing/invalid token or actor; `403` —
+  missing permission, teacher profile, or active teacher context; `404` —
+  missing student or subject/group context; `409` — an active period already
+  exists for this student/context.
 
 ### POST /teacher-habilitations/:id/revoke
 

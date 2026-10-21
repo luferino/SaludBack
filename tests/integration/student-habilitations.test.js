@@ -19,6 +19,7 @@ const MIGRATIONS = [
   '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql',
   '019_seed_student_habilitation_revocation_permission.sql',
   '020_create_kinesiology_evaluations.sql', '021_seed_kinesiology_evaluation_permissions.sql',
+  '022_create_kinesiology_consent_attestations.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';
@@ -116,11 +117,11 @@ async function verifyDisposableTarget() {
        WHERE schemaname = 'public'
          AND tablename = ANY($1::text[])
        ORDER BY tablename`, [[
-      'kinesiology_evaluations', 'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+      'kinesiology_consent_attestations', 'kinesiology_evaluations', 'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
       'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
       'password_reset_tokens', 'users', 'permissions', 'role_permissions', 'schema_migrations',
     ]]);
-    assert.equal(required.length, 16, 'required integration schema is incomplete');
+    assert.equal(required.length, 17, 'required integration schema is incomplete');
   } finally {
     await client.end();
   }

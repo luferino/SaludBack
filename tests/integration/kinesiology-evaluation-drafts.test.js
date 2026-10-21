@@ -15,6 +15,7 @@ const MIGRATIONS = [
   '013_seed_subject_group_permissions.sql','014_seed_teacher_habilitation_permissions.sql','015_seed_teacher_habilitation_revocation_permission.sql',
   '016_seed_student_habilitation_permissions.sql','017_create_patient_assignments.sql','018_seed_patient_assignment_permissions.sql',
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
+  '022_create_kinesiology_consent_attestations.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'users:write','students:write','teachers:write','patients:write','profile:read','materias:read','turnos:read',
@@ -264,6 +265,63 @@ test('actual SQL authorization protects private drafts across students and requi
   assert.equal((await request('GET',`/kinesiology-evaluations/${created.body.id}`,studentJwt)).status,200,'explicit current reassignment restores author read access');
 });
 
+test('teacher consent records server-owned attestation and exposes only latest evidence without changing draft prose',async()=>{
+  const f=await fixture(), studentJwt=await token(f.student), teacherJwt=await token(f.teacher), otherTeacherJwt=await token(f.otherTeacher);
+  const created=await request('POST','/kinesiology-evaluations',studentJwt,{...createBody(f),content:{illness_history:'student-authored clinical prose'}});
+  assert.equal(created.status,201);
+  const path=`/kinesiology-evaluations/${created.body.id}/consent`;
+  const pending=await request('GET',path,studentJwt);
+  assert.equal(pending.status,200); assert.deepEqual(pending.body,{evaluation_id:created.body.id,status:'pending',evidence:null});
+  assert.deepEqual((await request('GET',path,teacherJwt)).body,{evaluation_id:created.body.id,status:'pending',evidence:null});
+  assert.equal((await request('GET',path,otherTeacherJwt)).status,404,'a teacher in another context cannot inspect an unsubmitted draft');
+  const before=(await pool.query('SELECT content,updated_at FROM kinesiology_evaluations WHERE id=$1',[created.body.id])).rows[0];
+  const first=await request('POST',path,teacherJwt,{paper_signature_date:'2026-03-08'});
+  assert.equal(first.status,201); assert.equal(first.body.status,'verified');
+  assert.equal(first.body.evidence.paper_signature_date,'2026-03-08');
+  assert.equal(first.body.evidence.verified_by,f.teacher.id);
+  assert.match(first.body.evidence.id,/^[1-9][0-9]*$/);
+  const firstRow=(await pool.query(`SELECT id::text id,evaluation_id::text evaluation_id,paper_signature_date::text paper_signature_date,
+    verified_by,teacher_habilitation_id,verified_at FROM kinesiology_consent_attestations WHERE evaluation_id=$1`,[created.body.id])).rows[0];
+  assert.deepEqual(first.body.evidence,{id:firstRow.id,paper_signature_date:firstRow.paper_signature_date,verified_by:firstRow.verified_by,verified_at:firstRow.verified_at.toISOString()});
+  assert.deepEqual((await pool.query('SELECT content,updated_at FROM kinesiology_evaluations WHERE id=$1',[created.body.id])).rows[0],before);
+  const second=await request('POST',path,teacherJwt,{paper_signature_date:'2026-03-09'});
+  assert.equal(second.status,201); assert.notEqual(second.body.evidence.id,first.body.evidence.id);
+  const rows=(await pool.query(`SELECT id::text id,paper_signature_date::text paper_signature_date,verified_by,verified_at
+    FROM kinesiology_consent_attestations WHERE evaluation_id=$1 ORDER BY id`,[created.body.id])).rows;
+  assert.equal(rows.length,2); assert.equal(rows[0].paper_signature_date,'2026-03-08'); assert.equal(rows[0].verified_by,f.teacher.id);
+  assert.equal(rows[1].paper_signature_date,'2026-03-09');
+  assert.deepEqual((await request('GET',path,studentJwt)).body,{evaluation_id:created.body.id,status:'verified',evidence:{id:rows[1].id,paper_signature_date:rows[1].paper_signature_date,verified_by:rows[1].verified_by,verified_at:rows[1].verified_at.toISOString()}});
+  const detail=await request('GET',`/kinesiology-evaluations/${created.body.id}`,teacherJwt);
+  assert.equal(detail.body.content.illness_history,'student-authored clinical prose');
+  assert.deepEqual((await pool.query('SELECT content,updated_at FROM kinesiology_evaluations WHERE id=$1',[created.body.id])).rows[0],before);
+  await pool.query('UPDATE patient_assignments SET ended_at=clock_timestamp(),ended_by=$2 WHERE patient_id=$1 AND student_habilitation_id=$3 AND ended_at IS NULL',[f.patient,f.teacher.id,f.period]);
+  assert.equal((await request('GET',path,studentJwt)).status,404,'former author loses live access without deleting authorship or evidence');
+  assert.equal((await request('GET',path,teacherJwt)).body.evidence.id,rows[1].id);
+  assert.deepEqual((await pool.query('SELECT content,updated_at FROM kinesiology_evaluations WHERE id=$1',[created.body.id])).rows[0],before);
+});
+
+test('consent verification requires a fresh teacher grant and active origin context',async()=>{
+  const f=await fixture(), jwt=await token(f.teacher);
+  const created=await request('POST','/kinesiology-evaluations',await token(f.student),createBody(f)); assert.equal(created.status,201);
+  const path=`/kinesiology-evaluations/${created.body.id}/consent`;
+  await pool.query("DELETE FROM role_permissions WHERE role='teacher' AND permission='kinesiology-evaluations:verify-consent'");
+  try {
+    assert.equal((await request('POST',path,jwt,{paper_signature_date:'2026-01-01'})).status,403);
+    assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[created.body.id])).rows[0].n,0);
+  } finally {
+    await pool.query("INSERT INTO role_permissions(role,permission) VALUES ('teacher','kinesiology-evaluations:verify-consent') ON CONFLICT DO NOTHING");
+  }
+  await pool.query('UPDATE teacher_academic_habilitations SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE teacher_id=(SELECT id FROM teachers WHERE user_id=$1) AND subject_id=$3 AND academic_group_id=$4 AND revoked_at IS NULL',[f.teacher.id,f.admin.id,f.origin.subject,f.origin.group]);
+  const denied=await request('POST',path,jwt,{paper_signature_date:'2026-01-01'});
+  assert.equal(denied.status,404);
+  assert.deepEqual(denied.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+  const missing=await request('POST','/kinesiology-evaluations/9223372036854775807/consent',jwt,{paper_signature_date:'2026-01-01'});
+  assert.deepEqual(missing,denied,'revoked teacher cannot distinguish a private target from a missing one');
+  const foreign=await request('POST',path,await token(f.otherTeacher),{paper_signature_date:'2026-01-01'});
+  assert.deepEqual(foreign,denied,'non-origin teacher gets the same private response');
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[created.body.id])).rows[0].n,0);
+});
+
 async function waitForWaiter(fragment) {
   const deadline=Date.now()+4000;
   while(Date.now()<deadline) {
@@ -274,6 +332,30 @@ async function waitForWaiter(fragment) {
   }
   assert.fail(`timed out observing application connection waiting on ${fragment}`);
 }
+test('teacher consent waits on origin-period lock and rejects after revocation wins',async()=>{
+  const f=await fixture(), teacherJwt=await token(f.teacher), studentJwt=await token(f.student), blocker=await pool.connect();
+  const created=await request('POST','/kinesiology-evaluations',studentJwt,createBody(f)); assert.equal(created.status,201);
+  const path=`/kinesiology-evaluations/${created.body.id}/consent`;
+  let transaction=false,pending;
+  try {
+    await blocker.query('BEGIN'); transaction=true;
+    await blocker.query(`UPDATE teacher_academic_habilitations SET revoked_at=clock_timestamp(),revoked_by=$2
+      WHERE teacher_id=(SELECT id FROM teachers WHERE user_id=$1) AND subject_id=$3 AND academic_group_id=$4 AND revoked_at IS NULL`,[f.teacher.id,f.admin.id,f.origin.subject,f.origin.group]);
+    pending=request('POST',path,teacherJwt,{paper_signature_date:'2026-01-01'});
+    await waitForWaiter('teacher_academic_habilitations th ON th.teacher_id = t.id');
+    await blocker.query('COMMIT'); transaction=false;
+    const rejected=await pending;
+    assert.equal(rejected.status,404);
+    assert.deepEqual(rejected.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+    assert.deepEqual((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[created.body.id])).rows[0],{n:0});
+    assert.deepEqual((await pool.query('SELECT content FROM kinesiology_evaluations WHERE id=$1',[created.body.id])).rows[0].content,{});
+  } finally {
+    if(transaction) try { await blocker.query('ROLLBACK'); } catch {}
+    if(pending) await Promise.race([pending.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,6000))]);
+    blocker.release();
+  }
+});
+
 test('draft creation waits on student-period lock and revalidates revocation before commit',async()=>{
   const f=await fixture(), jwt=await token(f.student), blocker=await pool.connect();
   let transaction=false, pending;

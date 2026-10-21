@@ -4,14 +4,14 @@
  * Deletes dependent habilitation, profile, catalog and clinical tables BEFORE
  * their parents and users, so no suite's beforeEach()/after() trips a FK
  * constraint on leftover rows. The order below is the contract:
- * `kinesiology_evaluations -> patient_assignments -> student_academic_habilitations ->
- * teacher_academic_habilitations -> students -> teachers -> subject_academic_groups ->
- * academic_groups -> subjects -> clinical_records -> patients -> password_reset_tokens -> users`.
- * Every integration file runs this in per-test beforeEach() and after().
+ * `kinesiology_consent_attestations -> kinesiology_evaluations -> patient_assignments ->
+ * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
+ * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
+ * password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016 and 018–019 so every suite starts from the canonical permission state.
+ * 011–016, 018–019, and 021 so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +60,7 @@ const kinesiologyEvaluationPermissionSeedSql = readFileSync(
 );
 
 export async function cleanDb(pool) {
+  await pool.query('DELETE FROM kinesiology_consent_attestations');
   await pool.query('DELETE FROM kinesiology_evaluations');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM student_academic_habilitations');

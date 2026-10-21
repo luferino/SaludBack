@@ -360,6 +360,63 @@ export class PgKinesiologyEvaluationRepository {
     return result.rows[0] ?? null;
   }
 
+  async consent(evaluationId: string, actorId: string) {
+    const evaluation = await this.detail(evaluationId, actorId);
+    const result = await this.pool.query<{ id: string; paper_signature_date: string; verified_by: string; verified_at: Date | string }>(
+      `SELECT id::text AS id, paper_signature_date::text AS paper_signature_date,
+              verified_by, verified_at
+         FROM kinesiology_consent_attestations WHERE evaluation_id = $1
+        ORDER BY id DESC LIMIT 1`, [evaluationId],
+    );
+    const latest = result.rows[0];
+    return {
+      evaluation_id: evaluation.id,
+      status: latest ? 'verified' : 'pending',
+      evidence: latest ? { ...latest, verified_at: new Date(latest.verified_at).toISOString() } : null,
+    };
+  }
+
+  async verifyConsent(evaluationId: string, paperSignatureDate: string, actorId: string) {
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = await this.findById(db, evaluationId);
+      if (!hint) throw new NotFoundError('evaluation was not found');
+      const context = await db.query<{ id: string; teacher_habilitation_id: string }>(
+        `SELECT t.id, th.id::text AS teacher_habilitation_id
+           FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+          WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+            AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+        [actorId, hint.origin_subject_id, hint.origin_group_id],
+      );
+      // A fresh operation grant does not permit discovering private evaluations.
+      if (!context.rows.length) throw new NotFoundError('evaluation was not found');
+      const patient = await db.query<{ id: string }>(
+        'SELECT id FROM patients WHERE id = $1 FOR UPDATE', [hint.patient_id],
+      );
+      if (!patient.rows.length) throw new NotFoundError('evaluation was not found');
+      const locked = await db.query<EvaluationRow>(
+        `SELECT ${EVALUATION_COLUMNS.replaceAll('e.', '')}
+           FROM kinesiology_evaluations e WHERE e.id = $1 FOR UPDATE`, [evaluationId],
+      );
+      const current = locked.rows[0];
+      if (!current || current.patient_id !== hint.patient_id ||
+        current.origin_subject_id !== hint.origin_subject_id || current.origin_group_id !== hint.origin_group_id) {
+        throw new NotFoundError('evaluation was not found');
+      }
+      const result = await db.query<{ id: string; paper_signature_date: string; verified_by: string; verified_at: Date | string }>(
+        `INSERT INTO kinesiology_consent_attestations
+          (evaluation_id, paper_signature_date, verified_by, teacher_habilitation_id)
+         VALUES ($1, $2::date, $3, $4)
+         RETURNING id::text AS id, paper_signature_date::text AS paper_signature_date,
+                   verified_by, verified_at`,
+        [evaluationId, paperSignatureDate, actorId, context.rows[0].teacher_habilitation_id],
+      );
+      const evidence = result.rows[0];
+      return { evaluation_id: evaluationId, status: 'verified', evidence: {
+        ...evidence, verified_at: new Date(evidence.verified_at).toISOString(),
+      } };
+    });
+  }
+
   async detail(evaluationId: string, actorId: string): Promise<EvaluationRow> {
     const result = await this.pool.query<EvaluationReadRow>(
       `SELECT ${EVALUATION_COLUMNS}, p.documento AS patient_documento, p.nombres AS patient_nombres,
@@ -474,6 +531,24 @@ export function createKinesiologyEvaluationRouter({
     const body = requireObject(request.body, 'body');
     if (Object.keys(body).some(key => key !== 'content')) throw new BadRequestError('body may contain only content');
     response.json(serialize(await repository.edit(evaluationId(request.params.id), validateContent(body.content), actor)));
+  });
+
+  router.get('/:id/consent', async (request: Request, response: Response) => {
+    await readGuard.authorize(request);
+    const actor = await verifiedActor(getActor, request);
+    response.json(await repository.consent(evaluationId(request.params.id), actor));
+  });
+
+  router.post('/:id/consent', async (request: Request, response: Response) => {
+    await new PermissionGuard('kinesiology-evaluations:verify-consent').authorize(request);
+    const actor = await verifiedActor(getActor, request);
+    const body = requireObject(request.body, 'body');
+    if (Object.keys(body).some(key => key !== 'paper_signature_date')) {
+      throw new BadRequestError('body may contain only paper_signature_date');
+    }
+    const paperSignatureDate = validateDate(body.paper_signature_date, 'paper_signature_date');
+    if (paperSignatureDate === null) throw new BadRequestError('paper_signature_date is required');
+    response.status(201).json(await repository.verifyConsent(evaluationId(request.params.id), paperSignatureDate, actor));
   });
 
   router.get('/:id', async (request: Request, response: Response) => {

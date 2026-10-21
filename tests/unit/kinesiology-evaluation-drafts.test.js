@@ -23,10 +23,10 @@ const otherGroup = '20000000-0000-4000-8000-000000000002';
 const grants = ['kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit'];
 
 function fakePool() {
-  const state = { queries: [], records: [], evaluations: [], consents: [], submissions: [], submissionStudies: [], releases: 0, commits: 0, rollbacks: 0, transactionSnapshot: null,
+  const state = { queries: [], records: [], evaluations: [], consents: [], submissions: [], submissionStudies: [], correctionRequests: [], releases: 0, commits: 0, rollbacks: 0, transactionSnapshot: null,
     failAt: null, patients: [{ id: patient, documento: '12345678', nombres: 'Ana', apellidos: 'Lopez', fecha_nacimiento: '1990-05-10', email: 'ana@example.com', celular: '+5491100000000', sexo: 'F', direccion: 'Calle 1', created_by: actor, created_at: '2020-01-01T00:00:00Z' }],
-    grants: { estudiante: [...grants], teacher: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:verify-consent'], admin: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write'] },
-    profiles: new Set([actor, '30000000-0000-4000-8000-000000000002']), periods: new Set([actor, '30000000-0000-4000-8000-000000000002']), assignments: new Set([actor, '30000000-0000-4000-8000-000000000002']), teachers: new Set(), crossTeacherContexts: new Map() };
+    grants: { estudiante: [...grants], teacher: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review'], admin: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write'] },
+    profiles: new Set([actor, '30000000-0000-4000-8000-000000000002']), periods: new Set([actor, '30000000-0000-4000-8000-000000000002']), assignments: new Set([actor, '30000000-0000-4000-8000-000000000002']), teachers: new Set(), teacherContexts: new Map(), currentPeriodIds: new Map(), hintMutation: null, transactionLockOrder: [], teacherPeriodLockIds: [], crossTeacherContexts: new Map() };
   function projectPatient(sql, row, user) {
     const projected = sql.includes('snapshot.patient_snapshot');
     if (projected) {
@@ -57,7 +57,11 @@ function fakePool() {
   async function query(sql, params = []) {
     state.queries.push({ sql, params });
     if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)) {
-      if (sql === 'BEGIN') state.transactionSnapshot = structuredClone({ records: state.records, evaluations: state.evaluations, consents: state.consents, submissions: state.submissions, submissionStudies: state.submissionStudies });
+      if (sql === 'BEGIN') {
+        state.transactionLockOrder = [];
+        state.teacherPeriodLockIds = [];
+        state.transactionSnapshot = structuredClone({ records: state.records, evaluations: state.evaluations, consents: state.consents, submissions: state.submissions, submissionStudies: state.submissionStudies, correctionRequests: state.correctionRequests });
+      }
       if (sql === 'COMMIT') { state.commits++; state.transactionSnapshot = null; }
       if (sql === 'ROLLBACK') {
         state.rollbacks++;
@@ -74,8 +78,14 @@ function fakePool() {
         ? params[1] === subject && params[2] === group
         : params[1] === otherSubject && params[2] === otherGroup;
       return { rows: user && contextMatches && state.periods.has(user)
-        ? [{ id: user === actor ? period : `${period}-other`, subject_id: params[1], academic_group_id: params[2], student_id: params[0] }]
+        ? [{ id: state.currentPeriodIds.get(user) ?? (user === actor ? period : `${period}-other`), subject_id: params[1], academic_group_id: params[2], student_id: params[0] }]
         : [] };
+    }
+    if (sql.includes('FOR UPDATE')) {
+      state.transactionLockOrder.push(sql.includes('teacher_academic_habilitations') ? 'teacher-period'
+        : sql.includes('FROM patients') ? 'patient'
+          : sql.includes('FROM kinesiology_evaluations e') ? 'evaluation'
+            : sql.includes('FROM kinesiology_evaluation_submissions') ? 'submission' : 'other');
     }
     if (sql.trimStart().startsWith('SELECT t.id') && sql.includes('teacher_academic_habilitations')) {
       assert.match(sql, /SELECT t\.id/);
@@ -83,9 +93,17 @@ function fakePool() {
       assert.match(sql, /th\.subject_id = \$2/);
       assert.match(sql, /th\.academic_group_id = \$3/);
       assert.match(sql, /th\.revoked_at IS NULL/);
-      if (sql.includes('FOR UPDATE')) return { rows: state.teachers.has(params[0]) ? [{ id: `teacher-profile-${params[0]}`, teacher_habilitation_id: `teacher-period-${params[0]}` }] : [] };
-      assert.deepEqual(params.slice(1), [subject, group]);
-      return { rows: state.teachers.has(params[0]) ? [{ id: `teacher-profile-${params[0]}` }] : [] };
+      const configured = state.teacherContexts.get(params[0]);
+      const contexts = configured
+        ? configured.profile ? configured.contexts.filter(context => context.subject_id === params[1] && context.group_id === params[2] && !context.revoked_at) : []
+        : state.teachers.has(params[0]) ? [{ subject_id: subject, group_id: group, id: `teacher-period-${params[0]}` }] : [];
+      contexts.sort((left, right) => /^\d+$/.test(left.id) && /^\d+$/.test(right.id)
+        ? Number(left.id) - Number(right.id) : String(left.id).localeCompare(String(right.id)));
+      if (sql.includes('FOR UPDATE')) {
+        state.teacherPeriodLockIds.push(...contexts.map(context => context.id));
+        return { rows: contexts.map(context => ({ id: `teacher-profile-${params[0]}`, teacher_habilitation_id: context.id })) };
+      }
+      return { rows: contexts.map(() => ({ id: `teacher-profile-${params[0]}` })) };
     }
     if (sql.includes('FROM patients WHERE id')) return { rows: state.patients.filter(row => row.id === params[0]).map(row => ({
       id: row.id, documento: row.documento, nombres: row.nombres, apellidos: row.apellidos,
@@ -94,7 +112,7 @@ function fakePool() {
     })) };
     if (sql.includes('FROM patient_assignments')) {
       const user = params[1] === student ? actor : params[1] === `${student}-other` ? '30000000-0000-4000-8000-000000000002' : actor;
-      return { rows: state.assignments.has(user) ? [{ id: '9007199254740993', patient_id: patient, student_habilitation_id: user === actor ? period : `${period}-other`, subject_id: subject, academic_group_id: group, ended_at: null }] : [] };
+      return { rows: state.assignments.has(user) ? [{ id: '9007199254740993', patient_id: patient, student_habilitation_id: state.currentPeriodIds.get(user) ?? (user === actor ? period : `${period}-other`), subject_id: subject, academic_group_id: group, ended_at: null }] : [] };
     }
     const canRead = (row, user, sql) => {
       const originStudent = row.author_id === user && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user);
@@ -120,11 +138,24 @@ function fakePool() {
       assert.equal(requestActor, params[0]);
       return { rows: state.evaluations.filter(row => row.patient_id === requestPatient && canRead(row, requestActor, sql) && (!requestSubject || row.origin_subject_id === requestSubject) && (!requestGroup || row.origin_group_id === requestGroup)).map(row => projectPatient(sql, row, requestActor)) };
     }
-    if (sql.includes('FROM kinesiology_evaluations WHERE id')) return { rows: state.evaluations.filter(row => row.id === params[0]) };
+    if (sql.includes('FROM kinesiology_evaluations WHERE id')) {
+      const row = state.evaluations.find(item => item.id === params[0]);
+      const hint = row ? structuredClone(row) : null;
+      if (row && state.hintMutation) { state.hintMutation(row); state.hintMutation = null; }
+      return { rows: hint ? [hint] : [] };
+    }
     if (sql.includes("SET status = 'submitted'")) {
       const row = state.evaluations.find(item => item.id === params[0]);
       if (!row || row.status !== 'draft') return { rows: [] };
       row.status = 'submitted';
+      return { rows: [{ id: row.id }] };
+    }
+    if (sql.includes('UPDATE kinesiology_evaluations SET content') && sql.includes('correction_from_submission_id')) {
+      const row = state.evaluations.find(item => item.id === params[0]);
+      if (!row || row.status !== 'submitted' || state.failAt === 'no-correction-draft-update') return { rows: [] };
+      row.content = JSON.parse(params[1]); row.status = 'draft'; row.correction_from_submission_id = params[2];
+      row.updated_at = new Date('2026-02-01T00:00:00Z');
+      if (state.failAt === 'after-correction-draft') throw new Error('synthetic correction draft failure');
       return { rows: [{ id: row.id }] };
     }
     if (sql.includes('UPDATE kinesiology_evaluations')) {
@@ -136,7 +167,7 @@ function fakePool() {
     }
     if (sql.includes('FROM kinesiology_consent_attestations')) return { rows: state.consents.filter(row => row.evaluation_id === params[0]).slice(-1) };
     if (sql.includes('INSERT INTO kinesiology_evaluation_submissions')) {
-      const row = { id: '9007199254741001', evaluation_id: params[0], ordinal: '1', submitted_by: params[1],
+      const row = { id: String(9007199254741001n + BigInt(state.submissions.length)), evaluation_id: params[0], ordinal: String(state.submissions.filter(item => item.evaluation_id === params[0]).length + 1), submitted_by: params[1],
         clinical_content: JSON.parse(params[2]), patient_snapshot: JSON.parse(params[3]), age_at_admission: params[4],
         verified_consent_snapshot: JSON.parse(params[5]), submitted_at: '2026-01-04T00:00:00.000Z' };
       state.submissions.push(row);
@@ -147,6 +178,13 @@ function fakePool() {
       state.submissionStudies.push({ submission_id: params[0], ordinal: params[1], type: params[2], description: params[3], date: params[4] });
       if (state.failAt === 'after-study-insert') throw new Error('synthetic study failure');
       return { rows: [] };
+    }
+    if (sql.includes('FROM kinesiology_evaluation_submissions') && sql.includes('WHERE id = $1 AND evaluation_id = $2')) {
+      return { rows: state.submissions.filter(row => row.id === params[0] && row.evaluation_id === params[1]).map(row => ({ id: row.id, clinical_content: row.clinical_content })) };
+    }
+    if (sql.includes('FROM kinesiology_evaluation_submissions') && sql.includes('ORDER BY ordinal DESC LIMIT 1')) {
+      const latest = state.submissions.filter(row => row.evaluation_id === params[0]).at(-1);
+      return { rows: latest ? [{ id: latest.id }] : [] };
     }
     if (sql.includes('FROM kinesiology_evaluation_submissions s')) {
       const evaluation = state.evaluations.find(row => row.id === params[0]);
@@ -162,6 +200,13 @@ function fakePool() {
         patient: row.patient_snapshot, age_at_admission: row.age_at_admission, consent: row.verified_consent_snapshot,
         studies: state.submissionStudies.filter(study => study.submission_id === row.id).map(({ type, description, date }) => ({ type, description, date })),
       })) };
+    }
+    if (sql.includes('FROM kinesiology_evaluation_correction_requests')) return { rows: state.correctionRequests.filter(row => row.evaluation_id === params[0]).map(({ submission_id, reason, reviewed_by, requested_at }) => ({ submission_id, reason, reviewed_by, requested_at })) };
+    if (sql.includes('INSERT INTO kinesiology_evaluation_correction_requests')) {
+      const row = { id: String(9007199254741100n + BigInt(state.correctionRequests.length)), evaluation_id: params[0], submission_id: params[1], reason: params[2], reviewed_by: params[3], requested_at: '2026-02-01T00:00:00.000Z' };
+      state.correctionRequests.push(row);
+      if (state.failAt === 'after-correction-event') throw new Error('synthetic correction event failure');
+      return { rows: [{ id: row.id, requested_at: row.requested_at }] };
     }
     if (sql.includes('FROM kinesiology_evaluation_submission_studies')) return { rows: state.submissionStudies.filter(row => row.submission_id === params[0]).map(({ type, description, date }) => ({ type, description, date })) };
     if (sql.includes('INSERT INTO kinesiology_consent_attestations')) {
@@ -205,6 +250,25 @@ async function call(base, token, method, path, body) {
   const headers = { 'content-type': 'application/json' };
   if (token !== null) headers.authorization = `Bearer ${token}`;
   return fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+}
+
+async function createSubmitted(pool, base, tokens, teacher, content = {
+  admission_date: '2026-01-01', admission_status: 'Stable', illness_history: 'History',
+  objectives: 'Goal', proposed_treatment: 'Plan',
+}) {
+  const author = await bearer(tokens);
+  const created = await call(base, author, 'POST', '/kinesiology-evaluations', {
+    patient_id: patient, subject_id: subject, academic_group_id: group, content,
+  });
+  assert.equal(created.status, 201);
+  const evaluationId = (await created.json()).id;
+  pool.state.teachers.add(teacher);
+  const consent = await call(base, await bearer(tokens, teacher, ['kinesiology-evaluations:verify-consent'], 'teacher'),
+    'POST', `/kinesiology-evaluations/${evaluationId}/consent`, { paper_signature_date: '2026-01-01' });
+  assert.equal(consent.status, 201);
+  const submitted = await call(base, author, 'POST', `/kinesiology-evaluations/${evaluationId}/submissions`, {});
+  assert.equal(submitted.status, 201);
+  return { author, evaluationId, submissionId: (await submitted.json()).id };
 }
 
 test('submission history preserves private and missing 404 while an accessible draft has empty history', async () => {
@@ -938,6 +1002,295 @@ test('submission failure rolls back snapshots and always releases transaction cl
     assert.equal(pool.state.commits, commits);
     assert.equal(pool.state.rollbacks, rollbacks + 1);
     assert.equal(pool.state.releases, releases + 1);
+  });
+});
+
+test('origin teacher can request a reasoned correction for a submitted version', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    const author = await bearer(tokens);
+    const content = { admission_date: '2026-01-01', admission_status: 'Stable', illness_history: 'Version one', objectives: 'Goal', proposed_treatment: 'Plan', studies: [{ type: 'x-ray', description: 'original report' }] };
+    await call(base, author, 'POST', '/kinesiology-evaluations', { patient_id: patient, subject_id: subject, academic_group_id: group, content });
+    const teacher = '30000000-0000-4000-8000-000000000003';
+    pool.state.teachers.add(teacher);
+    const teacherToken = await bearer(tokens, teacher, ['kinesiology-evaluations:review'], 'teacher');
+    await call(base, await bearer(tokens, teacher, ['kinesiology-evaluations:verify-consent'], 'teacher'), 'POST', '/kinesiology-evaluations/9007199254740994/consent', { paper_signature_date: '2026-01-01' });
+    assert.equal((await call(base, author, 'POST', '/kinesiology-evaluations/9007199254740994/submissions', {})).status, 201);
+    const unchanged = () => structuredClone({ evaluations: pool.state.evaluations, submissions: pool.state.submissions,
+      studies: pool.state.submissionStudies, corrections: pool.state.correctionRequests, commits: pool.state.commits });
+    const beforeInvalid = unchanged();
+    for (const body of [
+      {}, { submission_id: null, reason: 'valid' }, { submission_id: '01', reason: 'valid' },
+      { submission_id: '9223372036854775808', reason: 'valid' }, { submission_id: '9007199254741001', reason: '' },
+      { submission_id: '9007199254741001', reason: null }, { submission_id: '9007199254741001', reason: 'valid', reviewed_by: teacher },
+      { submission_id: '9007199254741001', reason: 'valid', requested_at: '2020-01-01T00:00:00Z' },
+    ]) {
+      const invalid = await call(base, teacherToken, 'POST', '/kinesiology-evaluations/9007199254740994/corrections', body);
+      assert.equal(invalid.status, 400);
+      assert.deepEqual(unchanged(), beforeInvalid);
+    }
+    const teacherGrants = pool.state.grants.teacher;
+    pool.state.grants.teacher = teacherGrants.filter(permission => permission !== 'kinesiology-evaluations:review');
+    const noGrant = await call(base, await bearer(tokens, teacher, ['kinesiology-evaluations:review'], 'teacher'), 'POST', '/kinesiology-evaluations/9007199254740994/corrections', { submission_id: '9007199254741001', reason: 'valid' });
+    assert.equal(noGrant.status, 403);
+    pool.state.grants.teacher = teacherGrants;
+    assert.deepEqual(unchanged(), beforeInvalid);
+    const hidden = await call(base, await bearer(tokens, '30000000-0000-4000-8000-000000000004', ['kinesiology-evaluations:review'], 'admin'), 'POST', '/kinesiology-evaluations/9007199254740994/corrections', { submission_id: '9007199254741001', reason: 'valid' });
+    assert.equal(hidden.status, 403);
+    assert.deepEqual(unchanged(), beforeInvalid);
+    const beforeFailure = unchanged();
+    const failedCommits = pool.state.commits, failedRollbacks = pool.state.rollbacks, failedReleases = pool.state.releases;
+    pool.state.failAt = 'after-correction-event';
+    const failedRequest = await call(base, teacherToken, 'POST', '/kinesiology-evaluations/9007199254740994/corrections', { submission_id: '9007199254741001', reason: 'valid reason' });
+    assert.equal(failedRequest.status, 500);
+    assert.deepEqual(unchanged(), beforeFailure);
+    assert.equal(pool.state.commits, failedCommits);
+    assert.equal(pool.state.rollbacks, failedRollbacks + 1);
+    assert.equal(pool.state.releases, failedReleases + 1);
+    for (const failAt of ['after-correction-draft', 'no-correction-draft-update']) {
+      pool.state.failAt = failAt;
+      const before = unchanged();
+      const commits = pool.state.commits, rollbacks = pool.state.rollbacks, releases = pool.state.releases;
+      const failed = await call(base, teacherToken, 'POST', '/kinesiology-evaluations/9007199254740994/corrections', { submission_id: '9007199254741001', reason: 'valid reason' });
+      assert.equal(failed.status, failAt === 'after-correction-draft' ? 500 : 409);
+      assert.deepEqual(unchanged(), before);
+      assert.equal(pool.state.commits, commits);
+      assert.equal(pool.state.rollbacks, rollbacks + 1);
+      assert.equal(pool.state.releases, releases + 1);
+    }
+    pool.state.failAt = null;
+    const response = await call(base, teacherToken, 'POST', '/kinesiology-evaluations/9007199254740994/corrections', { submission_id: '9007199254741001', reason: '  Please clarify the history.  ' });
+    assert.equal(response.status, 201, JSON.stringify(await response.clone().json()));
+    assert.deepEqual(await response.json(), { evaluation_id: '9007199254740994', submission_id: '9007199254741001', status: 'draft', correction_request_id: '9007199254741100', requested_at: '2026-02-01T00:00:00.000Z' });
+    assert.deepEqual(pool.state.evaluations[0].content, content);
+    assert.equal(pool.state.evaluations[0].correction_from_submission_id, '9007199254741001');
+    assert.equal(pool.state.correctionRequests[0].reason, 'Please clarify the history.');
+    assert.equal(pool.state.correctionRequests[0].reviewed_by, teacher);
+    const eventInsert = pool.state.queries.findLast(query => query.sql.includes('INSERT INTO kinesiology_evaluation_correction_requests'));
+    assert.deepEqual(eventInsert.params, ['9007199254740994', '9007199254741001', 'Please clarify the history.', teacher]);
+    assert.match(eventInsert.sql, /RETURNING id::text AS id, requested_at/);
+    const correctionRead = await call(base, teacherToken, 'GET', '/kinesiology-evaluations/9007199254740994/corrections');
+    assert.equal(correctionRead.status, 200);
+    assert.deepEqual(await correctionRead.json(), { evaluation_id: '9007199254740994', items: [{ submission_id: '9007199254741001', reason: 'Please clarify the history.', reviewed_by: teacher, requested_at: '2026-02-01T00:00:00.000Z' }] });
+    const authorReasons = await call(base, author, 'GET', '/kinesiology-evaluations/9007199254740994/corrections');
+    assert.equal(authorReasons.status, 200);
+    const readGrants = pool.state.grants.teacher;
+    pool.state.grants.teacher = readGrants.filter(permission => permission !== 'kinesiology-evaluations:read');
+    const readCommits = pool.state.commits, readReleases = pool.state.releases;
+    const deniedRead = await call(base, teacherToken, 'GET', '/kinesiology-evaluations/9007199254740994/corrections');
+    assert.equal(deniedRead.status, 403);
+    assert.equal(pool.state.commits, readCommits);
+    assert.equal(pool.state.releases, readReleases);
+    pool.state.grants.teacher = readGrants;
+    const crossReader = await bearer(tokens, '30000000-0000-4000-8000-000000000002');
+    const hiddenReason = await call(base, crossReader, 'GET', '/kinesiology-evaluations/9007199254740994/corrections');
+    assert.equal(hiddenReason.status, 404);
+    assert.deepEqual(await hiddenReason.json(), { error: { code: 'NOT_FOUND', message: 'evaluation was not found' } });
+    const duringEdit = await call(base, crossReader, 'GET', '/kinesiology-evaluations/9007199254740994');
+    assert.equal(duringEdit.status, 200);
+    const projected = await duringEdit.json();
+    assert.equal(projected.content.illness_history, 'Version one');
+    assert.equal(projected.status, 'submitted');
+    const edit = await call(base, author, 'PATCH', '/kinesiology-evaluations/9007199254740994', { content: { ...content, illness_history: 'Corrected history', studies: [{ type: 'image', description: 'new study' }] } });
+    assert.equal(edit.status, 200);
+    assert.equal(pool.state.submissions[0].clinical_content.illness_history, 'Version one');
+    assert.deepEqual(pool.state.submissionStudies.map(row => row.submission_id), ['9007199254741001']);
+    const resubmitted = await call(base, author, 'POST', '/kinesiology-evaluations/9007199254740994/submissions', {});
+    assert.equal(resubmitted.status, 201);
+    assert.equal((await resubmitted.json()).ordinal, '2');
+    assert.equal(pool.state.submissions[0].clinical_content.illness_history, 'Version one');
+    assert.equal(pool.state.submissions[1].clinical_content.illness_history, 'Corrected history');
+    assert.equal(pool.state.submissions[1].verified_consent_snapshot.paper_signature_date, '2026-01-01');
+    assert.deepEqual(pool.state.submissionStudies.map(row => row.submission_id), ['9007199254741001', '9007199254741002']);
+    assert.deepEqual(pool.state.submissionStudies[1], { submission_id: '9007199254741002', ordinal: 0, type: 'image', description: 'new study', date: null });
+  });
+});
+
+test('correction targets reject foreign, absent, stale, draft, and already-requested versions atomically', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    const teacher = '30000000-0000-4000-8000-000000000031';
+    const first = await createSubmitted(pool, base, tokens, teacher);
+    const second = await createSubmitted(pool, base, tokens, teacher);
+    const teacherToken = await bearer(tokens, teacher, ['kinesiology-evaluations:review'], 'teacher');
+    const path = `/kinesiology-evaluations/${first.evaluationId}/corrections`;
+    const before = () => structuredClone({ records: pool.state.records, evaluations: pool.state.evaluations,
+      submissions: pool.state.submissions, studies: pool.state.submissionStudies, consents: pool.state.consents,
+      events: pool.state.correctionRequests });
+    const rejectUnchanged = async (submissionId, status, body) => {
+      const saved = before(), commits = pool.state.commits, rollbacks = pool.state.rollbacks, releases = pool.state.releases;
+      const response = await call(base, teacherToken, 'POST', path, { submission_id: submissionId, reason: 'Review' });
+      assert.equal(response.status, status);
+      assert.deepEqual(await response.json(), body);
+      assert.deepEqual(before(), saved);
+      assert.equal(pool.state.commits, commits);
+      assert.equal(pool.state.rollbacks, rollbacks + 1);
+      assert.equal(pool.state.releases, releases + 1);
+    };
+    await rejectUnchanged(second.submissionId, 404, { error: { code: 'NOT_FOUND', message: 'submission was not found' } });
+    await rejectUnchanged('9007199254741999', 404, { error: { code: 'NOT_FOUND', message: 'submission was not found' } });
+    const requested = await call(base, teacherToken, 'POST', path, { submission_id: first.submissionId, reason: 'Correction one' });
+    assert.equal(requested.status, 201);
+    const correctionDraft = await call(base, first.author, 'PATCH', `/kinesiology-evaluations/${first.evaluationId}`, { content: {
+      admission_date: '2026-01-01', admission_status: 'Stable', illness_history: 'Version two', objectives: 'Goal', proposed_treatment: 'Plan',
+    } });
+    assert.equal(correctionDraft.status, 200);
+    const resubmitted = await call(base, first.author, 'POST', `/kinesiology-evaluations/${first.evaluationId}/submissions`, {});
+    assert.equal(resubmitted.status, 201);
+    const secondVersion = (await resubmitted.json()).id;
+    await rejectUnchanged(first.submissionId, 409, { error: { code: 'CONFLICT', message: 'submission is not the latest version' } });
+    const nextCorrection = await call(base, teacherToken, 'POST', path, { submission_id: secondVersion, reason: 'Correction two' });
+    assert.equal(nextCorrection.status, 201);
+    await rejectUnchanged(secondVersion, 409, { error: { code: 'CONFLICT', message: 'evaluation is not awaiting correction' } });
+    const draft = await call(base, first.author, 'POST', '/kinesiology-evaluations', { patient_id: patient, subject_id: subject, academic_group_id: group, content: {} });
+    assert.equal(draft.status, 201);
+    const draftId = (await draft.json()).id;
+    const saved = before(), commits = pool.state.commits, rollbacks = pool.state.rollbacks, releases = pool.state.releases;
+    const notSubmitted = await call(base, teacherToken, 'POST', `/kinesiology-evaluations/${draftId}/corrections`, { submission_id: second.submissionId, reason: 'No submission yet' });
+    assert.equal(notSubmitted.status, 409);
+    assert.deepEqual(await notSubmitted.json(), { error: { code: 'CONFLICT', message: 'evaluation is not awaiting correction' } });
+    assert.deepEqual(before(), saved);
+    assert.equal(pool.state.commits, commits);
+    assert.equal(pool.state.rollbacks, rollbacks + 1);
+    assert.equal(pool.state.releases, releases + 1);
+  });
+});
+
+test('correction review revalidates locked target identity and origin before recording events', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    const teacher = '30000000-0000-4000-8000-000000000032';
+    const submitted = await createSubmitted(pool, base, tokens, teacher);
+    const token = await bearer(tokens, teacher, ['kinesiology-evaluations:review'], 'teacher');
+    pool.state.teacherContexts.set(teacher, { profile: true, contexts: [
+      { subject_id: subject, group_id: group, id: '10' },
+      { subject_id: subject, group_id: group, id: '2' },
+    ] });
+    for (const [mutation, expectedStatus] of [
+      [row => { row.author_id = '30000000-0000-4000-8000-000000000099'; }, 404],
+      [row => { row.origin_subject_id = otherSubject; }, 404],
+      [row => { row.status = 'draft'; }, 409],
+    ]) {
+      const saved = structuredClone({ evaluations: pool.state.evaluations, submissions: pool.state.submissions, events: pool.state.correctionRequests });
+      const commits = pool.state.commits, rollbacks = pool.state.rollbacks, releases = pool.state.releases;
+      pool.state.hintMutation = mutation;
+      const result = await call(base, token, 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Check' });
+      assert.equal(result.status, expectedStatus);
+      assert.deepEqual({ evaluations: pool.state.evaluations, submissions: pool.state.submissions, events: pool.state.correctionRequests }, saved);
+      assert.equal(pool.state.commits, commits);
+      assert.equal(pool.state.rollbacks, rollbacks + 1);
+      assert.equal(pool.state.releases, releases + 1);
+    }
+    const accepted = await call(base, token, 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Check lock ordering' });
+    assert.equal(accepted.status, 201);
+    const correctionQueries = pool.state.queries.slice().filter(query => query.sql.includes('teacher_academic_habilitations') && query.sql.includes('FOR UPDATE'));
+    assert.ok(correctionQueries.length >= 3);
+    assert.match(correctionQueries.at(-1).sql, /ORDER BY th\.id FOR UPDATE OF th/);
+    // This checks repository query ordering in the fake; it is not PostgreSQL lock/concurrency proof.
+    assert.deepEqual(pool.state.transactionLockOrder, ['teacher-period', 'patient', 'evaluation', 'submission']);
+    assert.deepEqual(pool.state.teacherPeriodLockIds, ['2', '10']);
+  });
+});
+
+test('review requires a linked live origin teacher profile and exact active context', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    const owner = '30000000-0000-4000-8000-000000000033';
+    const submitted = await createSubmitted(pool, base, tokens, owner);
+    const cases = [
+      { profile: false, contexts: [{ subject_id: subject, group_id: group, id: '1' }] },
+      { profile: true, contexts: [] },
+      { profile: true, contexts: [{ subject_id: otherSubject, group_id: group, id: '2' }] },
+      { profile: true, contexts: [{ subject_id: subject, group_id: otherGroup, id: '3' }] },
+      { profile: true, contexts: [{ subject_id: subject, group_id: group, id: '4', revoked_at: '2026-01-02T00:00:00Z' }] },
+    ];
+    const missing = await call(base, await bearer(tokens, owner, ['kinesiology-evaluations:review'], 'teacher'), 'POST', '/kinesiology-evaluations/9007199254741999/corrections', { submission_id: submitted.submissionId, reason: 'Review' });
+    const missingBody = await missing.json();
+    for (const [index, context] of cases.entries()) {
+      const candidate = `30000000-0000-4000-8000-${String(index + 41).padStart(12, '0')}`;
+      pool.state.teacherContexts.set(candidate, context);
+      const commits = pool.state.commits, rollbacks = pool.state.rollbacks, releases = pool.state.releases;
+      const denied = await call(base, await bearer(tokens, candidate, ['kinesiology-evaluations:review'], 'teacher'), 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Review' });
+      assert.equal(denied.status, missing.status);
+      assert.deepEqual(await denied.json(), missingBody);
+      assert.equal(pool.state.commits, commits);
+      assert.equal(pool.state.rollbacks, rollbacks + 1);
+      assert.equal(pool.state.releases, releases + 1);
+    }
+    const before = { commits: pool.state.commits, rollbacks: pool.state.rollbacks, releases: pool.state.releases };
+    pool.state.grants.teacher = pool.state.grants.teacher.filter(permission => permission !== 'kinesiology-evaluations:review');
+    const staleGrant = await call(base, await bearer(tokens, owner, ['kinesiology-evaluations:review'], 'teacher'), 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Review' });
+    assert.equal(staleGrant.status, 403);
+    assert.deepEqual({ commits: pool.state.commits, rollbacks: pool.state.rollbacks, releases: pool.state.releases }, before);
+    pool.state.grants.teacher.push('kinesiology-evaluations:review');
+    const businessBeforeRoleDenials = structuredClone({ evaluations: pool.state.evaluations, submissions: pool.state.submissions, events: pool.state.correctionRequests });
+    for (const [role, user] of [['estudiante', actor], ['admin', '30000000-0000-4000-8000-000000000044']]) {
+      pool.state.grants[role].push('kinesiology-evaluations:review');
+      const denied = await call(base, await bearer(tokens, user, ['kinesiology-evaluations:review'], role), 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Review' });
+      assert.equal(denied.status, 404);
+      assert.deepEqual(await denied.json(), { error: { code: 'NOT_FOUND', message: 'evaluation was not found' } });
+      pool.state.grants[role] = pool.state.grants[role].filter(permission => permission !== 'kinesiology-evaluations:review');
+    }
+    assert.deepEqual({ evaluations: pool.state.evaluations, submissions: pool.state.submissions, events: pool.state.correctionRequests }, businessBeforeRoleDenials);
+    const beforeMalformed = { commits: pool.state.commits, rollbacks: pool.state.rollbacks, releases: pool.state.releases };
+    const malformed = await call(base, await bearer(tokens, 'not-a-uuid', ['kinesiology-evaluations:review'], 'teacher'), 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Review' });
+    assert.equal(malformed.status, 401);
+    assert.deepEqual({ commits: pool.state.commits, rollbacks: pool.state.rollbacks, releases: pool.state.releases }, beforeMalformed);
+  });
+});
+
+test('former author access requires current assignment and corrections remain origin-only', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    const teacher = '30000000-0000-4000-8000-000000000034';
+    const submitted = await createSubmitted(pool, base, tokens, teacher, {
+      admission_date: '2026-01-01', admission_status: 'Stable', illness_history: 'Version one',
+      objectives: 'Goal', proposed_treatment: 'Plan', studies: [{ type: 'x-ray', description: 'frozen' }],
+    });
+    pool.state.assignments.delete(actor);
+    const teacherToken = await bearer(tokens, teacher, ['kinesiology-evaluations:review'], 'teacher');
+    const correction = await call(base, teacherToken, 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`, { submission_id: submitted.submissionId, reason: 'Need clarification' });
+    assert.equal(correction.status, 201);
+    const readers = await Promise.all([
+      call(base, submitted.author, 'PATCH', `/kinesiology-evaluations/${submitted.evaluationId}`, { content: { illness_history: 'Denied' } }),
+      call(base, submitted.author, 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/submissions`, {}),
+      call(base, submitted.author, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`),
+    ]);
+    assert.deepEqual(readers.map(response => response.status), [404, 404, 404]);
+    const cross = await bearer(tokens, '30000000-0000-4000-8000-000000000002');
+    const crossReasons = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`);
+    assert.equal(crossReasons.status, 404);
+    assert.deepEqual(await crossReasons.json(), { error: { code: 'NOT_FOUND', message: 'evaluation was not found' } });
+    const crossDetail = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}`);
+    const during = await crossDetail.json();
+    assert.equal(during.content.illness_history, 'Version one');
+    assert.equal(Object.hasOwn(during, 'corrections'), false);
+    const crossList = await call(base, cross, 'GET', `/kinesiology-evaluations?patient_id=${patient}`);
+    assert.equal((await crossList.json()).items[0].content.illness_history, 'Version one');
+    const crossHistory = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}/submissions`);
+    assert.equal((await crossHistory.json()).items[0].clinical_content.illness_history, 'Version one');
+    pool.state.assignments.add(actor);
+    pool.state.currentPeriodIds.set(actor, '60000000-0000-4000-8000-000000000099');
+    const edit = await call(base, submitted.author, 'PATCH', `/kinesiology-evaluations/${submitted.evaluationId}`, { content: {
+      admission_date: '2026-01-01', admission_status: 'Stable', illness_history: 'Version two', objectives: 'Goal', proposed_treatment: 'Plan', studies: [{ type: 'x-ray', description: 'updated' }],
+    } });
+    assert.equal(edit.status, 200);
+    assert.equal(pool.state.evaluations[0].author_id, actor);
+    assert.equal(pool.state.evaluations[0].origin_student_habilitation_id, period);
+    const resubmitted = await call(base, submitted.author, 'POST', `/kinesiology-evaluations/${submitted.evaluationId}/submissions`, {});
+    assert.equal(resubmitted.status, 201);
+    assert.equal((await resubmitted.json()).ordinal, '2');
+    const newest = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}`);
+    assert.equal((await newest.json()).content.illness_history, 'Version two');
+    const newestList = await call(base, cross, 'GET', `/kinesiology-evaluations?patient_id=${patient}`);
+    assert.equal((await newestList.json()).items.find(item => item.id === submitted.evaluationId).content.illness_history, 'Version two');
+    const newestHistory = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}/submissions`);
+    const latestVersions = (await newestHistory.json()).items;
+    assert.equal(latestVersions.length, 1);
+    assert.equal(latestVersions[0].clinical_content.illness_history, 'Version two');
+    const stillPrivate = await call(base, cross, 'GET', `/kinesiology-evaluations/${submitted.evaluationId}/corrections`);
+    assert.equal(stillPrivate.status, 404);
+    assert.deepEqual(await stillPrivate.json(), { error: { code: 'NOT_FOUND', message: 'evaluation was not found' } });
   });
 });
 

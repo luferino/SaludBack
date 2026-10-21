@@ -2,10 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanDb } from '../integration/helpers/clean-db.js';
 
-test('cleanDb deletes submission children before evaluations and consent, then restores exact permission seeds', async () => {
+test('cleanDb checks correction-link column privilege and clears cyclic links before child rows', async () => {
   const calls = [];
-  await cleanDb({ async query(text) { calls.push(text); return { rows: [] }; } });
-  assert.deepEqual(calls.slice(0, 16), [
+  await cleanDb({ async query(text) {
+    calls.push(text);
+    return text.includes('has_column_privilege') ? { rows: [{ allowed: true }] } : { rows: [] };
+  } });
+  assert.equal(calls[0], "SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed");
+  assert.equal(calls[1], 'UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
+  assert.deepEqual(calls.slice(2, 19), [
+    'DELETE FROM kinesiology_evaluation_correction_requests',
     'DELETE FROM kinesiology_evaluation_submission_studies',
     'DELETE FROM kinesiology_evaluation_submissions',
     'DELETE FROM kinesiology_consent_attestations',
@@ -23,16 +29,26 @@ test('cleanDb deletes submission children before evaluations and consent, then r
     'DELETE FROM password_reset_tokens',
     'DELETE FROM users',
   ]);
-  assert.equal(calls[16], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
-  assert.match(calls[17], /INSERT INTO permissions[\s\S]*materias:read/);
-  assert.match(calls[18], /subjects:write[\s\S]*subjects:read/);
-  assert.match(calls[19], /groups:write[\s\S]*groups:read/);
-  assert.match(calls[20], /subject-groups:write[\s\S]*subject-groups:read/);
-  assert.match(calls[21], /teacher-habilitations:write/);
-  assert.match(calls[22], /teacher-habilitations:revoke/);
-  assert.match(calls[23], /student-habilitations:write/);
-  assert.match(calls[24], /student-habilitations:revoke/);
-  assert.match(calls[25], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
-  assert.match(calls[26], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
-  assert.equal(calls.length, 27);
+  assert.equal(calls[19], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
+  assert.match(calls[20], /INSERT INTO permissions[\s\S]*materias:read/);
+  assert.match(calls[21], /subjects:write[\s\S]*subjects:read/);
+  assert.match(calls[22], /groups:write[\s\S]*groups:read/);
+  assert.match(calls[23], /subject-groups:write[\s\S]*subject-groups:read/);
+  assert.match(calls[24], /teacher-habilitations:write/);
+  assert.match(calls[25], /teacher-habilitations:revoke/);
+  assert.match(calls[26], /student-habilitations:write/);
+  assert.match(calls[27], /student-habilitations:revoke/);
+  assert.match(calls[28], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
+  assert.match(calls[29], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
+  assert.equal(calls.length, 30);
+});
+
+test('cleanDb fails closed on missing correction-link UPDATE privilege before any cleanup mutation', async () => {
+  const calls = [];
+  await assert.rejects(cleanDb({ async query(text) {
+    calls.push(text);
+    return { rows: [{ allowed: false }] };
+  } }), /UPDATE privilege on public\.kinesiology_evaluations\.correction_from_submission_id/);
+  assert.deepEqual(calls, ["SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed"]);
+  assert.equal(calls.some(sql => /^(UPDATE|DELETE|TRUNCATE)\b|INSERT INTO/.test(sql)), false);
 });

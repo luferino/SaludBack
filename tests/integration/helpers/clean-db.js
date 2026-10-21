@@ -3,8 +3,10 @@
  *
  * Deletes dependent habilitation, profile, catalog and clinical tables BEFORE
  * their parents and users, so no suite's beforeEach()/after() trips a FK
- * constraint on leftover rows. The order below is the contract:
- * `kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
+ * constraint on leftover rows. It first verifies the single column UPDATE privilege
+ * needed to clear the correction FK cycle. The order below is the contract:
+ * `clear correction_from_submission_id -> kinesiology_evaluation_correction_requests ->
+ * kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
  * kinesiology_consent_attestations -> kinesiology_evaluations -> patient_assignments ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
@@ -61,6 +63,14 @@ const kinesiologyEvaluationPermissionSeedSql = readFileSync(
 );
 
 export async function cleanDb(pool) {
+  const { rows } = await pool.query(
+    "SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed",
+  );
+  if (rows[0]?.allowed !== true) {
+    throw new Error('Database role lacks UPDATE privilege on public.kinesiology_evaluations.correction_from_submission_id required to clear correction links before cleanup');
+  }
+  await pool.query('UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
+  await pool.query('DELETE FROM kinesiology_evaluation_correction_requests');
   await pool.query('DELETE FROM kinesiology_evaluation_submission_studies');
   await pool.query('DELETE FROM kinesiology_evaluation_submissions');
   await pool.query('DELETE FROM kinesiology_consent_attestations');

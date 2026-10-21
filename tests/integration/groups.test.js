@@ -25,6 +25,7 @@ const MIGRATIONS = [
   '014_seed_teacher_habilitation_permissions.sql', '015_seed_teacher_habilitation_revocation_permission.sql', '016_seed_student_habilitation_permissions.sql', '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql', '019_seed_student_habilitation_revocation_permission.sql',
   '020_create_kinesiology_evaluations.sql', '021_seed_kinesiology_evaluation_permissions.sql',
   '022_create_kinesiology_consent_attestations.sql', '023_create_kinesiology_submissions.sql',
+  '024_create_kinesiology_correction_requests.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
@@ -45,7 +46,7 @@ const EXPECTED_GRANTS = new Set([
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
 ]);
 const CLEANUP_TABLES = [
-  'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
+  'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
   'kinesiology_consent_attestations', 'kinesiology_evaluations', 'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
   'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users',
@@ -192,7 +193,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–023 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–024 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);

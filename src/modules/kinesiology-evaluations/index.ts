@@ -414,7 +414,8 @@ export class PgKinesiologyEvaluationRepository {
       const inserted = await db.query<{ id: string; ordinal: string; submitted_at: Date | string }>(
         `INSERT INTO kinesiology_evaluation_submissions
           (evaluation_id, ordinal, submitted_by, clinical_content, patient_snapshot, age_at_admission, verified_consent_snapshot)
-         VALUES ($1, 1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb)
+         SELECT $1, COALESCE(MAX(ordinal), 0) + 1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb
+           FROM kinesiology_evaluation_submissions WHERE evaluation_id = $1
          RETURNING id::text AS id, ordinal::text AS ordinal, submitted_at`,
         [evaluationId, actorId, JSON.stringify(content), JSON.stringify(demographics),
           ageAtAdmission(patient.rows[0].fecha_nacimiento, content.admission_date), JSON.stringify({
@@ -443,6 +444,73 @@ export class PgKinesiologyEvaluationRepository {
         consent: { id: consent.id, paper_signature_date: consent.paper_signature_date,
           verified_by: consent.verified_by, verified_at: new Date(consent.verified_at).toISOString() } };
     });
+  }
+
+  async requestCorrection(evaluationId: string, submissionId: string, reason: string, actorId: string) {
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = await this.findById(db, evaluationId);
+      if (!hint) throw new NotFoundError('evaluation was not found');
+      const context = await db.query<{ teacher_habilitation_id: string }>(
+        `SELECT t.id, th.id::text AS teacher_habilitation_id
+           FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+          WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+            AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+        [actorId, hint.origin_subject_id, hint.origin_group_id],
+      );
+      if (!context.rows.length) throw new NotFoundError('evaluation was not found');
+      const patient = await db.query<{ id: string }>(
+        'SELECT id FROM patients WHERE id = $1 FOR UPDATE', [hint.patient_id],
+      );
+      if (!patient.rows.length) throw new NotFoundError('evaluation was not found');
+      const locked = await db.query<EvaluationRow>(
+        `SELECT ${EVALUATION_COLUMNS.replaceAll('e.', '')}
+           FROM kinesiology_evaluations e WHERE e.id = $1 FOR UPDATE`, [evaluationId],
+      );
+      const current = locked.rows[0];
+      if (!current || current.id !== hint.id || current.patient_id !== hint.patient_id ||
+        current.author_id !== hint.author_id ||
+        current.origin_student_habilitation_id !== hint.origin_student_habilitation_id ||
+        current.origin_subject_id !== hint.origin_subject_id || current.origin_group_id !== hint.origin_group_id) {
+        throw new NotFoundError('evaluation was not found');
+      }
+      if (current.status !== 'submitted') throw new ConflictError('evaluation is not awaiting correction');
+      const target = await db.query<{ id: string; clinical_content: EvaluationContent }>(
+        `SELECT id::text AS id, clinical_content FROM kinesiology_evaluation_submissions
+          WHERE id = $1 AND evaluation_id = $2 FOR UPDATE`, [submissionId, evaluationId],
+      );
+      if (!target.rows.length) throw new NotFoundError('submission was not found');
+      const latest = await db.query<{ id: string }>(
+        `SELECT id::text AS id FROM kinesiology_evaluation_submissions
+          WHERE evaluation_id = $1 ORDER BY ordinal DESC LIMIT 1`, [evaluationId],
+      );
+      if (latest.rows[0]?.id !== submissionId) throw new ConflictError('submission is not the latest version');
+      const event = await db.query<{ id: string; requested_at: Date | string }>(
+        `INSERT INTO kinesiology_evaluation_correction_requests
+          (evaluation_id, submission_id, reason, reviewed_by)
+         VALUES ($1, $2, $3, $4) RETURNING id::text AS id, requested_at`,
+        [evaluationId, submissionId, reason, actorId],
+      );
+      const updated = await db.query<{ id: string }>(
+        `UPDATE kinesiology_evaluations SET content = $2::jsonb, status = 'draft',
+          correction_from_submission_id = $3, updated_at = clock_timestamp()
+          WHERE id = $1 AND status = 'submitted' RETURNING id::text AS id`,
+        [evaluationId, JSON.stringify(target.rows[0].clinical_content), submissionId],
+      );
+      if (!updated.rows.length) throw new ConflictError('evaluation is not awaiting correction');
+      return { evaluation_id: evaluationId, submission_id: submissionId, status: 'draft',
+        correction_request_id: event.rows[0].id, requested_at: new Date(event.rows[0].requested_at).toISOString() };
+    });
+  }
+
+  async corrections(evaluationId: string, actorId: string) {
+    await this.originDetail(evaluationId, actorId);
+    const result = await this.pool.query<{ submission_id: string; reason: string; reviewed_by: string; requested_at: Date | string }>(
+      `SELECT submission_id::text AS submission_id, reason, reviewed_by, requested_at
+         FROM kinesiology_evaluation_correction_requests
+        WHERE evaluation_id = $1 ORDER BY id`, [evaluationId],
+    );
+    return { evaluation_id: evaluationId, items: result.rows.map(row => ({ ...row,
+      requested_at: new Date(row.requested_at).toISOString() })) };
   }
 
   async submissions(evaluationId: string, actorId: string) {
@@ -682,6 +750,13 @@ function withPatient(row: EvaluationReadRow): EvaluationRow {
   };
 }
 
+function submissionId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || BigInt(value) > MAX_BIGINT) {
+    throw new BadRequestError('submission_id must be a positive BIGINT decimal string');
+  }
+  return value;
+}
+
 function queryUuid(value: unknown, field: string, required: boolean): string | undefined {
   if (value === undefined && !required) return undefined;
   return requireUuid(value, field);
@@ -721,6 +796,28 @@ export function createKinesiologyEvaluationRouter({
     const body = requireObject(request.body, 'body');
     if (Object.keys(body).length) throw new BadRequestError('body must be an empty object');
     response.status(201).json(await repository.submit(evaluationId(request.params.id), actor));
+  });
+
+  router.post('/:id/corrections', async (request: Request, response: Response) => {
+    await new PermissionGuard('kinesiology-evaluations:review').authorize(request);
+    const actor = await verifiedActor(getActor, request);
+    const body = requireObject(request.body, 'body');
+    if (Object.keys(body).some(key => !['submission_id', 'reason'].includes(key))) {
+      throw new BadRequestError('body may contain only submission_id and reason');
+    }
+    const target = submissionId(body.submission_id);
+    if (typeof body.reason !== 'string' || !body.reason.trim()) {
+      throw new BadRequestError('reason must be a non-empty string');
+    }
+    response.status(201).json(await repository.requestCorrection(
+      evaluationId(request.params.id), target, body.reason.trim(), actor,
+    ));
+  });
+
+  router.get('/:id/corrections', async (request: Request, response: Response) => {
+    await readGuard.authorize(request);
+    const actor = await verifiedActor(getActor, request);
+    response.json(await repository.corrections(evaluationId(request.params.id), actor));
   });
 
   router.get('/:id/submissions', async (request: Request, response: Response) => {

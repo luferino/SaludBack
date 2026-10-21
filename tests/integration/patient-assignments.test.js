@@ -8,14 +8,14 @@ import pg from 'pg';
 
 const TIMEOUT = 5000;
 const APP_NAME = 'patient-assignments-integration';
-const EXPECTED_MIGRATIONS = Array.from({ length: 18 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const EXPECTED_MIGRATIONS = Array.from({ length: 19 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
   'seed_subject_permissions.sql', 'seed_group_permissions.sql', 'seed_subject_group_permissions.sql',
   'seed_teacher_habilitation_permissions.sql', 'seed_teacher_habilitation_revocation_permission.sql',
   'seed_student_habilitation_permissions.sql', 'create_patient_assignments.sql',
-  'seed_patient_assignment_permissions.sql',
+  'seed_patient_assignment_permissions.sql', 'seed_student_habilitation_revocation_permission.sql',
 ][i]}`);
 let pool;
 let server;
@@ -76,7 +76,7 @@ async function verifyTarget() {
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
     assert.deepEqual(ledger.map(row => row.name), EXPECTED_MIGRATIONS,
-      'the exact expected migration ledger 001-018 is required before fixture cleanup');
+      'the exact expected migration ledger 001-019 is required before fixture cleanup');
     const { rows: counts } = await client.query(`SELECT
       (SELECT count(*)::int FROM patient_assignments) assignments,
       (SELECT count(*)::int FROM student_academic_habilitations) student_periods,

@@ -17,6 +17,7 @@ const MIGRATIONS = [
   '015_seed_teacher_habilitation_revocation_permission.sql',
   '016_seed_student_habilitation_permissions.sql',
   '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql',
+  '019_seed_student_habilitation_revocation_permission.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';

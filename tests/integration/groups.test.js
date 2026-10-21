@@ -22,14 +22,14 @@ const MIGRATIONS = [
   '008_create_clinical_records.sql', '009_create_academic_contexts.sql',
   '010_create_academic_habilitations.sql', '011_seed_subject_permissions.sql',
   '012_seed_group_permissions.sql', '013_seed_subject_group_permissions.sql',
-  '014_seed_teacher_habilitation_permissions.sql', '015_seed_teacher_habilitation_revocation_permission.sql', '016_seed_student_habilitation_permissions.sql', '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql',
+  '014_seed_teacher_habilitation_permissions.sql', '015_seed_teacher_habilitation_revocation_permission.sql', '016_seed_student_habilitation_permissions.sql', '017_create_patient_assignments.sql', '018_seed_patient_assignment_permissions.sql', '019_seed_student_habilitation_revocation_permission.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read',
   'groups:write', 'groups:read', 'subject-groups:write', 'subject-groups:read',
   'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
-  'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
+  'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -37,7 +37,7 @@ const EXPECTED_GRANTS = new Set([
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
   'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
-  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write',
+  'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write', 'teacher:student-habilitations:revoke',
   'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
 ]);
 const CLEANUP_TABLES = [
@@ -191,7 +191,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 19, 'Expected the full 19-permission baseline before cleanup.');
+  assert.equal(permissions.length, 20, 'Expected the full 20-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -200,7 +200,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 25, 'Expected the full 25-grant baseline before cleanup.');
+  assert.equal(grants.length, 26, 'Expected the full 26-grant baseline before cleanup.');
 
   // Check every privilege used by cleanup and this fixture before its first
   // DELETE/TRUNCATE, reducing known failures for restricted roles without

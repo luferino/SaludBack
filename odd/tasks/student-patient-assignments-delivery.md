@@ -11,9 +11,9 @@ S5 — Preserve the selected feature-branch-chain and previously reviewed code; 
 
 ## Tasks
 - [x] D1 — S3–S4; route inline; validated issue35 approved/type:feature with exact body readback, target and policy; commit: this tracker seed.
-- [ ] D2 — S1, S3, S5; route inline; publish five behavior branches and draft integration tracker, create scoped child PRs; commit: remote references to existing reviewed units.
-- [ ] D3 — S2–S3, S5; route inline; check each child and integrate sequentially into tracker; commit: GitHub merge commits, no squash/rebase of reviewed units.
-- [ ] D4 — S2–S3, S5; route inline; verify final source identity, ready and merge tracker into main, fetch and synchronize local main while preserving unrelated files; commit: final merge.
+- [x] D2 — S1, S3, S5; route inline; all six branches published without force; draft tracker #36 and children #37–#41 created and read back with exact bodies, bases, heads and one type:feature label; commit: remote references to existing reviewed units.
+- [x] D3 — S2–S3, S5; route inline; #37–#41 merged and read back after exact head/base/file/check guards, preserving reviewed ancestry. GitHub GraphQL retarget failure reconciled read-only; user «si» authorized a new bounded attempt. REST retarget succeeded; CRLF-only local readback guard error diagnosed without replaying retarget. First #41 merge then succeeded. Integrated tree equals reviewed d5c2f02 excluding only this additive delivery log (git diff --exit-code PASS). Evidence: child-merges.json and pr41-merge.json in session scratch. No squash/rebase or protection bypass.
+- [ ] D4 — S2–S3, S5; route inline; status in progress: final source identity PASS; publish documentary evidence, ready and merge tracker #36 into main only after fresh clean/check guards, then fetch and synchronize local main preserving unrelated files; commit: final merge.
 
 ## Chain
 Integration: feat/student-patient-assignments-integration -> main (draft/no merge until complete).

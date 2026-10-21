@@ -59,6 +59,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 | `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
 | `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
+| `POST` | `/student-habilitations/:id/revoke` | revoke one student period and atomically close its active assignments — Bearer token + `student-habilitations:revoke` + active teacher context |
 | `POST` | `/patient-assignments` | assign a patient to an active student period — `patient-assignments:write` + active teacher context |
 | `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
 | `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
@@ -368,6 +369,23 @@ and the existing active-period unique index remain in force.
   missing permission, teacher profile, or active teacher context; `404` —
   missing student or subject/group context; `409` — an active period already
   exists for this student/context.
+
+### POST /student-habilitations/:id/revoke
+
+Revokes only the selected student period and atomically ends its active patient
+assignments without a user-supplied reason. The separately enforced
+`student-habilitations:revoke` permission is initially granted to `teacher` by
+migration 019; activation's `student-habilitations:write` permission is not
+sufficient. The authenticated actor must also have an active teacher
+habilitation in that period's subject/group. Admin has no bypass. Repeated
+revocation returns the original period audit facts and does not rewrite ended
+assignment history. Later activation creates a new period and never restores
+assignments attached to the revoked period.
+
+- `200` → the stored period with activation and original revocation audit facts.
+- `400` — malformed period UUID; `401` — missing/invalid token or verified UUID
+  actor; `403` — missing `student-habilitations:revoke` or active teacher context;
+  `404` — period not found after contextual authorization.
 
 ### POST /teacher-habilitations/:id/revoke
 

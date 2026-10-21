@@ -319,7 +319,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'teacher');
-  assert.deepEqual(decoded.permissions, ['materias:read', 'patient-assignments:read', 'patient-assignments:write', 'profile:read', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
+  assert.deepEqual(decoded.permissions, ['materias:read', 'patient-assignments:read', 'patient-assignments:write', 'profile:read', 'student-habilitations:revoke', 'student-habilitations:write', 'turnos:read'], 'derived from seeded role_permissions');
   assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
 });
 

@@ -10,8 +10,8 @@
  * Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
- * (role_permissions, permissions), then re-execute permission seeds 007 and
- * 011–014 so every suite starts from the canonical permission state.
+ * (role_permissions, permissions), then re-execute permission seeds 007,
+ * 011–016 and 018–019 so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +46,10 @@ const studentHabilitationPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/016_seed_student_habilitation_permissions.sql'),
   'utf8',
 );
+const studentHabilitationRevocationPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/019_seed_student_habilitation_revocation_permission.sql'),
+  'utf8',
+);
 const patientAssignmentPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/018_seed_patient_assignment_permissions.sql'),
   'utf8',
@@ -74,5 +78,6 @@ export async function cleanDb(pool) {
   await pool.query(teacherHabilitationPermissionSeedSql);
   await pool.query(teacherHabilitationRevocationPermissionSeedSql);
   await pool.query(studentHabilitationPermissionSeedSql);
+  await pool.query(studentHabilitationRevocationPermissionSeedSql);
   await pool.query(patientAssignmentPermissionSeedSql);
 }

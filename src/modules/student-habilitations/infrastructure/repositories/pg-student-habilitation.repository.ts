@@ -25,6 +25,66 @@ const COLUMNS =
 export class PgStudentHabilitationRepository implements StudentHabilitationRepositoryPort {
   constructor(private readonly unitOfWork: UnitOfWorkPort) {}
 
+  async revoke(input: { id: string; revokedBy: string }): Promise<StudentHabilitation> {
+    return this.unitOfWork.withTransaction(async (client) => {
+      const { rows: teachers } = await client.query<{ id: string }>(
+        'SELECT id FROM teachers WHERE user_id = $1 FOR KEY SHARE', [input.revokedBy],
+      );
+      if (!teachers.length) throw new ForbiddenError('an active teacher context is required');
+
+      // Keep the shared lock order: teacher contexts -> exact student period -> patients -> assignments.
+      // Joining through the target period means a missing/foreign context is denied before period disclosure.
+      const { rows: contexts } = await client.query<{ id: string }>(
+        `SELECT th.id
+           FROM teacher_academic_habilitations th
+           JOIN student_academic_habilitations target
+             ON target.subject_id = th.subject_id AND target.academic_group_id = th.academic_group_id
+          WHERE target.id = $1 AND th.teacher_id = $2 AND th.revoked_at IS NULL
+          ORDER BY th.id FOR UPDATE OF th`,
+        [input.id, teachers[0].id],
+      );
+      if (!contexts.length) throw new ForbiddenError('an active teacher context is required');
+
+      const { rows: periods } = await client.query<PeriodRow>(
+        `SELECT ${COLUMNS} FROM student_academic_habilitations WHERE id = $1 FOR UPDATE`, [input.id],
+      );
+      const period = periods[0];
+      if (!period) throw new NotFoundError('student habilitation period was not found');
+
+      // A repeated revoke is an audit-preserving read, not another cascade over old history.
+      if (period.revoked_at === null) {
+        const { rows: patients } = await client.query<{ patient_id: string }>(
+          `SELECT DISTINCT patient_id FROM patient_assignments
+            WHERE student_habilitation_id = $1 AND ended_at IS NULL
+            ORDER BY patient_id`, [input.id],
+        );
+        const patientIds = patients.map(row => row.patient_id);
+        if (patientIds.length) {
+          await client.query('SELECT id FROM patients WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE', [patientIds]);
+          await client.query(
+            `SELECT id FROM patient_assignments
+              WHERE student_habilitation_id = $1 AND ended_at IS NULL
+              ORDER BY id FOR UPDATE`, [input.id],
+          );
+          await client.query(
+            `UPDATE patient_assignments SET ended_by = $2, ended_at = clock_timestamp()
+              WHERE student_habilitation_id = $1 AND ended_at IS NULL`, [input.id, input.revokedBy],
+          );
+        }
+        const { rows: updated } = await client.query<PeriodRow>(
+          `UPDATE student_academic_habilitations
+              SET revoked_by = $2,
+                  revoked_at = GREATEST(clock_timestamp(), activated_at)
+            WHERE id = $1 AND revoked_at IS NULL
+            RETURNING ${COLUMNS}`,
+          [input.id, input.revokedBy],
+        );
+        return fromRow(updated[0]);
+      }
+      return fromRow(period);
+    });
+  }
+
   async activate(input: {
     studentId: string;
     subjectId: string;

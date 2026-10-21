@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanDb } from '../integration/helpers/clean-db.js';
 
-test('cleanDb deletes consent attestations before evaluations and restores permission seeds 007 and 011–022 with a fake query pool', async () => {
+test('cleanDb deletes submission children before evaluations and consent, then restores exact permission seeds', async () => {
   const calls = [];
   await cleanDb({ async query(text) { calls.push(text); return { rows: [] }; } });
-  assert.deepEqual(calls.slice(0, 14), [
+  assert.deepEqual(calls.slice(0, 16), [
+    'DELETE FROM kinesiology_evaluation_submission_studies',
+    'DELETE FROM kinesiology_evaluation_submissions',
     'DELETE FROM kinesiology_consent_attestations',
     'DELETE FROM kinesiology_evaluations',
     'DELETE FROM patient_assignments',
@@ -21,16 +23,16 @@ test('cleanDb deletes consent attestations before evaluations and restores permi
     'DELETE FROM password_reset_tokens',
     'DELETE FROM users',
   ]);
-  assert.equal(calls[14], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
-  assert.match(calls[15], /INSERT INTO permissions[\s\S]*materias:read/);
-  assert.match(calls[16], /subjects:write[\s\S]*subjects:read/);
-  assert.match(calls[17], /groups:write[\s\S]*groups:read/);
-  assert.match(calls[18], /subject-groups:write[\s\S]*subject-groups:read/);
-  assert.match(calls[19], /teacher-habilitations:write/);
-  assert.match(calls[20], /teacher-habilitations:revoke/);
-  assert.match(calls[21], /student-habilitations:write/);
-  assert.match(calls[22], /student-habilitations:revoke/);
-  assert.match(calls[23], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
-  assert.match(calls[24], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
-  assert.equal(calls.length, 25);
+  assert.equal(calls[16], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
+  assert.match(calls[17], /INSERT INTO permissions[\s\S]*materias:read/);
+  assert.match(calls[18], /subjects:write[\s\S]*subjects:read/);
+  assert.match(calls[19], /groups:write[\s\S]*groups:read/);
+  assert.match(calls[20], /subject-groups:write[\s\S]*subject-groups:read/);
+  assert.match(calls[21], /teacher-habilitations:write/);
+  assert.match(calls[22], /teacher-habilitations:revoke/);
+  assert.match(calls[23], /student-habilitations:write/);
+  assert.match(calls[24], /student-habilitations:revoke/);
+  assert.match(calls[25], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
+  assert.match(calls[26], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
+  assert.equal(calls.length, 27);
 });

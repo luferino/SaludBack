@@ -15,7 +15,7 @@ const MIGRATIONS = [
   '013_seed_subject_group_permissions.sql','014_seed_teacher_habilitation_permissions.sql','015_seed_teacher_habilitation_revocation_permission.sql',
   '016_seed_student_habilitation_permissions.sql','017_create_patient_assignments.sql','018_seed_patient_assignment_permissions.sql',
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
-  '022_create_kinesiology_consent_attestations.sql',
+  '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'users:write','students:write','teachers:write','patients:write','profile:read','materias:read','turnos:read',
@@ -93,7 +93,7 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–021 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–023 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
     assert.equal(permissions.length, 25, 'exact 25-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
@@ -151,10 +151,22 @@ async function request(method,path,jwt,body) {
   const text=await response.text(); return {status:response.status,body:text?JSON.parse(text):undefined};
 }
 const createBody = f => ({patient_id:f.patient,subject_id:f.origin.subject,academic_group_id:f.origin.group,content:{}});
+const completeContent = (overrides = {}) => ({ admission_date:'2026-01-15', admission_status:'Stable', illness_history:'Pain began four weeks ago',
+  objectives:'Restore mobility', proposed_treatment:'Therapeutic exercise', medical_diagnosis:null, kinesiology_diagnosis:'Pending',
+  occupation:'Teacher', referring_physician:null, antecedents:{hta:null,dbt:false,diu:true},
+  studies:[{type:'radiograph',description:'No acute findings',date:'2026-01-10'}], ...overrides });
 async function countDocuments(patient) {
   const { rows } = await pool.query(`SELECT (SELECT count(*)::int FROM clinical_records WHERE patient_id=$1) histories,
     (SELECT count(*)::int FROM kinesiology_evaluations WHERE patient_id=$1) evaluations`, [patient]);
   return rows[0];
+}
+async function readyForSubmission(f, content = completeContent()) {
+  const studentJwt = await token(f.student), teacherJwt = await token(f.teacher);
+  const draft = await request('POST', '/kinesiology-evaluations', studentJwt, { ...createBody(f), content });
+  assert.equal(draft.status, 201);
+  const consent = await request('POST', `/kinesiology-evaluations/${draft.body.id}/consent`, teacherJwt, { paper_signature_date:'2026-01-12' });
+  assert.equal(consent.status, 201);
+  return { draft:draft.body, studentJwt, teacherJwt, consent:consent.body.evidence };
 }
 
 before(async () => {
@@ -352,6 +364,135 @@ test('teacher consent waits on origin-period lock and rejects after revocation w
   } finally {
     if(transaction) try { await blocker.query('ROLLBACK'); } catch {}
     if(pending) await Promise.race([pending.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,6000))]);
+    blocker.release();
+  }
+});
+
+test('initial submission freezes public snapshot and GET returns it unchanged after demographics and consent change',async()=>{
+  const f=await fixture(), {draft,studentJwt,teacherJwt,consent}=await readyForSubmission(f);
+  const path=`/kinesiology-evaluations/${draft.id}/submissions`;
+  const submitted=await request('POST',path,studentJwt,{});
+  assert.equal(submitted.status,201);
+  assert.equal(submitted.body.evaluation_id,draft.id);
+  assert.match(submitted.body.id,/^[1-9][0-9]*$/); assert.equal(typeof submitted.body.ordinal,'string'); assert.equal(submitted.body.ordinal,'1');
+  assert.equal(submitted.body.submitted_by,f.student.id); assert.ok(Number.isFinite(Date.parse(submitted.body.submitted_at)));
+  assert.equal(submitted.body.status,'pending_validation');
+  assert.deepEqual(submitted.body.clinical_content,completeContent());
+  assert.deepEqual(submitted.body.studies,completeContent().studies);
+  assert.deepEqual(submitted.body.patient,{id:f.patient,documento:submitted.body.patient.documento,nombres:'Current',apellidos:'Patient',fecha_nacimiento:'2000-02-29',email:submitted.body.patient.email,celular:'00000000',sexo:'F',direccion:'Current address'});
+  assert.equal(submitted.body.age_at_admission,25);
+  assert.deepEqual(submitted.body.consent,{...consent,verified_at:new Date(consent.verified_at).toISOString()});
+  const [row]= (await pool.query(`SELECT id::text id,evaluation_id::text evaluation_id,ordinal::text ordinal,submitted_by,submitted_at,
+    clinical_content,patient_snapshot,age_at_admission,verified_consent_snapshot FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1`,[draft.id])).rows;
+  assert.equal(row.id,submitted.body.id); assert.equal(row.evaluation_id,draft.id); assert.equal(row.ordinal,'1'); assert.equal(row.submitted_by,f.student.id);
+  assert.equal(row.submitted_at.toISOString(),submitted.body.submitted_at); assert.deepEqual(row.clinical_content,completeContent());
+  const studies=(await pool.query('SELECT study_type,description,study_date::text study_date FROM kinesiology_evaluation_submission_studies WHERE submission_id=$1',[row.id])).rows;
+  assert.deepEqual(studies,[{study_type:'radiograph',description:'No acute findings',study_date:'2026-01-10'}]);
+  const detail=await request('GET',`/kinesiology-evaluations/${draft.id}`,studentJwt);
+  assert.equal(detail.status,200); assert.equal(detail.body.status,'submitted'); assert.equal(detail.body.validation_status,'pending_validation');
+  const edit=await request('PATCH',`/kinesiology-evaluations/${draft.id}`,studentJwt,{content:completeContent({illness_history:'rewritten'})});
+  assert.equal(edit.status,409); assert.deepEqual(edit.body,{error:{code:'CONFLICT',message:'evaluation is not an editable draft'}});
+  const repeated=await request('POST',path,studentJwt,{});
+  assert.equal(repeated.status,409); assert.deepEqual(repeated.body,{error:{code:'CONFLICT',message:'evaluation has already been submitted'}});
+  const beforeState=(await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+  assert.equal(beforeState.status,'submitted');
+  await pool.query("UPDATE patients SET nombres='Changed',direccion='Changed address' WHERE id=$1",[f.patient]);
+  const laterConsent=await request('POST',`/kinesiology-evaluations/${draft.id}/consent`,teacherJwt,{paper_signature_date:'2026-01-13'});
+  assert.equal(laterConsent.status,201); assert.notEqual(laterConsent.body.evidence.id,consent.id);
+  const read=await request('GET',path,studentJwt);
+  assert.equal(read.status,200); assert.deepEqual(read.body.items,[submitted.body]);
+  const afterState=(await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+  assert.deepEqual(afterState,beforeState,'rejected edit/repeat and later snapshot reads leave the submitted document unchanged');
+});
+
+test('submission content, consent, fresh grant, and private target denials preserve documents and versions',async()=>{
+  const f=await fixture(), {draft,studentJwt,teacherJwt}=await readyForSubmission(f,completeContent({illness_history:'   '}));
+  const path=`/kinesiology-evaluations/${draft.id}/submissions`;
+  const unchanged=async()=> (await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+  let before=await unchanged();
+  const invalid=await request('POST',path,studentJwt,{});
+  assert.equal(invalid.status,400); assert.deepEqual(invalid.body,{error:{code:'BAD_REQUEST',message:'illness_history is required for submission'}});
+  assert.deepEqual(await unchanged(),before);
+  const completed=await request('PATCH',`/kinesiology-evaluations/${draft.id}`,studentJwt,{content:completeContent()});
+  assert.equal(completed.status,200);
+  before=await unchanged();
+  await pool.query('DELETE FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[draft.id]);
+  const missingConsent=await request('POST',path,studentJwt,{});
+  assert.equal(missingConsent.status,409); assert.deepEqual(missingConsent.body,{error:{code:'CONFLICT',message:'verified paper consent is required before submission'}});
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
+  await request('POST',`/kinesiology-evaluations/${draft.id}/consent`,teacherJwt,{paper_signature_date:'2026-01-12'});
+  await pool.query("DELETE FROM role_permissions WHERE role='estudiante' AND permission='kinesiology-evaluations:submit'");
+  try {
+    const staleGrant=await request('POST',path,studentJwt,{});
+    assert.equal(staleGrant.status,403); assert.deepEqual(staleGrant.body,{error:{code:'FORBIDDEN',message:"Permission 'kinesiology-evaluations:submit' required"}});
+  } finally {
+    await pool.query("INSERT INTO role_permissions(role,permission) VALUES ('estudiante','kinesiology-evaluations:submit') ON CONFLICT DO NOTHING");
+  }
+  const foreignJwt=await token(f.otherStudent);
+  const hidden=await request('POST',path,foreignJwt,{}), missing=await request('POST',`/kinesiology-evaluations/9223372036854775807/submissions`,foreignJwt,{});
+  assert.deepEqual(hidden,missing); assert.equal(hidden.status,404);
+  assert.deepEqual(hidden.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+  assert.deepEqual(await unchanged(),before);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
+});
+
+test('submission requires the author profile, live origin period, and own active assignment',async()=>{
+  for(const revoke of ['profile','period','assignment']){
+    const f=await fixture(), {draft,studentJwt}=await readyForSubmission(f);
+    if(revoke==='profile') await pool.query('UPDATE students SET user_id=$2 WHERE user_id=$1',[f.student.id,f.admin.id]);
+    if(revoke==='period') await pool.query('UPDATE student_academic_habilitations SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE id=$1',[f.period,f.teacher.id]);
+    if(revoke==='assignment') await pool.query('UPDATE patient_assignments SET ended_at=clock_timestamp(),ended_by=$2 WHERE patient_id=$1 AND student_habilitation_id=$3',[f.patient,f.teacher.id,f.period]);
+    const before=(await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+    const denied=await request('POST',`/kinesiology-evaluations/${draft.id}/submissions`,studentJwt,{});
+    assert.equal(denied.status,404,revoke); assert.deepEqual(denied.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+    assert.deepEqual((await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0],before);
+    assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
+  }
+});
+
+test('two concurrent initial submissions serialize to one immutable version',async()=>{
+  const f=await fixture(), {draft,studentJwt}=await readyForSubmission(f);
+  const path=`/kinesiology-evaluations/${draft.id}/submissions`;
+  const results=await Promise.all([request('POST',path,studentJwt,{}),request('POST',path,studentJwt,{})]);
+  assert.deepEqual(results.map(result=>result.status).sort(),[201,409]);
+  assert.deepEqual(results.find(result=>result.status===409).body,{error:{code:'CONFLICT',message:'evaluation has already been submitted'}});
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1',[draft.id])).rows[0].n,1);
+  assert.equal((await pool.query('SELECT status FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0].status,'submitted');
+});
+
+test('submission and edit race serialize without losing the winning draft content',async()=>{
+  const f=await fixture(), initial=completeContent(), {draft,studentJwt}=await readyForSubmission(f,initial);
+  const editContent=completeContent({illness_history:'concurrent edit won'});
+  const [submitted,edited]=await Promise.all([
+    request('POST',`/kinesiology-evaluations/${draft.id}/submissions`,studentJwt,{}),
+    request('PATCH',`/kinesiology-evaluations/${draft.id}`,studentJwt,{content:editContent}),
+  ]);
+  assert.equal(submitted.status,201);
+  assert.ok([200,409].includes(edited.status));
+  if(edited.status===409) assert.deepEqual(edited.body,{error:{code:'CONFLICT',message:'evaluation is not an editable draft'}});
+  if(edited.status===200) assert.deepEqual(submitted.body.clinical_content,editContent);
+  else assert.deepEqual(submitted.body.clinical_content,initial);
+  const stored=(await pool.query('SELECT content,status FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
+  assert.equal(stored.status,'submitted'); assert.deepEqual(stored.content,submitted.body.clinical_content);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1',[draft.id])).rows[0].n,1);
+});
+
+test('submission waits on student-period lock and rejects after revocation wins',async()=>{
+  const f=await fixture(), {draft,studentJwt}=await readyForSubmission(f), blocker=await pool.connect();
+  let transaction=false,pending;
+  try{
+    await blocker.query('BEGIN'); transaction=true;
+    await blocker.query('UPDATE student_academic_habilitations SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE id=$1',[f.period,f.teacher.id]);
+    pending=request('POST',`/kinesiology-evaluations/${draft.id}/submissions`,studentJwt,{});
+    await waitForWaiter('FROM student_academic_habilitations');
+    await blocker.query('COMMIT'); transaction=false;
+    const denied=await pending;
+    assert.equal(denied.status,404); assert.deepEqual(denied.body,{error:{code:'NOT_FOUND',message:'evaluation was not found'}});
+    assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_submissions WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
+    assert.deepEqual((await pool.query('SELECT content,status FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0],{content:completeContent(),status:'draft'});
+  }finally{
+    if(transaction)try{await blocker.query('ROLLBACK');}catch{}
+    if(pending)await Promise.race([pending.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,6000))]);
     blocker.release();
   }
 });

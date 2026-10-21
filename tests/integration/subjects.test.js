@@ -160,7 +160,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–022 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–023 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -177,6 +177,7 @@ test('migrations 011–022 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('020_create_kinesiology_evaluations.sql'), 'migration 020 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('021_seed_kinesiology_evaluation_permissions.sql'), 'migration 021 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('022_create_kinesiology_consent_attestations.sql'), 'migration 022 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('023_create_kinesiology_submissions.sql'), 'migration 023 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -252,7 +253,7 @@ test('migrations 011–022 are present before cleanup and cleanup restores the c
     { role: 'admin', permission: 'teacher-habilitations:write' },
   ]);
 
-  // Only the already-proven 011–022 baseline authorizes invoking broad cleanup.
+  // Only the already-proven 011–023 baseline authorizes invoking broad cleanup.
   cleanUpAuthorized = true;
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');

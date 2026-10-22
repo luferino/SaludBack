@@ -48,7 +48,9 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/auth/forgot-password` | request a password-reset link |
 | `POST` | `/auth/reset-password` | redeem a reset token |
 | `POST` | `/students` | account + student profile — Bearer token + `students:write` |
+| `GET` | `/students` | minimal paginated student selector — Bearer token + `students:read` |
 | `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
+| `GET` | `/teachers` | minimal paginated teacher selector — Bearer token + `teachers:read` |
 | `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
 | `POST` | `/subjects` | create subject — Bearer token + `subjects:write` |
 | `GET` | `/subjects` | list subjects — Bearer token + `subjects:read` |
@@ -165,6 +167,48 @@ curl.exe -X POST http://localhost:3000/auth/forgot-password -H "Content-Type: ap
 ```bash
 curl.exe -X POST http://localhost:3000/auth/reset-password -H "Content-Type: application/json" -d '{"token":"<token-from-link>","newPassword":"nuevaClave123"}'
 ```
+
+### GET /teachers and GET /students
+
+Use these selectors to obtain **profile UUIDs** for habilitation requests; do not
+use the account UUID from authentication. Both require a valid Bearer token and
+an exact, fresh read grant. Write grants never authorize a GET, and admin has no
+permission bypass.
+
+| Endpoint | Exact item fields | Initial read grants (migration 027) |
+|----------|-------------------|------------------------------------|
+| `/teachers` | `id`, `nombres`, `apellidos` | `teachers:read`: admin |
+| `/students` | `id`, `nombres`, `apellidos`, `codalumno` | `students:read`: admin, teacher |
+
+The student selector is deliberately global and includes students not yet
+habilitated, so a teacher can select them for activation. It does not grant
+access to their accounts, clinical information or other academic contexts.
+Neither selector returns `user_id`, passwords/hashes, contact or audit fields.
+Permissions can be explicitly delegated through `role_permissions`.
+
+- Query: `limit` (default 50, range 1–100), `offset` (default 0, range 0–10000).
+  Each must be a single decimal-digit string; empty, repeated, signed, fractional
+  and out-of-range values return `400`.
+- `200` → `{ "items": [...], "limit": 50, "offset": 0 }`; no total count.
+  Ordered by `apellidos`, `nombres`, then profile `id`, ascending. An empty page
+  is `200` with `items: []`.
+- Errors: `400 BAD_REQUEST` for invalid pagination; `401 UNAUTHORIZED` for missing
+  or invalid authentication; `403 FORBIDDEN` for a missing exact read grant;
+  unexpected failures are `500 INTERNAL_SERVER_ERROR` with no database details.
+  Error shape: `{ "error": { "code": "FORBIDDEN", "message": "..." } }`.
+
+```bash
+curl.exe "http://localhost:3000/students?limit=20&offset=0" -H "Authorization: Bearer <teacher-token>"
+curl.exe "http://localhost:3000/teachers?limit=20&offset=0" -H "Authorization: Bearer <admin-token>"
+```
+
+For example, `/students` returns:
+
+```json
+{"items":[{"id":"10000000-0000-4000-8000-000000000021","nombres":"Ana","apellidos":"Perez","codalumno":"A1"}],"limit":50,"offset":0}
+```
+
+Pass that `id` as `student_id` (or a teacher selector's `id` as `teacher_id`).
 
 ### POST /students
 

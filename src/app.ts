@@ -121,6 +121,7 @@ export function createApp(pool: Pool): express.Express {
       hasher,
       unitOfWork,
       guard: new PermissionGuard('students:write'),
+      listGuard: new PermissionGuard('students:read'),
     }),
   );
   app.use(
@@ -132,6 +133,7 @@ export function createApp(pool: Pool): express.Express {
       hasher,
       unitOfWork,
       guard: new PermissionGuard('teachers:write'),
+      listGuard: new PermissionGuard('teachers:read'),
     }),
   );
 

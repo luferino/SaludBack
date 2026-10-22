@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { CreateTeacher } from '../../application/create-teacher.usecase.js';
+import { ListTeachers } from '../../application/list-teachers.usecase.js';
+import { PermissionGuard } from '../../../shared/application/guard.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { TeacherRepositoryPort } from '../../application/teacher.ports.js';
@@ -24,6 +26,7 @@ export function createTeacherRouter({
   hasher,
   unitOfWork,
   guard = new OpenGuard(),
+  listGuard = new PermissionGuard('teachers:read'),
   getActor = defaultGetActor,
 }: {
   repository: TeacherRepositoryPort;
@@ -31,6 +34,7 @@ export function createTeacherRouter({
   hasher: PasswordHasherPort;
   unitOfWork: UnitOfWorkPort;
   guard?: Guard;
+  listGuard?: Guard;
   getActor?: (req: Request) => Promise<string | null>;
 }): Router {
   const router = Router();
@@ -39,6 +43,18 @@ export function createTeacherRouter({
     userRepository,
     hasher,
     unitOfWork,
+  });
+
+  const listTeachers = new ListTeachers({ repository });
+
+  router.get('/', async (req: Request, res: Response) => {
+    await listGuard.authorize(req);
+    const result = await listTeachers.execute({ limit: req.query.limit, offset: req.query.offset });
+    res.status(200).json({
+      items: result.items.map(({ id, nombres, apellidos }) => ({ id, nombres, apellidos })),
+      limit: result.limit,
+      offset: result.offset,
+    });
   });
 
   router.post('/', async (req: Request, res: Response) => {

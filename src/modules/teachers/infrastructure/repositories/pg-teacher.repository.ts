@@ -34,6 +34,14 @@ export class PgTeacherRepository implements TeacherRepositoryPort {
     this.pool = pool;
   }
 
+  async list({ limit, offset }: { limit: number; offset: number }): Promise<Array<{ id: string; nombres: string; apellidos: string }>> {
+    const { rows } = await this.pool.query<{ id: string; nombres: string; apellidos: string }>(
+      'SELECT id, nombres, apellidos FROM teachers ORDER BY apellidos ASC, nombres ASC, id ASC LIMIT $1 OFFSET $2',
+      [limit, offset],
+    );
+    return rows;
+  }
+
   async create(teacher: Teacher, client?: Queryable): Promise<Teacher> {
     const db = client ?? this.pool;
     const { rows } = await db.query<TeacherRow>(

@@ -8,7 +8,15 @@ import type { Queryable } from '../../shared/application/unit-of-work.js';
  * The optional `client` lets alta-en-uno flows persist the student row
  * inside the same transaction as the user account.
  */
+export interface StudentListItem {
+  id: string;
+  nombres: string;
+  apellidos: string;
+  codalumno: string;
+}
+
 export interface StudentRepositoryPort {
+  list(input: { limit: number; offset: number }): Promise<StudentListItem[]>;
   /**
    * Finds a student by `codalumno` case-insensitively (STU-003): the
    * query normalizes both sides with `lower()`, matching the functional

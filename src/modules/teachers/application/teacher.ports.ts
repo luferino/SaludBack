@@ -8,7 +8,14 @@ import type { Queryable } from '../../shared/application/unit-of-work.js';
  * The optional `client` lets alta-en-uno flows persist the teacher row
  * inside the same transaction as the user account.
  */
+export interface TeacherListItem {
+  id: string;
+  nombres: string;
+  apellidos: string;
+}
+
 export interface TeacherRepositoryPort {
+  list(input: { limit: number; offset: number }): Promise<TeacherListItem[]>;
   /**
    * Persists a teacher profile row. Unlike students, teachers have no
    * `codalumno`, so there is no duplicate-key guard: linking is driven

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { CreateStudent } from '../../application/create-student.usecase.js';
+import { ListStudents } from '../../application/list-students.usecase.js';
+import { PermissionGuard } from '../../../shared/application/guard.js';
 import { OpenGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { StudentRepositoryPort } from '../../application/student.ports.js';
@@ -24,6 +26,7 @@ export function createStudentRouter({
   hasher,
   unitOfWork,
   guard = new OpenGuard(),
+  listGuard = new PermissionGuard('students:read'),
   getActor = defaultGetActor,
 }: {
   repository: StudentRepositoryPort;
@@ -31,6 +34,7 @@ export function createStudentRouter({
   hasher: PasswordHasherPort;
   unitOfWork: UnitOfWorkPort;
   guard?: Guard;
+  listGuard?: Guard;
   getActor?: (req: Request) => Promise<string | null>;
 }): Router {
   const router = Router();
@@ -39,6 +43,18 @@ export function createStudentRouter({
     userRepository,
     hasher,
     unitOfWork,
+  });
+
+  const listStudents = new ListStudents({ repository });
+
+  router.get('/', async (req: Request, res: Response) => {
+    await listGuard.authorize(req);
+    const result = await listStudents.execute({ limit: req.query.limit, offset: req.query.offset });
+    res.status(200).json({
+      items: result.items.map(({ id, nombres, apellidos, codalumno }) => ({ id, nombres, apellidos, codalumno })),
+      limit: result.limit,
+      offset: result.offset,
+    });
   });
 
   router.post('/', async (req: Request, res: Response) => {

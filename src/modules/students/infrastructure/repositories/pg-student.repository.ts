@@ -33,6 +33,14 @@ export class PgStudentRepository implements StudentRepositoryPort {
     this.pool = pool;
   }
 
+  async list({ limit, offset }: { limit: number; offset: number }): Promise<Array<{ id: string; nombres: string; apellidos: string; codalumno: string }>> {
+    const { rows } = await this.pool.query<{ id: string; nombres: string; apellidos: string; codalumno: string }>(
+      'SELECT id, nombres, apellidos, codalumno FROM students ORDER BY apellidos ASC, nombres ASC, id ASC LIMIT $1 OFFSET $2',
+      [limit, offset],
+    );
+    return rows;
+  }
+
   async findByCodalumno(codalumno: string): Promise<Student | null> {
     // lower() on both sides matches the functional unique index
     // `students_codalumno_unique` (STU-003), so a different-casing

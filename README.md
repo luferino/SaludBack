@@ -58,8 +58,10 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/groups` | list academic groups — Bearer token + `groups:read` |
 | `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
+| `GET` | `/teacher-habilitations` | paginated teacher periods — Bearer token + `teacher-habilitations:read` |
 | `POST` | `/teacher-habilitations` | activate teacher in a linked subject/group context — Bearer token + `teacher-habilitations:write` |
 | `POST` | `/teacher-habilitations/:id/revoke` | revoke one teacher habilitation period — Bearer token + `teacher-habilitations:revoke` |
+| `GET` | `/student-habilitations` | paginated student periods — Bearer token + `student-habilitations:read`; non-admins require live teacher context |
 | `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
 | `POST` | `/student-habilitations/:id/revoke` | revoke one student period and atomically close its active assignments — Bearer token + `student-habilitations:revoke` + active teacher context |
 | `POST` | `/patient-assignments` | assign a patient to an active student period — `patient-assignments:write` + active teacher context |
@@ -403,6 +405,75 @@ authorized to activate or revoke access. Application authorization and any
 teacher-to-student revocation cascade remain outside this persistence-only
 schema; no cascade is inferred here.
 
+### GET /teacher-habilitations and GET /student-habilitations
+
+These read-only lists expose active and revoked **periods**, not accounts or
+clinical records. Migration 028 seeds independent enforced read permissions:
+
+| Endpoint | Required fresh permission | Initial grants and scope |
+|----------|---------------------------|--------------------------|
+| `/teacher-habilitations` | `teacher-habilitations:read` | admin: global history |
+| `/student-habilitations` | `student-habilitations:read` | admin: global history; teacher: only currently active teacher contexts |
+
+Admin must also have the exact read grant; `:write` and `:revoke` never imply
+`:read`. Teachers receive neither `teachers:read` nor `teacher-habilitations:read`
+by default. A deliberately delegated read grant is evaluated independently.
+Non-admin student-period readers must have a teacher profile linked to the
+verified account and a live teacher habilitation. Their visible rows are scoped
+by the exact subject/group pairs **before pagination**, regardless of which
+teacher originally activated a student. Revoking a teacher's context removes
+access on subsequent reads, including historical student periods in that context.
+No student self-read capability is granted by these endpoints.
+
+| Query parameter | Contract |
+|-----------------|----------|
+| `teacher_id` / `student_id` | Optional profile UUID; use the parameter matching the endpoint |
+| `subject_id` | Optional subject UUID |
+| `academic_group_id` | Optional academic group UUID |
+| `status` | Optional `active` (`revoked_at IS NULL`) or `revoked` (`revoked_at IS NOT NULL`); omit for both |
+| `limit`, `offset` | Same defaults, single decimal-digit validation and bounds as the profile selectors: 50/0, 1–100/0–10000 |
+
+Supplied UUIDs must be single hyphenated hexadecimal UUID strings. Filters are
+combined with AND. Explicit subject/group filters outside a non-admin reader's
+active contexts return `403`; a partial subject or group filter must match at
+least one active context. Without context filters, only authorized contexts are
+listed; lacking any active teacher context returns `403`. Valid unknown profile
+IDs yield empty lists, not existence-probing `404` responses.
+
+`200` returns `{ "items": [...], "limit": 50, "offset": 0 }`, ordered by
+`activated_at DESC, id DESC`, with no count. Exact teacher-period item:
+
+```json
+{
+  "id": "10000000-0000-4000-8000-000000000051",
+  "teacher_id": "10000000-0000-4000-8000-000000000011",
+  "subject_id": "10000000-0000-4000-8000-000000000031",
+  "academic_group_id": "10000000-0000-4000-8000-000000000041",
+  "activated_by": "10000000-0000-4000-8000-000000000001",
+  "activated_at": "2026-01-01T00:00:00.000Z",
+  "revoked_by": null,
+  "revoked_at": null
+}
+```
+
+Student items have the same keys except `student_id` replaces `teacher_id`.
+`id` identifies the historical **period**; `teacher_id`/`student_id` identify
+**profiles**, while `activated_by`/`revoked_by` identify actor **accounts**.
+Timestamps are ISO 8601 UTC; revoked periods have non-null revocation actor/time.
+Resolve context names through `/subjects` and `/groups` with their own read grants.
+No passwords, account profile links, contact or clinical fields are returned.
+
+Errors use `{ "error": { "code", "message" } }`: `400 BAD_REQUEST` for malformed
+filters or pagination, `401 UNAUTHORIZED` for invalid/missing authentication,
+`403 FORBIDDEN` for missing read permission or teacher scope, and generic
+`500 INTERNAL_SERVER_ERROR` without SQL details. Empty authorized results are
+`200`, not `404`.
+
+```bash
+curl.exe "http://localhost:3000/teacher-habilitations?status=active&limit=20" -H "Authorization: Bearer <admin-token>"
+curl.exe "http://localhost:3000/student-habilitations?subject_id=<subject-uuid>&academic_group_id=<group-uuid>&status=revoked" -H "Authorization: Bearer <teacher-token>"
+```
+
 ### Teacher habilitation activation API
 
 `POST /teacher-habilitations` is the activation-only first slice. Its fresh,
@@ -649,5 +720,22 @@ with `.env.test`). The actual target is `DATABASE_URL`, not a guaranteed databas
 named `saludback_test`. Supply all required configuration (`DATABASE_URL`,
 `JWT_SECRET`, `CLIENT_URL`): `src/config.ts` attempts to load `.env` when any of
 these is missing. For a static-only check without starting the application, use
-`pnpm exec tsc --noEmit`. All database test runs require explicit authorization
-and independent target verification; this README provides no database command.
+`pnpm exec tsc --noEmit`. The destructive database suites require explicit
+authorization and independent target verification.
+
+The academic read-listing tests have a separate, non-destructive path:
+
+```bash
+node --import tsx --test tests/unit/profile-listings.test.js tests/unit/habilitation-listings.test.js tests/unit/academic-read-permission-seed.test.js
+node --import tsx --env-file=.env.test --test tests/integration/academic-read-listings.test.js
+```
+
+The latter requires the complete test configuration and a PostgreSQL connection
+allowed to create a schema. It creates a unique schema inside one transaction,
+sets a schema-only search path, loads its own fixtures, drives the four HTTP GETs,
+and rolls back the entire schema in `finally`. It does not run the migration
+runner, truncate shared tables, or use the existing destructive cleanup. Tests
+cover exact response keys/profile identities, deterministic paging, all period
+filters, active/revoked history, independent grants, fresh grant/context
+revocation, cross-context denial, and unchanged public data after rejected reads.
+The unit suites also preserve existing POST/activation/revocation behavior.

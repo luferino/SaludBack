@@ -6,6 +6,9 @@ const seeds = [
   ['027_seed_profile_read_permissions.sql', ['teachers:read', 'students:read'], [
     ['admin', 'teachers:read'], ['admin', 'students:read'], ['teacher', 'students:read'],
   ]],
+  ['028_seed_habilitation_read_permissions.sql', ['teacher-habilitations:read', 'student-habilitations:read'], [
+    ['admin', 'teacher-habilitations:read'], ['admin', 'student-habilitations:read'], ['teacher', 'student-habilitations:read'],
+  ]],
 ];
 
 for (const [filename, permissions, grants] of seeds) {

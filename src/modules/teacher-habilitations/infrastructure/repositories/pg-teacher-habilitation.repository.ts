@@ -31,6 +31,25 @@ export class PgTeacherHabilitationRepository implements TeacherHabilitationRepos
     this.pool = pool;
   }
 
+  async list(input: { teacherId?: string; subjectId?: string; academicGroupId?: string; status?: 'active' | 'revoked'; limit: number; offset: number }) {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    for (const [column, value] of [['teacher_id', input.teacherId], ['subject_id', input.subjectId], ['academic_group_id', input.academicGroupId]] as const) {
+      if (value !== undefined) { values.push(value); where.push(`${column} = $${values.length}`); }
+    }
+    if (input.status === 'active') where.push('revoked_at IS NULL');
+    if (input.status === 'revoked') where.push('revoked_at IS NOT NULL');
+    values.push(input.limit, input.offset);
+    const { rows } = await this.pool.query<TeacherHabilitationRow>(
+      `SELECT ${COLUMNS} FROM teacher_academic_habilitations
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY activated_at DESC, id DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return rows.map((row) => ({ id: row.id, teacherId: row.teacher_id, subjectId: row.subject_id, academicGroupId: row.academic_group_id,
+      activatedBy: row.activated_by, activatedAt: row.activated_at, revokedBy: row.revoked_by, revokedAt: row.revoked_at }));
+  }
+
   async revoke(input: { id: string; revokedBy: string }): Promise<TeacherHabilitation> {
     const { rows } = await this.pool.query<TeacherHabilitationRow>(
       `UPDATE teacher_academic_habilitations

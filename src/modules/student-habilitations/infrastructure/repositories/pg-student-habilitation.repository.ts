@@ -1,4 +1,4 @@
-import type { UnitOfWorkPort } from '../../../shared/application/unit-of-work.js';
+import type { Queryable, UnitOfWorkPort } from '../../../shared/application/unit-of-work.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../../shared/domain/errors.js';
 import { StudentHabilitation } from '../../domain/student-habilitation.entity.js';
 import type { StudentHabilitationRepositoryPort } from '../../application/student-habilitation.ports.js';
@@ -23,7 +23,48 @@ const COLUMNS =
   'id, student_id, subject_id, academic_group_id, activated_by, activated_at, revoked_by, revoked_at';
 
 export class PgStudentHabilitationRepository implements StudentHabilitationRepositoryPort {
-  constructor(private readonly unitOfWork: UnitOfWorkPort) {}
+  constructor(private readonly unitOfWork: UnitOfWorkPort, private readonly queryable?: Queryable) {}
+
+  async list(input: { studentId?: string; subjectId?: string; academicGroupId?: string; status?: 'active' | 'revoked'; limit: number; offset: number; actorId: string | null; isAdmin: boolean }) {
+    const queryable = this.queryable;
+    if (!queryable) throw new Error('a queryable is required to list student habilitations');
+    let teacherId: string | undefined;
+    if (!input.isAdmin) {
+      const { rows: contexts } = await queryable.query<{ teacher_id: string; subject_id: string; academic_group_id: string }>(
+        `SELECT t.id AS teacher_id, th.subject_id, th.academic_group_id
+           FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+          WHERE t.user_id = $1 AND th.revoked_at IS NULL`, [input.actorId],
+      );
+      const authorized = contexts.filter((context) =>
+        (input.subjectId === undefined || context.subject_id === input.subjectId)
+        && (input.academicGroupId === undefined || context.academic_group_id === input.academicGroupId));
+      if (!authorized.length) throw new ForbiddenError('an active teacher context is required');
+      teacherId = contexts[0].teacher_id;
+    }
+
+    const values: unknown[] = [];
+    const where: string[] = [];
+    for (const [column, value] of [['student_id', input.studentId], ['subject_id', input.subjectId], ['academic_group_id', input.academicGroupId]] as const) {
+      if (value !== undefined) { values.push(value); where.push(`${column} = $${values.length}`); }
+    }
+    if (input.status === 'active') where.push('revoked_at IS NULL');
+    if (input.status === 'revoked') where.push('revoked_at IS NOT NULL');
+    if (teacherId !== undefined) {
+      values.push(teacherId);
+      where.push(`EXISTS (SELECT 1 FROM teacher_academic_habilitations scope
+        WHERE scope.teacher_id = $${values.length} AND scope.subject_id = student_academic_habilitations.subject_id
+          AND scope.academic_group_id = student_academic_habilitations.academic_group_id AND scope.revoked_at IS NULL)`);
+    }
+    values.push(input.limit, input.offset);
+    const { rows } = await queryable.query<PeriodRow>(
+      `SELECT ${COLUMNS} FROM student_academic_habilitations
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY activated_at DESC, id DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return rows.map((row) => ({ id: row.id, studentId: row.student_id, subjectId: row.subject_id, academicGroupId: row.academic_group_id,
+      activatedBy: row.activated_by, activatedAt: row.activated_at, revokedBy: row.revoked_by, revokedAt: row.revoked_at }));
+  }
 
   async revoke(input: { id: string; revokedBy: string }): Promise<StudentHabilitation> {
     return this.unitOfWork.withTransaction(async (client) => {

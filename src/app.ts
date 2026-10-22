@@ -39,10 +39,10 @@ import { errorHandler } from './middleware/error-handler.js';
  * `/subject-groups`. Every protected mount
  * enforces the permission mapped in PG-003 via `PermissionGuard` after
  * `authenticate` populates `req.auth`: register -> `users:write`,
- * students/teachers/patients -> their own write permission, `GET /auth/me` ->
- * `profile:read`, subject, group and subject-group creation/listing -> independent write/read
- * permissions. The admin role owns every implemented permission through its seeded
- * `role_permissions` grants (PG-001), so admin behavior is unchanged. Login
+ * students/teachers/patients POST -> their own write permission, profile selectors ->
+ * independent read permissions, `GET /auth/me` -> `profile:read`, subject, group
+ * and subject-group creation/listing -> independent write/read permissions.
+ * Seeded grants are explicit; the admin role never bypasses PermissionGuard. Login
  * and password recovery stay unauthenticated. The verified token `sub`
  * flows into `created_by` through the default actor hook once `req.auth` is
  * set (AUD-003). One shared `PgPermissionMatrixRepository` instance feeds
@@ -60,7 +60,7 @@ export function createApp(pool: Pool): express.Express {
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
   const teacherHabilitationRepository = new PgTeacherHabilitationRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
-  const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork);
+  const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork, pool);
   const patientAssignmentRepository = new PgPatientAssignmentRepository(unitOfWork, pool);
   const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
@@ -170,7 +170,11 @@ export function createApp(pool: Pool): express.Express {
   app.use(
     '/student-habilitations',
     authenticate(tokenService, matrixReader),
-    createStudentHabilitationRouter({ repository: studentHabilitationRepository, guard: new PermissionGuard('student-habilitations:write') }),
+    createStudentHabilitationRouter({
+      repository: studentHabilitationRepository,
+      guard: new PermissionGuard('student-habilitations:write'),
+      readGuard: new PermissionGuard('student-habilitations:read'),
+    }),
   );
 
   app.use(
@@ -194,6 +198,7 @@ export function createApp(pool: Pool): express.Express {
       repository: teacherHabilitationRepository,
       guard: new PermissionGuard('teacher-habilitations:write'),
       revokeGuard: new PermissionGuard('teacher-habilitations:revoke'),
+      readGuard: new PermissionGuard('teacher-habilitations:read'),
     }),
   );
 

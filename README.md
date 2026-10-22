@@ -71,6 +71,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/kinesiology-evaluations?patient_id=<uuid>` | list drafts in live author/origin-teacher context and submitted snapshots with current patient-care access — `kinesiology-evaluations:read` |
 | `GET` | `/kinesiology-evaluations/:id/submissions` | read submission history in live origin context, or only the latest snapshot with current patient-care access — `kinesiology-evaluations:read` |
 | `POST` | `/kinesiology-evaluations/:id/corrections` | origin teacher requests corrections to the latest submitted version — `kinesiology-evaluations:review` |
+| `POST` | `/kinesiology-evaluations/:id/validations` | origin teacher validates the latest submitted version — `kinesiology-evaluations:review` |
 | `GET` | `/kinesiology-evaluations/:id/corrections` | read correction reasons/reviewer/time in live origin context — `kinesiology-evaluations:read` |
 
 For permission-protected routes above, production wiring in `src/app.ts`
@@ -108,7 +109,9 @@ Submission-history reads preserve `404` with `evaluation was not found` for miss
 
 The request targets only the latest submitted version. It atomically records an immutable reason/reviewer/time event and reopens a working draft copied from that exact snapshot. The original submission, studies, demographics, consent evidence, and authorship remain unchanged. `GET /kinesiology-evaluations/:id/corrections` returns `{ evaluation_id, items }` with recorded submission IDs, reasons, reviewer UUIDs, and request times only for live author/origin-teacher readers with a fresh read grant. Cross-context detail/list/history continue to show only the latest submitted snapshot, never correction content or reasons. The original author may edit/resubmit only while their linked profile, origin membership, and own current assignment remain active; reassignment does not restore access automatically. Resubmission creates the next ordinal snapshot and reuses existing verified consent evidence.
 
-T3A implements correction requests and resubmission only. Teacher validation and any validated state are T3B, and linked amendments are T4.
+`POST /kinesiology-evaluations/:id/validations` accepts exactly `{ "submission_id": "<positive BIGINT decimal string>" }`. The fresh `kinesiology-evaluations:review` grant and a live teacher profile/context for the evaluation's exact origin subject/group are required. A successful `201` records the authenticated reviewer, active teacher-context period and database review time, and marks the evaluation validated without changing its submitted clinical snapshot. Only the latest submission can be targeted. Missing/private evaluations return `404`; a foreign submission returns `404`; a stale version or non-awaiting evaluation returns `409`; malformed IDs or extra body keys return `400`; missing grants return `403`. Repeated reviews cannot alter existing state. Validated evaluations cannot be edited or accepted for another review. Pending and validated labels are reported without exposing review/correction records across care contexts.
+
+T3A implements correction requests and resubmission; T3B implements validation, and linked amendments are T4.
 
 ### POST /auth/register
 

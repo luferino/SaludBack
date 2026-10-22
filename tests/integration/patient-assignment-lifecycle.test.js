@@ -11,12 +11,12 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME='patient-assignment-lifecycle-integration';
 const TIMEOUT=5000;
-const MIGRATIONS=Array.from({length:24},(_,i)=>`${String(i+1).padStart(3,'0')}_${[
+const MIGRATIONS=Array.from({length:25},(_,i)=>`${String(i+1).padStart(3,'0')}_${[
   'create_users.sql','create_patients.sql','add_email_and_reset_tokens.sql','multi_role_and_audit.sql','user_id_unique_profiles.sql',
   'create_permission_matrix.sql','seed_permission_matrix.sql','create_clinical_records.sql','create_academic_contexts.sql',
   'create_academic_habilitations.sql','seed_subject_permissions.sql','seed_group_permissions.sql','seed_subject_group_permissions.sql',
   'seed_teacher_habilitation_permissions.sql','seed_teacher_habilitation_revocation_permission.sql','seed_student_habilitation_permissions.sql',
-  'create_patient_assignments.sql','seed_patient_assignment_permissions.sql','seed_student_habilitation_revocation_permission.sql','create_kinesiology_evaluations.sql','seed_kinesiology_evaluation_permissions.sql','create_kinesiology_consent_attestations.sql','create_kinesiology_submissions.sql','create_kinesiology_correction_requests.sql'][i]}`);
+  'create_patient_assignments.sql','seed_patient_assignment_permissions.sql','seed_student_habilitation_revocation_permission.sql','create_kinesiology_evaluations.sql','seed_kinesiology_evaluation_permissions.sql','create_kinesiology_consent_attestations.sql','create_kinesiology_submissions.sql','create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql'][i]}`);
 let pool, server, baseUrl, safeToClean=false;
 function address(value){if(!value)return null;const ip=value.replace(/^\[|\]$/g,'').split('/')[0].toLowerCase();return ip.startsWith('::ffff:')?ip.slice(7):ip;}
 function loopback(value){const ip=address(value);return ip&&(net.isIP(ip)===4?ip.startsWith('127.'):ip==='::1');}

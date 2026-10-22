@@ -60,6 +60,7 @@ interface EvaluationRow {
   created_at: Date | string;
   updated_at: Date | string;
   status?: 'draft' | 'submitted' | 'validated';
+  amendment_of_evaluation_id?: string | null;
 }
 
 interface EvaluationReadRow extends EvaluationRow {
@@ -69,6 +70,7 @@ interface EvaluationReadRow extends EvaluationRow {
   projected_submitted_at?: Date | string | null;
   projected_age_at_admission?: number | null;
   projected_consent?: Record<string, unknown> | null;
+  amendment_of_evaluation_id?: string | null;
   patient_documento: string;
   patient_nombres: string;
   patient_apellidos: string;
@@ -138,7 +140,9 @@ function projectedReadColumns(origin: string): string {
     CASE WHEN ${origin} THEN p.email ELSE snapshot.patient_snapshot->>'email' END AS patient_email,
     CASE WHEN ${origin} THEN p.celular ELSE snapshot.patient_snapshot->>'celular' END AS patient_celular,
     CASE WHEN ${origin} THEN p.sexo ELSE snapshot.patient_snapshot->>'sexo' END AS patient_sexo,
-    CASE WHEN ${origin} THEN p.direccion ELSE snapshot.patient_snapshot->>'direccion' END AS patient_direccion`;
+    CASE WHEN ${origin} THEN p.direccion ELSE snapshot.patient_snapshot->>'direccion' END AS patient_direccion,
+    (SELECT link.original_evaluation_id::text FROM kinesiology_evaluation_amendment_links link
+      WHERE link.amendment_evaluation_id = e.id) AS amendment_of_evaluation_id`;
 }
 
 function evaluationId(value: unknown): string {
@@ -278,6 +282,7 @@ function serialize(row: EvaluationRow) {
       : patient ? ageAtAdmission(patient.fecha_nacimiento, row.content.admission_date) : null,
     created_at: new Date(row.created_at).toISOString(),
     updated_at: new Date(row.updated_at).toISOString(),
+    ...(projected.amendment_of_evaluation_id ? { amendment_of_evaluation_id: projected.amendment_of_evaluation_id } : {}),
     ...(projected.projected_submission_id ? {
       submission_id: projected.projected_submission_id,
       submission_ordinal: projected.projected_submission_ordinal,
@@ -350,6 +355,77 @@ export class PgKinesiologyEvaluationRepository {
     });
   }
 
+  async createAmendment(originalEvaluationId: string, actorId: string): Promise<EvaluationRow> {
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = await this.findById(db, originalEvaluationId);
+      if (!hint) throw new NotFoundError('evaluation was not found');
+      const student = await db.query<{ id: string }>(
+        'SELECT id FROM students WHERE user_id = $1 FOR KEY SHARE', [actorId],
+      );
+      if (!student.rows.length) throw new NotFoundError('evaluation was not found');
+      const periods = await db.query<{ id: string }>(
+        `SELECT id FROM student_academic_habilitations
+          WHERE student_id = $1 AND subject_id = $2 AND academic_group_id = $3 AND revoked_at IS NULL
+          ORDER BY id FOR UPDATE`,
+        [student.rows[0].id, hint.origin_subject_id, hint.origin_group_id],
+      );
+      if (!periods.rows.length) throw new NotFoundError('evaluation was not found');
+      const patient = await db.query<PatientDemographics>(
+        `SELECT id, documento, nombres, apellidos, fecha_nacimiento, email, celular, sexo, direccion
+           FROM patients WHERE id = $1 FOR UPDATE`, [hint.patient_id],
+      );
+      if (!patient.rows.length) throw new NotFoundError('evaluation was not found');
+      const assignments = await db.query<{ id: string; student_habilitation_id: string }>(
+        `SELECT a.id::text AS id, a.student_habilitation_id
+           FROM patient_assignments a JOIN student_academic_habilitations p ON p.id = a.student_habilitation_id
+          WHERE a.patient_id = $1 AND p.student_id = $2 AND p.subject_id = $3
+            AND p.academic_group_id = $4 AND p.revoked_at IS NULL AND a.ended_at IS NULL
+          ORDER BY a.id FOR UPDATE OF a`,
+        [hint.patient_id, student.rows[0].id, hint.origin_subject_id, hint.origin_group_id],
+      );
+      const assignment = assignments.rows.find(row => periods.rows.some(period => period.id === row.student_habilitation_id));
+      if (!assignment) throw new NotFoundError('evaluation was not found');
+
+      const locked = await db.query<EvaluationRow>(
+        `SELECT ${EVALUATION_COLUMNS.replaceAll('e.', '')}
+           FROM kinesiology_evaluations e WHERE e.id = $1 FOR UPDATE`, [originalEvaluationId],
+      );
+      const original = locked.rows[0];
+      if (!original || original.id !== hint.id || original.patient_id !== hint.patient_id ||
+        original.author_id !== hint.author_id || original.origin_student_habilitation_id !== hint.origin_student_habilitation_id ||
+        original.origin_subject_id !== hint.origin_subject_id || original.origin_group_id !== hint.origin_group_id) {
+        throw new NotFoundError('evaluation was not found');
+      }
+      if (original.status !== 'validated') throw new ConflictError('only a validated evaluation can be amended');
+      const snapshot = await db.query<{ id: string; clinical_content: EvaluationContent }>(
+        `SELECT s.id::text AS id, s.clinical_content FROM kinesiology_evaluation_submissions s
+          JOIN kinesiology_evaluation_validation_reviews review
+            ON review.evaluation_id = s.evaluation_id AND review.submission_id = s.id
+         WHERE s.evaluation_id = $1 ORDER BY s.ordinal DESC LIMIT 1 FOR UPDATE OF s`, [originalEvaluationId],
+      );
+      if (!snapshot.rows.length) throw new ConflictError('validated submission is unavailable');
+      const inserted = await db.query<EvaluationRow>(
+        `INSERT INTO kinesiology_evaluations
+          (clinical_record_id, patient_id, author_id, origin_student_habilitation_id,
+           origin_subject_id, origin_group_id, content, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'draft')
+         RETURNING id::text AS id, clinical_record_id::text AS clinical_record_id, patient_id,
+           author_id, origin_student_habilitation_id, origin_subject_id, origin_group_id,
+           content, created_at, updated_at, status`,
+        [original.clinical_record_id, original.patient_id, actorId, assignment.student_habilitation_id,
+          original.origin_subject_id, original.origin_group_id, JSON.stringify(snapshot.rows[0].clinical_content)],
+      );
+      const amendment = inserted.rows[0];
+      await db.query(
+        `INSERT INTO kinesiology_evaluation_amendment_links
+          (original_evaluation_id, amendment_evaluation_id, patient_id, origin_subject_id, origin_group_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [originalEvaluationId, amendment.id, original.patient_id, original.origin_subject_id, original.origin_group_id, actorId],
+      );
+      return { ...amendment, patient: patient.rows[0], amendment_of_evaluation_id: originalEvaluationId };
+    });
+  }
+
   async submit(evaluationId: string, actorId: string) {
     return this.unitOfWork.withTransaction(async db => {
       const hint = await this.findById(db, evaluationId);
@@ -403,7 +479,22 @@ export class PgKinesiologyEvaluationRepository {
         `SELECT id::text AS id, paper_signature_date::text AS paper_signature_date, verified_by, verified_at
            FROM kinesiology_consent_attestations WHERE evaluation_id = $1 ORDER BY id DESC LIMIT 1`, [evaluationId],
       );
-      const consent = consentResult.rows[0];
+      let consent = consentResult.rows[0];
+      if (!consent) {
+        const inherited = await db.query<{ id: string; paper_signature_date: string; verified_by: string; verified_at: Date | string }>(
+          `SELECT (s.verified_consent_snapshot->>'id') AS id,
+                  s.verified_consent_snapshot->>'paper_signature_date' AS paper_signature_date,
+                  s.verified_consent_snapshot->>'verified_by' AS verified_by,
+                  (s.verified_consent_snapshot->>'verified_at')::timestamptz AS verified_at
+             FROM kinesiology_evaluation_amendment_links link
+             JOIN kinesiology_evaluation_submissions s ON s.evaluation_id = link.original_evaluation_id
+             JOIN kinesiology_evaluation_validation_reviews review
+               ON review.evaluation_id = s.evaluation_id AND review.submission_id = s.id
+            WHERE link.amendment_evaluation_id = $1
+            ORDER BY s.ordinal DESC LIMIT 1`, [evaluationId],
+        );
+        consent = inherited.rows[0];
+      }
       if (!consent) throw new ConflictError('verified paper consent is required before submission');
       const demographics = {
         id: patient.rows[0].id, documento: patient.rows[0].documento,
@@ -572,6 +663,8 @@ export class PgKinesiologyEvaluationRepository {
               s.ordinal::text AS ordinal, s.submitted_by, s.submitted_at,
               s.clinical_content, s.patient_snapshot AS patient, s.age_at_admission,
               s.verified_consent_snapshot AS consent,
+              (SELECT link.original_evaluation_id::text FROM kinesiology_evaluation_amendment_links link
+                WHERE link.amendment_evaluation_id = e.id) AS amendment_of_evaluation_id,
               CASE WHEN validation.id IS NULL THEN 'pending_validation' ELSE 'validated' END AS validation_status,
               COALESCE((SELECT json_agg(json_build_object('type', study.study_type,
                 'description', study.description, 'date', study.study_date::text) ORDER BY study.ordinal)
@@ -588,10 +681,12 @@ export class PgKinesiologyEvaluationRepository {
         ) ORDER BY s.ordinal`, [evaluationId, actorId],
     );
     // An empty authorized history is valid; private or absent evaluations are not.
-    if (result.rows.length === 0) await this.detail(evaluationId, actorId);
-    const items = result.rows.map(({ studies, validation_status, ...row }) => ({ ...row,
+    const authorized = result.rows.length === 0 ? await this.detail(evaluationId, actorId) : null;
+    const amendmentOf = result.rows[0]?.amendment_of_evaluation_id ?? authorized?.amendment_of_evaluation_id ?? null;
+    const items = result.rows.map(({ studies, validation_status, amendment_of_evaluation_id: _amendmentOf, ...row }) => ({ ...row,
       submitted_at: new Date(row.submitted_at as string).toISOString(), status: validation_status, studies }));
-    return { evaluation_id: evaluationId, items };
+    return { evaluation_id: evaluationId,
+      ...(amendmentOf ? { amendment_of_evaluation_id: amendmentOf } : {}), items };
   }
 
   async edit(evaluationId: string, content: EvaluationContent, actorId: string): Promise<EvaluationRow> {
@@ -846,6 +941,14 @@ export function createKinesiologyEvaluationRouter({
     response.status(201).json(serialize(await repository.create(
       patientId, { subjectId, groupId }, validateContent(body.content), actor,
     )));
+  });
+
+  router.post('/:id/amendments', async (request: Request, response: Response) => {
+    await writeGuard.authorize(request);
+    const actor = await verifiedActor(getActor, request);
+    const body = requireObject(request.body, 'body');
+    if (Object.keys(body).length) throw new BadRequestError('body must be an empty object');
+    response.status(201).json(serialize(await repository.createAmendment(evaluationId(request.params.id), actor)));
   });
 
   router.post('/:id/submissions', async (request: Request, response: Response) => {

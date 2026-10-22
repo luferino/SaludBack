@@ -7,7 +7,8 @@
  * needed to clear the correction FK cycle. The order below is the contract:
  * `clear correction_from_submission_id -> kinesiology_evaluation_correction_requests ->
  * kinesiology_evaluation_validation_reviews -> kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
- * kinesiology_consent_attestations -> kinesiology_evaluations -> patient_assignments ->
+ * kinesiology_consent_attestations -> kinesiology_evaluation_amendment_links ->
+ * kinesiology_evaluations -> patient_assignments ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
  * password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
@@ -72,6 +73,7 @@ export async function cleanDb(pool) {
   await pool.query('UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
   await pool.query('DELETE FROM kinesiology_evaluation_correction_requests');
   await pool.query('DELETE FROM kinesiology_evaluation_validation_reviews');
+  await pool.query('DELETE FROM kinesiology_evaluation_amendment_links');
   await pool.query('DELETE FROM kinesiology_evaluation_submission_studies');
   await pool.query('DELETE FROM kinesiology_evaluation_submissions');
   await pool.query('DELETE FROM kinesiology_consent_attestations');

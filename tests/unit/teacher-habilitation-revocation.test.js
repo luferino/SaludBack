@@ -112,7 +112,7 @@ test('migration 015 adds an enforced separately delegable permission with an ini
 
 test('subjects pre-cleanup source validates the 015 permission and exact initial grant baseline before cleanup', () => {
   const source = readFileSync(new URL('../integration/subjects.test.js', import.meta.url), 'utf8');
-  const testStart = source.indexOf("test('migrations 011–025");
+  const testStart = source.indexOf("test('migrations 011–026");
   const cleanup = source.indexOf('cleanUpAuthorized = true;', testStart);
   const baseline = source.slice(testStart, cleanup);
   assert.ok(testStart >= 0 && cleanup > testStart);

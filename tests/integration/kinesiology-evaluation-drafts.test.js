@@ -15,7 +15,7 @@ const MIGRATIONS = [
   '013_seed_subject_group_permissions.sql','014_seed_teacher_habilitation_permissions.sql','015_seed_teacher_habilitation_revocation_permission.sql',
   '016_seed_student_habilitation_permissions.sql','017_create_patient_assignments.sql','018_seed_patient_assignment_permissions.sql',
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
-  '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql',
+  '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql','026_create_kinesiology_amendment_links.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'users:write','students:write','teachers:write','patients:write','profile:read','materias:read','turnos:read',
@@ -93,7 +93,7 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–025 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–026 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
     assert.equal(permissions.length, 25, 'exact 25-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
@@ -865,7 +865,125 @@ test('teacher validation marks only the latest immutable submission for origin a
   assert.equal((await pool.query('SELECT status FROM kinesiology_evaluations WHERE id=$1',[second.draft.id])).rows[0].status,'submitted');
 });
 
-test('cleanDb clears genuine correction and validation history and leaves all eighteen fixture tables empty',async()=>{
+test('a replacement student creates and validates a linked amendment without altering the validated original or re-verifying consent',async()=>{
+  const f=await fixture();
+  const original=await readyForSubmission(f,completeContent({ illness_history:'validated source history' }));
+  const submitted=await request('POST',`/kinesiology-evaluations/${original.draft.id}/submissions`,original.studentJwt,{});
+  assert.equal(submitted.status,201);
+  const validated=await request('POST',`/kinesiology-evaluations/${original.draft.id}/validations`,original.teacherJwt,{submission_id:submitted.body.id});
+  assert.equal(validated.status,201);
+  const frozen=(await pool.query(`SELECT id::text id,patient_id,author_id,origin_student_habilitation_id,origin_subject_id,origin_group_id,content,status,updated_at
+    FROM kinesiology_evaluations WHERE id=$1`,[original.draft.id])).rows[0];
+  const frozenSubmission=(await pool.query(`SELECT id::text id,evaluation_id::text evaluation_id,clinical_content,patient_snapshot,verified_consent_snapshot
+    FROM kinesiology_evaluation_submissions WHERE id=$1`,[submitted.body.id])).rows[0];
+  const frozenReview=(await pool.query(`SELECT submission_id::text submission_id,reviewed_by,teacher_habilitation_id,reviewed_at
+    FROM kinesiology_evaluation_validation_reviews WHERE evaluation_id=$1`,[original.draft.id])).rows[0];
+
+  await pool.query(`UPDATE patient_assignments SET ended_at=clock_timestamp(),ended_by=$3
+    WHERE patient_id=$1 AND student_habilitation_id=$2 AND ended_at IS NULL`,[f.patient,f.period,f.teacher.id]);
+  const {rows:replacementPeriod}=await pool.query(`INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at)
+    VALUES ((SELECT id FROM students WHERE user_id=$1),$2,$3,$4,clock_timestamp()) RETURNING id`,
+  [f.otherStudent.id,f.origin.subject,f.origin.group,f.admin.id]);
+  await pool.query(`INSERT INTO patient_assignments(patient_id,student_habilitation_id,subject_id,assigned_by)
+    VALUES ($1,$2,$3,$4)`,[f.patient,replacementPeriod[0].id,f.origin.subject,f.teacher.id]);
+  const replacementJwt=await token(f.otherStudent);
+  assert.equal((await request('GET',`/kinesiology-evaluations/${original.draft.id}`,original.studentJwt)).status,404,
+    'the original author does not regain access from historical authorship');
+  const amendment=await request('POST',`/kinesiology-evaluations/${original.draft.id}/amendments`,replacementJwt,{});
+  assert.equal(amendment.status,201,JSON.stringify(amendment.body));
+  assert.notEqual(amendment.body.id,original.draft.id);
+  assert.equal(amendment.body.author_id,f.otherStudent.id);
+  assert.equal(amendment.body.origin_student_habilitation_id,replacementPeriod[0].id);
+  assert.equal(amendment.body.amendment_of_evaluation_id,original.draft.id);
+  assert.equal(amendment.body.content.illness_history,'validated source history');
+  assert.equal((await request('GET',`/kinesiology-evaluations/${amendment.body.id}`,original.studentJwt)).status,404);
+  const foreignContext=await request('GET',`/kinesiology-evaluations/${amendment.body.id}`,await token(f.otherTeacher));
+  assert.equal(foreignContext.status,404,'a working amendment remains private outside its live origin context');
+
+  const edited=await request('PATCH',`/kinesiology-evaluations/${amendment.body.id}`,replacementJwt,
+    {content:completeContent({illness_history:'amended history',studies:[{type:'image',description:'amended study'}]})});
+  assert.equal(edited.status,200);
+  const amendedSubmission=await request('POST',`/kinesiology-evaluations/${amendment.body.id}/submissions`,replacementJwt,{});
+  assert.equal(amendedSubmission.status,201,JSON.stringify(amendedSubmission.body));
+  assert.equal(amendedSubmission.body.consent.id,original.consent.id,'verified original evidence is reused without another consent gate');
+  assert.equal(amendedSubmission.body.consent.verified_by,f.teacher.id);
+  const crossTeacherJwt=await token(f.otherTeacher);
+  const correction=await request('POST',`/kinesiology-evaluations/${amendment.body.id}/corrections`,original.teacherJwt,
+    {submission_id:amendedSubmission.body.id,reason:'Refine the amendment'});
+  assert.equal(correction.status,201);
+  const hiddenReason=await request('GET',`/kinesiology-evaluations/${amendment.body.id}/corrections`,crossTeacherJwt);
+  assert.equal(hiddenReason.status,404);
+  const workingCorrection=await request('PATCH',`/kinesiology-evaluations/${amendment.body.id}`,replacementJwt,
+    {content:completeContent({illness_history:'private working correction'})});
+  assert.equal(workingCorrection.status,200);
+  const crossContext=await request('GET',`/kinesiology-evaluations/${amendment.body.id}`,crossTeacherJwt);
+  assert.equal(crossContext.status,200);
+  assert.equal(crossContext.body.content.illness_history,'amended history');
+  assert.equal(crossContext.body.amendment_of_evaluation_id,original.draft.id);
+  assert.equal(crossContext.body.status,'submitted');
+  const crossList=await request('GET',`/kinesiology-evaluations?patient_id=${f.patient}&subject_id=${f.origin.subject}&academic_group_id=${f.origin.group}`,crossTeacherJwt);
+  assert.equal(crossList.status,200);
+  const listedAmendment=crossList.body.items.find(item=>item.id===amendment.body.id);
+  assert.equal(listedAmendment.amendment_of_evaluation_id,original.draft.id);
+  assert.equal(listedAmendment.content.illness_history,'amended history');
+  const history=await request('GET',`/kinesiology-evaluations/${amendment.body.id}/submissions`,crossTeacherJwt);
+  assert.equal(history.status,200);
+  assert.equal(history.body.amendment_of_evaluation_id,original.draft.id);
+  assert.deepEqual(history.body.items.map(item=>item.id),[amendedSubmission.body.id]);
+  assert.equal((await request('POST',`/kinesiology-evaluations/${amendment.body.id}/submissions`,replacementJwt,{})).status,201);
+  const finalVersion=await request('GET',`/kinesiology-evaluations/${amendment.body.id}/submissions`,replacementJwt);
+  assert.equal(finalVersion.body.items[1].clinical_content.illness_history,'private working correction');
+  assert.equal(finalVersion.body.items[1].consent.id,original.consent.id);
+  const finalReview=await request('POST',`/kinesiology-evaluations/${amendment.body.id}/validations`,original.teacherJwt,
+    {submission_id:finalVersion.body.items[1].id});
+  assert.equal(finalReview.status,201);
+  const reviewed=await request('GET',`/kinesiology-evaluations/${amendment.body.id}/submissions`,replacementJwt);
+  assert.equal(reviewed.body.items[1].status,'validated');
+  assert.equal(reviewed.body.items[1].evaluation_id,amendment.body.id);
+
+  const actualOriginal=(await pool.query(`SELECT id::text id,patient_id,author_id,origin_student_habilitation_id,origin_subject_id,origin_group_id,content,status,updated_at
+    FROM kinesiology_evaluations WHERE id=$1`,[original.draft.id])).rows[0];
+  const actualSubmission=(await pool.query(`SELECT id::text id,evaluation_id::text evaluation_id,clinical_content,patient_snapshot,verified_consent_snapshot
+    FROM kinesiology_evaluation_submissions WHERE id=$1`,[submitted.body.id])).rows[0];
+  const actualReview=(await pool.query(`SELECT submission_id::text submission_id,reviewed_by,teacher_habilitation_id,reviewed_at
+    FROM kinesiology_evaluation_validation_reviews WHERE evaluation_id=$1`,[original.draft.id])).rows[0];
+  assert.deepEqual(actualOriginal,frozen);
+  assert.deepEqual(actualSubmission,frozenSubmission);
+  assert.deepEqual(actualReview,frozenReview);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_amendment_links WHERE original_evaluation_id=$1 AND amendment_evaluation_id=$2',[original.draft.id,amendment.body.id])).rows[0].n,1);
+  const unlinked=await request('POST','/kinesiology-evaluations',replacementJwt,createBody(f));
+  assert.equal(unlinked.status,201);
+  const beforeRejectedLink=(await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_amendment_links')).rows[0].n;
+  await assert.rejects(pool.query(`INSERT INTO kinesiology_evaluation_amendment_links
+    (original_evaluation_id,amendment_evaluation_id,patient_id,origin_subject_id,origin_group_id,created_by)
+    VALUES ($1,$2,$3,$4,$5,$6)`,[original.draft.id,unlinked.body.id,f.patient,f.origin.subject,f.other.group,f.otherStudent.id]),
+    error=>error.code==='23503'&&['kinesiology_evaluation_amendments_original_fk','kinesiology_evaluation_amendments_child_fk'].includes(error.constraint));
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_amendment_links')).rows[0].n,beforeRejectedLink);
+});
+
+test('amendment creation waits on the author period and preserves the validated original when revocation wins',async()=>{
+  const f=await fixture(),{draft,studentJwt,teacherJwt}=await readyForSubmission(f);
+  const path=`/kinesiology-evaluations/${draft.id}`;
+  const submitted=await request('POST',`${path}/submissions`,studentJwt,{});assert.equal(submitted.status,201);
+  assert.equal((await request('POST',`${path}/validations`,teacherJwt,{submission_id:submitted.body.id})).status,201);
+  const before={detail:await request('GET',path,teacherJwt),history:await request('GET',`${path}/submissions`,teacherJwt),list:await request('GET',`/kinesiology-evaluations?patient_id=${f.patient}`,teacherJwt)};
+  const blocker=await pool.connect();let transaction=false,pending;
+  try{
+    await blocker.query('BEGIN');transaction=true;
+    await blocker.query('UPDATE student_academic_habilitations SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE id=$1',[f.period,f.teacher.id]);
+    pending=request('POST',`${path}/amendments`,studentJwt,{});
+    await waitForWaiter('FROM student_academic_habilitations');
+    await blocker.query('COMMIT');transaction=false;
+    assert.deepEqual(await pending,{status:404,body:{error:{code:'NOT_FOUND',message:'evaluation was not found'}}});
+    assert.deepEqual({detail:await request('GET',path,teacherJwt),history:await request('GET',`${path}/submissions`,teacherJwt),list:await request('GET',`/kinesiology-evaluations?patient_id=${f.patient}`,teacherJwt)},before);
+  }finally{
+    if(transaction)try{await blocker.query('ROLLBACK');}catch{}
+    if(pending)await Promise.race([pending.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,6000))]);
+    blocker.release();
+  }
+});
+
+test('cleanDb clears genuine correction, validation and amendment links and leaves all nineteen fixture tables empty',async()=>{
   const f=await fixture(),{draft,studentJwt,teacherJwt}=await readyForSubmission(f);
   const submitted=await request('POST',`/kinesiology-evaluations/${draft.id}/submissions`,studentJwt,{}); assert.equal(submitted.status,201);
   const correction=await request('POST',`/kinesiology-evaluations/${draft.id}/corrections`,teacherJwt,{submission_id:submitted.body.id,reason:'Cleanup cycle fixture'}); assert.equal(correction.status,201);
@@ -875,15 +993,18 @@ test('cleanDb clears genuine correction and validation history and leaves all ei
   const validationSubmission=await request('POST',`/kinesiology-evaluations/${validated.draft.id}/submissions`,validated.studentJwt,{}); assert.equal(validationSubmission.status,201);
   assert.equal((await request('POST',`/kinesiology-evaluations/${validated.draft.id}/validations`,validated.teacherJwt,{submission_id:validationSubmission.body.id})).status,201);
   assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_validation_reviews')).rows[0].n,1);
+  const amendment=await request('POST',`/kinesiology-evaluations/${validated.draft.id}/amendments`,validated.studentJwt,{});
+  assert.equal(amendment.status,201);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_evaluation_amendment_links')).rows[0].n,1);
   await cleanDb(pool);
   const {rows:counts}=await pool.query(`SELECT (SELECT count(*)::int FROM users) users,(SELECT count(*)::int FROM patients) patients,
     (SELECT count(*)::int FROM clinical_records) clinical_records,(SELECT count(*)::int FROM kinesiology_evaluations) evaluations,
     (SELECT count(*)::int FROM kinesiology_evaluation_submissions) submissions,(SELECT count(*)::int FROM kinesiology_evaluation_submission_studies) studies,
-    (SELECT count(*)::int FROM kinesiology_evaluation_correction_requests) correction_requests,(SELECT count(*)::int FROM kinesiology_evaluation_validation_reviews) validation_reviews,(SELECT count(*)::int FROM kinesiology_consent_attestations) consents,
+    (SELECT count(*)::int FROM kinesiology_evaluation_correction_requests) correction_requests,(SELECT count(*)::int FROM kinesiology_evaluation_validation_reviews) validation_reviews,(SELECT count(*)::int FROM kinesiology_evaluation_amendment_links) amendment_links,(SELECT count(*)::int FROM kinesiology_consent_attestations) consents,
     (SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM student_academic_habilitations) student_periods,
     (SELECT count(*)::int FROM teacher_academic_habilitations) teacher_periods,(SELECT count(*)::int FROM students) students,
     (SELECT count(*)::int FROM teachers) teachers,(SELECT count(*)::int FROM subject_academic_groups) subject_groups,
     (SELECT count(*)::int FROM academic_groups) groups,(SELECT count(*)::int FROM subjects) subjects,
     (SELECT count(*)::int FROM password_reset_tokens) reset_tokens,(SELECT count(*)::int FROM permissions) permissions,(SELECT count(*)::int FROM role_permissions) grants`);
-  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,consents:0,assignments:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,reset_tokens:0,permissions:25,grants:32});
+  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,amendment_links:0,consents:0,assignments:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,reset_tokens:0,permissions:25,grants:32});
 });

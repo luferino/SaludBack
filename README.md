@@ -70,6 +70,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/kinesiology-evaluations/:id/consent` | origin teacher records paper date and verifies in one operation — `kinesiology-evaluations:verify-consent` |
 | `GET` | `/kinesiology-evaluations?patient_id=<uuid>` | list drafts in live author/origin-teacher context and submitted snapshots with current patient-care access — `kinesiology-evaluations:read` |
 | `GET` | `/kinesiology-evaluations/:id/submissions` | read submission history in live origin context, or only the latest snapshot with current patient-care access — `kinesiology-evaluations:read` |
+| `POST` | `/kinesiology-evaluations/:id/submissions` | freeze and submit the current own draft — `kinesiology-evaluations:submit` + current own assignment |
 | `POST` | `/kinesiology-evaluations/:id/corrections` | origin teacher requests corrections to the latest submitted version — `kinesiology-evaluations:review` |
 | `POST` | `/kinesiology-evaluations/:id/validations` | origin teacher validates the latest submitted version — `kinesiology-evaluations:review` |
 | `POST` | `/kinesiology-evaluations/:id/amendments` | create a separately authored amendment from a validated evaluation — `kinesiology-evaluations:write` + current own assignment |

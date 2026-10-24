@@ -3,6 +3,39 @@
 Health-domain backend API. Node.js 24 + Express 5 + PostgreSQL, structured as
 modular Clean Architecture (`src/modules/<module>/{domain,application,infrastructure}`).
 
+## Application composition
+
+`src/app.ts` remains the `createApp(pool)` entry point and composition root. It
+configures global JSON parsing, the heartbeat, explicit area mounts and the final
+error handler. Construction and mounting are separated under `src/bootstrap/`:
+
+- `create-dependencies.ts` builds one app-local dependency graph with manually
+  injected repositories and services. JWT, permission-matrix reader, user
+  repository, hasher and unit of work retain their shared instances where needed;
+  separate `createApp` calls do not share global singleton instances.
+- `routes/auth.routes.ts` keeps authentication entry-point exceptions explicit.
+- `routes/profiles.routes.ts` mounts patients, students and teachers.
+- `routes/academic.routes.ts` mounts subjects, groups, linked contexts and
+  habilitations. Its separate teacher-habilitation mount preserves the original
+  registration order after clinical routes.
+- `routes/clinical.routes.ts` mounts assignments and kinesiology evaluations.
+
+Mounts keep authentication before protected handlers and retain each existing
+permission guard. No DI container, automatic route registry or HTTP contract
+change is introduced.
+
+Run composition regressions without database migrations:
+
+```sh
+node --import tsx --test tests/unit/app-composition.test.js
+```
+
+The clinical differential test is historical evidence for two fixed Git revisions:
+its loader reads the entire source snapshot, including app composition, from Git
+in memory. It does not require the live source tree to remain at the old revision.
+The ordinary unit suite, including composition and module wiring tests, exercises
+the current application.
+
 ## Clinical module architecture
 
 `kinesiology-evaluations` and `patient-assignments` follow the same inward dependency

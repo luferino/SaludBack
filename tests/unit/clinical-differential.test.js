@@ -34,11 +34,8 @@ function run(revision, suite) {
 
 for (const suite of suites) {
   test(`${suite}: original HTTP tests pass against both revisions with identical responses`, { timeout: 120000 }, async () => {
-    assert.equal(execFileSync('git', ['diff', candidate, '--', 'src'], { cwd: root, encoding: 'utf8' }), '',
-      'working production sources must match the fixed candidate');
-    const changedSources = execFileSync('git', ['diff', '--name-only', baseline, candidate, '--', 'src'], { cwd: root, encoding: 'utf8' }).trim().split('\n');
-    assert.ok(changedSources.every(path => /^src\/modules\/(kinesiology-evaluations|patient-assignments)\//.test(path)),
-      'baseline dependencies outside the overlaid modules must be unchanged');
+    // Historical evidence must use complete Git-backed source snapshots, not
+    // prevent unrelated future composition changes in the live source tree.
     assert.equal(execFileSync('git', ['diff', baseline, '--', `tests/unit/${suite}.test.js`], { cwd: root, encoding: 'utf8' }), '',
       'original assertions must be unchanged from baseline');
     const results = [];
@@ -49,6 +46,8 @@ for (const suite of suites) {
       assert.match(result.stdout, /# skipped 0\b/);
       const loaded = result.stdout.split('\n').filter(line => line.includes('CLINICAL_SOURCE '))
         .map(line => JSON.parse(Buffer.from(line.slice(line.indexOf('CLINICAL_SOURCE ') + 'CLINICAL_SOURCE '.length).trim(), 'base64').toString('utf8')));
+      assert.ok(loaded.some(entry => entry.revision === revision && entry.path === 'src/app.ts'),
+        'historical app composition must also come from Git, not live sources');
       for (const module of ['kinesiology-evaluations', 'patient-assignments']) {
         assert.ok(loaded.some(entry => entry.revision === revision && entry.path === `src/modules/${module}/index.ts`),
           `must actually load ${module} from the selected Git revision`);

@@ -3,6 +3,38 @@
 Health-domain backend API. Node.js 24 + Express 5 + PostgreSQL, structured as
 modular Clean Architecture (`src/modules/<module>/{domain,application,infrastructure}`).
 
+## Clinical module architecture
+
+`kinesiology-evaluations` and `patient-assignments` follow the same inward dependency
+rule as the other layered modules:
+
+| Layer | Responsibility |
+| --- | --- |
+| `domain` | Clinical content/date rules, submission completeness, assignment state policies and domain types |
+| `application` | Transport-independent service entry points and repository ports; incoming clinical content validation |
+| `infrastructure/routes` | Express parsing, permission guards, verified actors and response serialization |
+| `infrastructure/repositories` | PostgreSQL queries, projections, ordered locks and atomic port operations |
+| `index.ts` | Compatibility exports used by the composition root in `src/app.ts` |
+
+Repository ports describe **atomic contextual operations**, not independent CRUD
+steps. PostgreSQL adapters must check live authorization and invoke state-dependent
+policies inside the same transaction, at their existing lock positions. In
+particular, submission completeness is checked against the locked evaluation;
+assignment ended-state is not disclosed before source/destination authorization.
+The adapters still orchestrate those transaction-sensitive workflows; the services
+must not replace them with unlocked preflight checks. No HTTP contract, permission,
+schema, lock ordering or transaction boundary changes are part of this extraction.
+
+Run the database-free architecture and focused regression checks directly (not
+`pnpm test`, whose lifecycle runs database migrations):
+
+```sh
+node --import tsx --test --test-concurrency=1 tests/unit/clinical-architecture.test.js tests/unit/clinical-application.test.js tests/unit/kinesiology-evaluation-drafts.test.js tests/unit/patient-assignments.test.js tests/unit/patient-assignment-lifecycle.test.js
+pnpm exec tsc --noEmit
+```
+
+These synthetic checks do not establish live PostgreSQL concurrency behavior.
+
 ## Prerequisites
 
 - Node.js 24+ (uses `process.loadEnvFile()` and the native `--env-file` flag)

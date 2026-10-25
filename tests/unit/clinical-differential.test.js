@@ -36,8 +36,8 @@ for (const suite of suites) {
   test(`${suite}: original HTTP tests pass against both revisions with identical responses`, { timeout: 120000 }, async () => {
     // Historical evidence must use complete Git-backed source snapshots, not
     // prevent unrelated future composition changes in the live source tree.
-    assert.equal(execFileSync('git', ['diff', baseline, '--', `tests/unit/${suite}.test.js`], { cwd: root, encoding: 'utf8' }), '',
-      'original assertions must be unchanged from baseline');
+    assert.equal(execFileSync('git', ['diff', baseline, candidate, '--', `tests/unit/${suite}.test.js`], { cwd: root, encoding: 'utf8' }), '',
+      'the historical revisions must use identical original assertions');
     const results = [];
     for (const revision of [baseline, candidate]) {
       const result = await run(revision, suite);
@@ -46,6 +46,8 @@ for (const suite of suites) {
       assert.match(result.stdout, /# skipped 0\b/);
       const loaded = result.stdout.split('\n').filter(line => line.includes('CLINICAL_SOURCE '))
         .map(line => JSON.parse(Buffer.from(line.slice(line.indexOf('CLINICAL_SOURCE ') + 'CLINICAL_SOURCE '.length).trim(), 'base64').toString('utf8')));
+      assert.ok(loaded.some(entry => entry.revision === revision && entry.path === `tests/unit/${suite}.test.js`),
+        'original HTTP assertions and fixtures must also come from the historical Git snapshot');
       assert.ok(loaded.some(entry => entry.revision === revision && entry.path === 'src/app.ts'),
         'historical app composition must also come from Git, not live sources');
       for (const module of ['kinesiology-evaluations', 'patient-assignments']) {

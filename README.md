@@ -31,8 +31,10 @@ node --import tsx --test tests/unit/app-composition.test.js
 ```
 
 The clinical differential test is historical evidence for two fixed Git revisions:
-its loader reads the entire source snapshot, including app composition, from Git
-in memory. It does not require the live source tree to remain at the old revision.
+its loader reads the source snapshot, app composition, and the original HTTP test
+assertions/fixtures from Git in memory. The two historical revisions must use
+identical original tests; the live tests may evolve with new behavior. It does not
+require the live source or live test tree to remain at the old revision.
 The ordinary unit suite, including composition and module wiring tests, exercises
 the current application.
 

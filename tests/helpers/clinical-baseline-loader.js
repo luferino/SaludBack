@@ -12,14 +12,24 @@ const revision = process.env.CLINICAL_DIFF_REVISION;
 if (!revisions.has(revision)) throw new Error('Unsupported clinical differential revision');
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const sourceRoot = new URL('../../src/', import.meta.url).href;
+const testRoot = new URL('../unit/', import.meta.url).href;
+const historicalTests = new Set([
+  'kinesiology-evaluation-drafts.test.js',
+  'patient-assignments.test.js',
+  'patient-assignment-lifecycle.test.js',
+]);
 
 // Async hooks compose with tsx's loader, including CommonJS dependencies.
 export async function load(url, context, nextLoad) {
-  if (url.startsWith(sourceRoot) && url.endsWith('.ts')) {
-    const path = `src/${decodeURIComponent(url.slice(sourceRoot.length))}`;
+  const sourcePath = url.startsWith(sourceRoot) && url.endsWith('.ts')
+    ? `src/${decodeURIComponent(url.slice(sourceRoot.length))}` : null;
+  const testName = url.startsWith(testRoot) ? decodeURIComponent(url.slice(testRoot.length)) : null;
+  const testPath = testName && historicalTests.has(testName) ? `tests/unit/${testName}` : null;
+  const path = sourcePath ?? testPath;
+  if (path) {
     const source = execFileSync('git', ['show', `${revision}:${path}`], { cwd: root, encoding: 'utf8' });
     console.log('CLINICAL_SOURCE ' + Buffer.from(JSON.stringify({ revision, path })).toString('base64'));
-    return { format: 'module', source: stripTypeScriptTypes(source, { mode: 'transform' }), shortCircuit: true };
+    return { format: 'module', source: sourcePath ? stripTypeScriptTypes(source, { mode: 'transform' }) : source, shortCircuit: true };
   }
   return nextLoad(url, context);
 }

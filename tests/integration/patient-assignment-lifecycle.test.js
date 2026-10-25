@@ -11,12 +11,12 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME='patient-assignment-lifecycle-integration';
 const TIMEOUT=5000;
-const MIGRATIONS=Array.from({length:26},(_,i)=>`${String(i+1).padStart(3,'0')}_${[
+const MIGRATIONS=Array.from({length:30},(_,i)=>`${String(i+1).padStart(3,'0')}_${[
   'create_users.sql','create_patients.sql','add_email_and_reset_tokens.sql','multi_role_and_audit.sql','user_id_unique_profiles.sql',
   'create_permission_matrix.sql','seed_permission_matrix.sql','create_clinical_records.sql','create_academic_contexts.sql',
   'create_academic_habilitations.sql','seed_subject_permissions.sql','seed_group_permissions.sql','seed_subject_group_permissions.sql',
   'seed_teacher_habilitation_permissions.sql','seed_teacher_habilitation_revocation_permission.sql','seed_student_habilitation_permissions.sql',
-  'create_patient_assignments.sql','seed_patient_assignment_permissions.sql','seed_student_habilitation_revocation_permission.sql','create_kinesiology_evaluations.sql','seed_kinesiology_evaluation_permissions.sql','create_kinesiology_consent_attestations.sql','create_kinesiology_submissions.sql','create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql','create_kinesiology_amendment_links.sql'][i]}`);
+  'create_patient_assignments.sql','seed_patient_assignment_permissions.sql','seed_student_habilitation_revocation_permission.sql','create_kinesiology_evaluations.sql','seed_kinesiology_evaluation_permissions.sql','create_kinesiology_consent_attestations.sql','create_kinesiology_submissions.sql','create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql','create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql'][i]}`);
 let pool, server, baseUrl, safeToClean=false;
 function address(value){if(!value)return null;const ip=value.replace(/^\[|\]$/g,'').split('/')[0].toLowerCase();return ip.startsWith('::ffff:')?ip.slice(7):ip;}
 function loopback(value){const ip=address(value);return ip&&(net.isIP(ip)===4?ip.startsWith('127.'):ip==='::1');}
@@ -58,6 +58,8 @@ async function fixture(){
   await pool.query('INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp())',[teacherRows[0].id,otherSubjects[0].id,otherGroups[0].id,admin.id]);
   const {rows:otherPeriods}=await pool.query('INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp()) RETURNING id',[studentRows[0].id,otherSubjects[0].id,otherGroups[0].id,admin.id]);
   const {rows:patients}=await pool.query(`INSERT INTO patients(documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion) VALUES ($1,'Patient','Fixture','2000-01-01',$2,'00000000','F','Fixture') RETURNING id`,[String(Math.floor(Math.random()*80000000)+10000000),`${name('p')}@example.test`]);
+  for (const ctx of ids) await pool.query(`INSERT INTO patient_context_availabilities(patient_id,subject_id,academic_group_id,enabled_by)
+    VALUES ($1,$2,$3,$4)`, [patients[0].id,ctx.subject,ctx.group,admin.id]);
   return {admin,teacher,patient:patients[0].id,source:ids[0],target:ids[1],other:{subject:otherSubjects[0].id,group:otherGroups[0].id,period:otherPeriods[0].id}};
 }
 async function token(actor){return new JwtTokenService({secret:config.jwtSecret,secretKid:config.jwtSecretKid,previousSecrets:config.jwtPreviousSecrets,expiresIn:config.jwtExpiresIn}).sign({role:actor.role,sub:actor.id,username:actor.username});}

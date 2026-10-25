@@ -22,6 +22,7 @@ const MIGRATIONS = [
   '022_create_kinesiology_consent_attestations.sql', '023_create_kinesiology_submissions.sql',
   '024_create_kinesiology_correction_requests.sql', '025_create_kinesiology_validation_reviews.sql',
   '026_create_kinesiology_amendment_links.sql',
+  '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';
@@ -120,11 +121,11 @@ async function verifyDisposableTarget() {
          AND tablename = ANY($1::text[])
        ORDER BY tablename`, [[
       'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
-      'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evaluations', 'patient_assignments', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+      'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
       'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
       'password_reset_tokens', 'users', 'permissions', 'role_permissions', 'schema_migrations',
     ]]);
-    assert.equal(required.length, 22, 'required integration schema is incomplete');
+    assert.equal(required.length, 23, 'required integration schema is incomplete');
   } finally {
     await client.end();
   }

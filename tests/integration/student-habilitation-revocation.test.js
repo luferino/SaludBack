@@ -11,7 +11,7 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME = 'student-habilitation-revocation-integration';
 const TIMEOUT = 5000;
-const MIGRATIONS = Array.from({ length: 26 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const MIGRATIONS = Array.from({ length: 30 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -22,7 +22,7 @@ const MIGRATIONS = Array.from({ length: 26 }, (_, i) => `${String(i + 1).padStar
   'create_kinesiology_evaluations.sql', 'seed_kinesiology_evaluation_permissions.sql',
   'create_kinesiology_consent_attestations.sql', 'create_kinesiology_submissions.sql',
   'create_kinesiology_correction_requests.sql',
-  'create_kinesiology_validation_reviews.sql', 'create_kinesiology_amendment_links.sql',
+  'create_kinesiology_validation_reviews.sql', 'create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql',
 ][i]}`);
 let pool, server, baseUrl, safeToClean = false;
 function normalize(value) { const ip = value?.replace(/^\[|\]$/g, '').split('/')[0].toLowerCase(); return ip?.startsWith('::ffff:') ? ip.slice(7) : ip; }
@@ -52,7 +52,7 @@ async function verifyTarget() {
       (SELECT count(*)::int FROM public.users) users,
       (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 25, grants: 32 });
+    assert.deepEqual(baseline[0], { assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 31, grants: 40 });
     console.log('Verified disposable localhost:5432/saludback_test; migration ledger, exact permission baseline and empty fixtures confirmed.');
   } finally { await client.end(); }
   return value;
@@ -70,6 +70,8 @@ async function fixture({ withAssignment = false } = {}) {
   for (const t of teachers) await pool.query('INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp())', [t.id,subject,group,admin.id]);
   const { rows: periods } = await pool.query('INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp()) RETURNING id', [students[0].id,subject,group,admin.id]);
   const { rows: patients } = await pool.query(`INSERT INTO patients(documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion) VALUES ($1,'Patient','Fixture','2000-01-01',$2,'00000000','F','Fixture') RETURNING id`, [String(Math.floor(Math.random()*80000000)+10000000),`${name('patient')}@example.test`]);
+  await pool.query(`INSERT INTO patient_context_availabilities(patient_id,subject_id,academic_group_id,enabled_by)
+    VALUES ($1,$2,$3,$4)`, [patients[0].id,subject,group,admin.id]);
   if (withAssignment) await pool.query('INSERT INTO patient_assignments(patient_id,student_habilitation_id,subject_id,assigned_by) VALUES ($1,$2,$3,$4)', [patients[0].id,periods[0].id,subject,teacher.id]);
   return { admin, teacher, secondTeacher, student, studentId: students[0].id, targetStudentId: students[1].id, period: periods[0].id, subject, group, patient: patients[0].id };
 }

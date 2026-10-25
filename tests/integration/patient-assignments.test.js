@@ -8,7 +8,7 @@ import pg from 'pg';
 
 const TIMEOUT = 5000;
 const APP_NAME = 'patient-assignments-integration';
-const EXPECTED_MIGRATIONS = Array.from({ length: 26 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const EXPECTED_MIGRATIONS = Array.from({ length: 30 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -18,7 +18,7 @@ const EXPECTED_MIGRATIONS = Array.from({ length: 26 }, (_, i) => `${String(i + 1
   'seed_patient_assignment_permissions.sql', 'seed_student_habilitation_revocation_permission.sql',
   'create_kinesiology_evaluations.sql', 'seed_kinesiology_evaluation_permissions.sql',
   'create_kinesiology_consent_attestations.sql', 'create_kinesiology_submissions.sql',
-  'create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql','create_kinesiology_amendment_links.sql',
+  'create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql','create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql',
 ][i]}`);
 let pool;
 let server;
@@ -120,6 +120,8 @@ async function fixture() {
     VALUES ($1,$2,$3,'2000-01-01',$4,'00000000','F','Fixture') RETURNING id`, [String(10000000 + seq),name('Patient'), 'Assignment', `${name('patient')}@example.test`]);
   const { rows: periodRows } = await pool.query(`INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at)
     VALUES ($1,$2,$3,$4,clock_timestamp()) RETURNING id`, [studentRows[0].id,ctx.subjectId,ctx.groupId,admin.id]);
+  await pool.query(`INSERT INTO patient_context_availabilities(patient_id,subject_id,academic_group_id,enabled_by)
+    VALUES ($1,$2,$3,$4)`, [patientRows[0].id,ctx.subjectId,ctx.groupId,admin.id]);
   return { admin, teacher, student, patient: patientRows[0].id, period: periodRows[0].id, ctx };
 }
 async function token(userInfo) {
@@ -225,6 +227,8 @@ test('simultaneous same-patient/subject creates across different groups commit e
     SELECT id,$1,$2,$3,clock_timestamp() FROM teachers WHERE user_id=$4`,[f.ctx.subjectId,groupId,f.admin.id,f.teacher.id]);
   const {rows:periodRows}=await pool.query(`INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at)
     SELECT id,$1,$2,$3,clock_timestamp() FROM students WHERE user_id=$4 RETURNING id`,[f.ctx.subjectId,groupId,f.admin.id,f.student.id]);
+  await pool.query(`INSERT INTO patient_context_availabilities(patient_id,subject_id,academic_group_id,enabled_by)
+    VALUES ($1,$2,$3,$4)`, [f.patient,f.ctx.subjectId,groupId,f.admin.id]);
   const otherGroupBody={...body,academic_group_id:groupId,student_habilitation_id:periodRows[0].id};
   const result=await Promise.all([request('POST','/patient-assignments',t,body),request('POST','/patient-assignments',t,otherGroupBody)]);
   assert.deepEqual(result.map(r=>r.status).sort((a,b)=>a-b),[201,409]);

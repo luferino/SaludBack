@@ -42,6 +42,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
+  'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -52,6 +53,7 @@ const EXPECTED_GRANTS = new Set([
   'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write', 'teacher:student-habilitations:revoke',
   'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
+  'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
 ]);
 
 let pool;
@@ -181,6 +183,10 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('024_create_kinesiology_correction_requests.sql'), 'migration 024 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('025_create_kinesiology_validation_reviews.sql'), 'migration 025 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('026_create_kinesiology_amendment_links.sql'), 'migration 026 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('027_seed_profile_read_permissions.sql'), 'migration 027 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('028_seed_habilitation_read_permissions.sql'), 'migration 028 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('029_create_patient_context_availabilities.sql'), 'migration 029 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('030_seed_patient_availability_permissions.sql'), 'migration 030 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -261,10 +267,10 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 25);
+  assert.equal(permissions.length, 31);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 32);
+  assert.equal(grants.length, 40);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

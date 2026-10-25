@@ -22,8 +22,8 @@ const ID = '9007199254740993';
 const INITIAL = { id: ID, patient_id: PATIENT, student_habilitation_id: PERIOD, subject_id: SUBJECT,
   academic_group_id: GROUP, assigned_by: ACTOR, assigned_at: new Date('2026-01-01T00:00:00Z'), ended_by: null,
   ended_at: null, end_reason: null };
-function fakePool({ writePermission = true, sourceContext = true, destinationContext = true, failReplacement = false, initiallyEnded = false } = {}) {
-  const state = { assignment: { ...INITIAL, ...(initiallyEnded ? { ended_by: ACTOR, ended_at: new Date('2026-01-02T00:00:00Z') } : {}) }, history: [], mutations: 0, commits: 0, rollbacks: 0, queries: [], writePermission, sourceContext, destinationContext, failReplacement, snapshot: null };
+function fakePool({ writePermission = true, sourceContext = true, destinationContext = true, sourceAvailable = true, destinationAvailable = true, failReplacement = false, initiallyEnded = false } = {}) {
+  const state = { assignment: { ...INITIAL, ...(initiallyEnded ? { ended_by: ACTOR, ended_at: new Date('2026-01-02T00:00:00Z') } : {}) }, history: [], mutations: 0, commits: 0, rollbacks: 0, queries: [], writePermission, sourceContext, destinationContext, sourceAvailable, destinationAvailable, failReplacement, snapshot: null };
   async function query(sql, params = []) {
     state.queries.push({ sql, params });
     if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)) {
@@ -43,6 +43,10 @@ function fakePool({ writePermission = true, sourceContext = true, destinationCon
       return { rows: ids.map(id => ({ id, student_id: 'student', academic_group_id: id === TARGET ? TARGET_GROUP : GROUP })) };
     }
     if (sql.includes('FROM patients WHERE id')) return { rows: [{ id: PATIENT }] };
+    if (sql.includes('FROM patient_context_availabilities')) {
+      const enabled = params[2] === GROUP ? state.sourceAvailable : state.destinationAvailable;
+      return { rows: enabled ? [{ patient_id: PATIENT }] : [] };
+    }
     if (sql.includes('FROM patient_assignments') && sql.includes('FOR UPDATE')) return { rows: state.assignment ? [{ ...state.assignment }] : [] };
     if (sql.includes('FROM patient_assignments') && sql.includes('JOIN student_academic_habilitations')) return { rows: state.assignment ? [{ ...state.assignment }] : [] };
     if (sql.includes('UPDATE patient_assignments')) {
@@ -108,6 +112,32 @@ test('fresh write grant and both source/destination contexts gate both lifecycle
     assert.equal(db.state.history.length,0);
     if(options.destinationContext!==false||options.sourceContext===false||options.writePermission===false)assert.equal(db.state.queries.some(query=>query.sql.includes('UPDATE patient_assignments')||query.sql.includes('INSERT INTO patient_assignments')),false);
   }
+});
+
+test('reassignment ignores withdrawn source availability when destination remains enabled', async()=>{
+  const db=fakePool({sourceAvailable:false,destinationAvailable:true});await withServer(db,async(url,auth)=>{
+    const response=await request(url,auth,`${base}/${ID}/reassign`,reassignBody);
+    assert.equal(response.status,200);assert.equal(response.body.student_habilitation_id,TARGET);
+  });
+  const check=db.state.queries.find(query=>query.sql.includes('patient_context_availabilities'));
+  assert.deepEqual(check.params,[PATIENT,SUBJECT,TARGET_GROUP]);
+  assert.equal(db.state.history.length,1);assert.ok(db.state.history[0].ended_at);
+});
+
+test('disabled reassignment destination rolls back before ending source or inserting replacement',async()=>{
+  const db=fakePool({sourceAvailable:true,destinationAvailable:false});
+  const before={assignment:{...db.state.assignment},history:structuredClone(db.state.history),mutations:db.state.mutations};
+  await withServer(db,async(url,auth)=>{
+    const response=await request(url,auth,`${base}/${ID}/reassign`,reassignBody);
+    assert.equal(response.status,409);
+    assert.deepEqual(response.body,{error:{code:'CONFLICT',message:'patient is not available in the destination context'}});
+  });
+  assert.deepEqual(db.state.assignment,before.assignment);assert.deepEqual(db.state.history,before.history);
+  assert.equal(db.state.mutations,before.mutations);assert.equal(db.state.rollbacks,1);assert.equal(db.state.commits,0);
+  const availability=db.state.queries.find(query=>query.sql.includes('patient_context_availabilities'));
+  const patientLock=db.state.queries.findIndex(query=>query.sql.includes('FROM patients'));
+  assert.ok(patientLock<db.state.queries.indexOf(availability));
+  assert.equal(db.state.queries.some(query=>query.sql.includes('UPDATE patient_assignments')||query.sql.includes('INSERT INTO patient_assignments')),false);
 });
 
 test('ended-state conflict is not disclosed before source context authorization',async()=>{

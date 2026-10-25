@@ -45,7 +45,7 @@ const makeAssignment = (overrides = {}) => ({
   end_reason: null, ...overrides,
 });
 
-function fakePool({ grants, profiles, contexts, periods, patients, assignments = [], failInsert = false } = {}) {
+function fakePool({ grants, profiles, contexts, periods, patients, assignments = [], failInsert = false, availability = true } = {}) {
   const state = {
     grants: grants ?? new Map([['teacher', teacherGrants], ['estudiante', ownGrants], ['admin', []]]),
     profiles: profiles ?? new Map([[USERS.teacher, IDS.teacher], [USERS.teacher2, IDS.teacher2]]),
@@ -61,7 +61,7 @@ function fakePool({ grants, profiles, contexts, periods, patients, assignments =
       { id: IDS.period4, student: IDS.student, subject: IDS.subject, group: IDS.group, revoked: true },
     ],
     patients: patients ?? [IDS.patient, IDS.patient2], assignments: [...assignments], queries: [], releases: 0,
-    commits: 0, rollbacks: 0, failInsert,
+    commits: 0, rollbacks: 0, failInsert, availability,
   };
   async function query(sql, params = [], transactional = false) {
     state.queries.push({ sql, params });
@@ -84,6 +84,7 @@ function fakePool({ grants, profiles, contexts, periods, patients, assignments =
       return { rows: state.periods.filter(row => row.id === id && row.subject === subject && row.group === group && !row.revoked).map(row => ({ id: row.id, student_id: row.student, subject_id: row.subject, academic_group_id: row.group })) };
     }
     if (sql.includes('FROM patients WHERE id')) return { rows: state.patients.includes(params[0]) ? [{ id: params[0] }] : [] };
+    if (sql.includes('FROM patient_context_availabilities')) return { rows: state.availability ? [{ patient_id: params[0] }] : [] };
     if (sql.includes('INSERT INTO patient_assignments')) {
       if (state.failInsert) throw new Error('synthetic insert failure');
       const [patient, period, subject, actor] = params;
@@ -267,6 +268,19 @@ test('malformed UUIDs, missing patient/period and duplicate patient-subject reje
     assert.equal(pool.state.releases, 5);
     assert.equal(pool.state.commits, 0);
   });
+});
+
+test('unavailable destination rejects create with exact conflict and no assignment insertion', async () => {
+  const pool = fakePool({ availability: false });
+  await withServer(pool, async (base, tokens) => {
+    const response = await call(base, await token(tokens), 'POST', '/patient-assignments', validBody());
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), expectedError('CONFLICT', 'patient is not available in the destination context'));
+  });
+  assert.equal(pool.state.assignments.length, 0);
+  assert.equal(pool.state.queries.some(({ sql }) => sql.includes('INSERT INTO patient_assignments')), false);
+  assert.equal(pool.state.commits, 0);
+  assert.equal(pool.state.rollbacks, 1);
 });
 
 test('pagination defaults and bounds reject malformed values without leaking rows', async () => {

@@ -54,6 +54,16 @@ export class PgPatientAssignmentRepository implements PatientAssignmentRepositor
           throw new NotFoundError('patient was not found');
         }
 
+        const availability = await db.query<{ patient_id: string }>(
+          `SELECT patient_id FROM patient_context_availabilities
+            WHERE patient_id = $1 AND subject_id = $2 AND academic_group_id = $3
+              AND withdrawn_at IS NULL`,
+          [input.patientId, input.subjectId, input.groupId],
+        );
+        if (!availability.rows.length) {
+          throw new ConflictError('patient is not available in the destination context');
+        }
+
         const inserted = await db.query<Omit<AssignmentRow, 'academic_group_id'>>(
           `INSERT INTO patient_assignments
              (patient_id, student_habilitation_id, subject_id, assigned_by)
@@ -123,6 +133,15 @@ export class PgPatientAssignmentRepository implements PatientAssignmentRepositor
       }
       const patient = await db.query<{ id: string }>('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [source.patient_id]);
       if (!patient.rows.length) throw new NotFoundError('patient was not found');
+      const availability = await db.query<{ patient_id: string }>(
+        `SELECT patient_id FROM patient_context_availabilities
+          WHERE patient_id = $1 AND subject_id = $2 AND academic_group_id = $3
+            AND withdrawn_at IS NULL`,
+        [source.patient_id, input.subjectId, input.groupId],
+      );
+      if (!availability.rows.length) {
+        throw new ConflictError('patient is not available in the destination context');
+      }
       const locked = await db.query<AssignmentRow>(
         `SELECT id::text AS id, patient_id, student_habilitation_id, subject_id, assigned_by, assigned_at,
                 ended_by, ended_at, end_reason

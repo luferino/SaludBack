@@ -15,6 +15,8 @@ import { PgSubjectGroupRepository } from '../modules/subject-groups/infrastructu
 import { PgTeacherHabilitationRepository } from '../modules/teacher-habilitations/infrastructure/repositories/pg-teacher-habilitation.repository.js';
 import { PgStudentHabilitationRepository } from '../modules/student-habilitations/infrastructure/repositories/pg-student-habilitation.repository.js';
 import { PgPatientAssignmentRepository } from '../modules/patient-assignments/index.js';
+import { PgPatientAvailabilityRepository } from '../modules/patient-availabilities/index.js';
+import { PgPatientAssignmentOptionsRepository } from '../modules/patient-assignment-options/index.js';
 import { PgUnitOfWork } from '../modules/shared/infrastructure/pg-unit-of-work.js';
 import { PgKinesiologyEvaluationRepository } from '../modules/kinesiology-evaluations/index.js';
 
@@ -33,6 +35,8 @@ export function createDependencies(pool: Pool) {
   const unitOfWork = new PgUnitOfWork(pool);
   const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork, pool);
   const patientAssignmentRepository = new PgPatientAssignmentRepository(unitOfWork, pool);
+  const patientAvailabilityRepository = new PgPatientAvailabilityRepository(unitOfWork, pool);
+  const patientAssignmentOptionsRepository = new PgPatientAssignmentOptionsRepository(pool);
   const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
@@ -59,6 +63,8 @@ export function createDependencies(pool: Pool) {
     },
     clinical: {
       assignmentRepository: patientAssignmentRepository,
+      availabilityRepository: patientAvailabilityRepository,
+      assignmentOptionsRepository: patientAssignmentOptionsRepository,
       evaluationRepository: kinesiologyEvaluationRepository,
       tokenService, matrixReader,
     },

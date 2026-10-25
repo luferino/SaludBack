@@ -131,7 +131,14 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `GET` | `/student-habilitations` | paginated student periods — Bearer token + `student-habilitations:read`; non-admins require live teacher context |
 | `POST` | `/student-habilitations` | activate a student in an authorized subject/group context — Bearer token + `student-habilitations:write` |
 | `POST` | `/student-habilitations/:id/revoke` | revoke one student period and atomically close its active assignments — Bearer token + `student-habilitations:revoke` + active teacher context |
-| `POST` | `/patient-assignments` | assign a patient to an active student period — `patient-assignments:write` + active teacher context |
+| `POST` | `/patient-availabilities` | enable a patient in a linked context — `patient-availabilities:manage` (initially admin) |
+| `POST` | `/patient-availabilities/:id/withdraw` | withdraw availability without ending assignments — `patient-availabilities:manage` |
+| `GET` | `/patient-availabilities/manage` | paginated availability history for a required patient — `patient-availabilities:manage` |
+| `POST` | `/patient-availabilities/patient-search` | exact-document administrative lookup, no browse-all — `patient-availabilities:manage` |
+| `GET` | `/patient-availabilities` | enabled patients in a required live teacher context — `patient-availabilities:read` + `patient-assignments:write` |
+| `GET` | `/patient-assignment-options/contexts` | named live teacher contexts containing eligible students — `patient-assignments:write` + `student-habilitations:read` |
+| `GET` | `/patient-assignment-options/students` | named eligible student periods in a required live teacher context — same two grants |
+| `POST` | `/patient-assignments` | assign an available patient to an active student period — `patient-assignments:write` + active teacher context |
 | `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
 | `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
 | `POST` | `/kinesiology-evaluations` | create an initial-evaluation draft — `kinesiology-evaluations:write` + current own assignment |
@@ -156,17 +163,121 @@ Login and password recovery stay public; login also reads the matrix after
 credential validation and fails with `500` if that read fails. This policy does
 not redefine the separate role-only `AdminGuard` used by custom router wiring.
 
+### Patient availability and assignment selectors
+
+Availability is administrative permission for a patient to receive a **new assignment**
+within one linked subject/group. It is not a visit, waiting queue, reservation,
+clinical session, consent, or authorization to read a clinical record. This delivery
+introduces none of those workflows and does not expand student registration rights.
+
+Migration `029_create_patient_context_availabilities.sql` retains availability periods;
+`030_seed_patient_availability_permissions.sql` seeds `patient-availabilities:manage`
+only to admin and `patient-availabilities:read` only to teacher. Guards check fresh
+permissions, not hardcoded role names, so future delegation is explicit. Management
+rights do not imply assignment rights or teacher context, and admin has no teacher
+scope bypass. No global teacher patient/catalog read grant is added.
+
+**Rollout:** apply the additive migrations using the existing migration procedure
+only against an explicitly selected database. There is no automatic backfill:
+existing patients start unavailable for new assignments until an administrator enables
+them in each intended context. Existing assignments and their clinical access are
+not ended or hidden by this change. Coordinate migration application and administrative
+enablement before enabling the new assignment UI. Writing migration files does not
+mean they have been applied; deployment and database verification are separate steps.
+
+All endpoints require Bearer authentication. New paginated endpoints use `limit`
+(default 50, range 1–100) and `offset` (default 0, range 0–10000), each a single
+decimal-digit query string. Missing required UUIDs, repeated/array UUIDs, invalid
+pagination, signs and fractions return `400`. Lists return `{ "items": [...],
+"limit": 50, "offset": 0 }`, without a total count. Actor and audit times are
+server-owned, never taken from body metadata.
+
+Administrative operations (`patient-availabilities:manage`):
+
+- `POST /patient-availabilities` accepts `{ "patient_id": "<UUID>", "subject_id":
+  "<UUID>", "academic_group_id": "<UUID>" }`. Success is `201` with the direct
+  period object: `{ id, patient_id, subject_id, academic_group_id, enabled_by,
+  enabled_at, withdrawn_by, withdrawn_at }`. Identifiers are UUID strings and
+  times are ISO strings; withdrawal facts are initially null. A missing patient
+  or linked context returns `404`; a duplicate active period returns `409` with
+  `patient is already available in this context`.
+- `POST /patient-availabilities/:id/withdraw` takes an availability-period UUID
+  and returns `200` with that period. Repeating withdrawal preserves its original
+  actor/time. Unknown periods return `404`. It never deletes history, ends an
+  assignment or removes existing care access. Re-enabling after withdrawal creates
+  a **new** period; availability otherwise persists until explicit withdrawal.
+- `GET /patient-availabilities/manage?patient_id=<UUID>` returns paginated period
+  history ordered by enable time descending, then period UUID descending. It
+  returns only the period fields above, with no patient contact/clinical fields.
+- `POST /patient-availabilities/patient-search` accepts `{ "documento": "001234" }`
+  and returns `{ "items": [{ "patient_id": "<UUID>", "nombres": "...",
+  "apellidos": "..." }] }`, or empty items. It is a **read-only search**, not
+  patient creation. Only this administrative exact-match lookup may locate a
+  patient before context enablement: it does not permit browsing the patient registry.
+  Leading/trailing whitespace is trimmed; leading zeros, punctuation and case are
+  preserved. Matching uses exact stored equality, not wildcard/name search.
+  Missing, non-string or blank documents return `400` with
+  `documento must be a non-empty string`. The document travels in the JSON body,
+  not a query URL; deployments must avoid logging patient-search request bodies.
+  The response does not echo document, address, contact data or clinical data.
+
+Teacher selection (all always constrained by the authenticated actor's linked
+profile and **current unrevoked teacher habilitation**, including if an admin is
+explicitly given the permissions):
+
+- `GET /patient-assignment-options/contexts` requires both `patient-assignments:write`
+  and `student-habilitations:read`. Items are `{ subject_id, subject_name,
+  academic_group_id, academic_group_name, academic_year, curriculum_semester }`.
+  Only contexts containing at least one unrevoked student period are included.
+  Ordering: subject name/UUID, then group name/UUID. No broad catalog grant is needed.
+- `GET /patient-assignment-options/students?subject_id=<UUID>&academic_group_id=<UUID>`
+  requires the same two grants. Items are `{ student_habilitation_id, student_id,
+  nombres, apellidos }`, ordered by given names, surname, student UUID and period UUID.
+  Use **student_habilitation_id**, not student/profile/account ID, in assignment POST.
+- `GET /patient-availabilities?subject_id=<UUID>&academic_group_id=<UUID>` requires
+  both `patient-availabilities:read` and `patient-assignments:write`. Items are only
+  `{ patient_id, nombres, apellidos }`, ordered by surname, given names and patient UUID.
+  Only active availability in that exact live teacher context is returned. Availability
+  is not a promise that the patient has no existing assignment: POST still enforces
+  active patient/subject uniqueness. No patient document/contact/clinical data is returned.
+
+No linked teacher/context or no matching eligible rows produces an empty list,
+not an administrative fallback. New selector/search/history responses use
+`Cache-Control: no-store`. Missing fresh permissions return `403` before a lookup;
+missing/invalid authentication returns `401`. UUID errors use `<field> must be a UUID`;
+pagination errors use `<field> must be an integer`, `limit must be between 1 and 100`
+or `offset must be between 0 and 10000`. Standard error envelopes apply.
+Selections are advisory snapshots: authorization and destination availability are
+rechecked atomically by assignment writes, which may reject a stale selection.
+
+Availability changes lock the patient before changing its availability period.
+Assignment creation/reassignment use the existing context → student-period → patient
+lock order and check destination availability after taking that same patient lock.
+A withdrawal that wins first blocks the write; an assignment that wins first remains
+valid after withdrawal. Real PostgreSQL race verification requires a separately
+approved disposable target; fake-pool/unit tests alone do not prove this behavior.
+
+Database-free checks (do not load `.env.test` or invoke migration hooks):
+
+```bash
+pnpm exec tsc --noEmit
+node --import tsx --test --test-concurrency=1 tests/unit/*.test.js
+```
+
+`pnpm test` is different: its `pretest` hook **applies migrations** to the configured
+test database before running tests. Do not use it as a database-free check.
+
 ### Patient assignments (T2)
 
 `POST /patient-assignments` accepts `{ "patient_id", "student_habilitation_id", "subject_id", "academic_group_id" }`, all UUIDs. A successful `201` returns assignment `id` as a decimal string (BIGINT-safe), patient and exact-period/context identifiers, `assigned_by`, `assigned_at`, and null end facts. Actor identity always comes from the authenticated token. The teacher grant is seeded only for `teacher`; the own-list grant only for `estudiante`. Admin grants do not bypass linked-profile or active-context checks.
 
-Creation locks/revalidates the teacher context, exact active student period, then patient, and relies on a database uniqueness guard for one active patient/subject assignment across groups. Errors: `400` malformed UUID/pagination; `401` missing or invalid token; `403` missing permission or active teacher context; `404` missing patient/active matching period; `409` active patient/subject assignment already exists. Transaction failures roll back.
+Creation locks/revalidates the teacher context, exact active student period, then patient; it checks active availability for that patient and destination subject/group inside the same transaction. It relies on a database uniqueness guard for one active patient/subject assignment across groups. Errors: `400` malformed UUID/pagination; `401` missing or invalid token; `403` missing permission or active teacher context; `404` missing patient/active matching period; `409` active patient/subject assignment already exists or `patient is not available in the destination context`. Transaction failures roll back.
 
 `GET /patient-assignments` and `/patient-assignments/mine` accept bounded `limit` (1–100, default 50) and nonnegative `offset` (default 0), returning `{ "items": [...], "limit", "offset" }`. Results include only patient `id`, `nombres`, `apellidos`, `documento` and assignment/period/context/audit metadata. They expose no contact or clinical fields and do not provide clinical-record access. Ended assignments and revoked student periods are excluded.
 
-`POST /patient-assignments/:id/reassign` accepts `{ "student_habilitation_id", "subject_id", "academic_group_id" }` and returns `200` with the replacement assignment. `id` is a positive BIGINT decimal string. The actor must have `patient-assignments:write` and active teacher contexts for both source and destination groups in the same subject; the destination period must be active and match that subject/group. The old row is closed with server-owned actor/time and null `end_reason`, and the replacement row is inserted atomically. Errors include `400` malformed ID/UUID or cross-subject request, `401` missing/invalid authentication, `403` missing permission/context, `404` missing assignment/active destination period, and `409` ended source or active-assignment uniqueness conflict.
+`POST /patient-assignments/:id/reassign` accepts `{ "student_habilitation_id", "subject_id", "academic_group_id" }` and returns `200` with the replacement assignment. `id` is a positive BIGINT decimal string. The actor must have `patient-assignments:write` and active teacher contexts for both source and destination groups in the same subject; the destination period must be active and match that subject/group. Active patient availability is required in the destination context, but not in the source context. Missing destination availability returns `409` with `patient is not available in the destination context` before changing the source. The old row is closed with server-owned actor/time and null `end_reason`, and the replacement row is inserted atomically. Errors include `400` malformed ID/UUID or cross-subject request, `401` missing/invalid authentication, `403` missing permission/context, `404` missing assignment/active destination period, and `409` ended source or active-assignment uniqueness conflict.
 
-`POST /patient-assignments/:id/end` requires `{ "end_reason": "..." }` and returns `200` with the closed assignment. The reason must be a string containing non-whitespace and is persisted trimmed; actor and timestamp are server-owned. Missing, null, non-string, or blank reasons return `400` with `end_reason must be a non-empty string`, without changing state. Already-ended assignments return `409` and retain their original end facts. Both lifecycle routes require the fresh `patient-assignments:write` grant and an active teacher context. They lock teacher contexts, student periods, patient, then assignment and revalidate inside one transaction. Automatic closure during reassignment or student revocation does not require a user reason. T4 student revocation remains future work.
+`POST /patient-assignments/:id/end` requires `{ "end_reason": "..." }` and returns `200` with the closed assignment. The reason must be a string containing non-whitespace and is persisted trimmed; actor and timestamp are server-owned. Missing, null, non-string, or blank reasons return `400` with `end_reason must be a non-empty string`, without changing state. Already-ended assignments return `409` and retain their original end facts. Both lifecycle routes require the fresh `patient-assignments:write` grant and an active teacher context. They lock teacher contexts, student periods, patient, then assignment and revalidate inside one transaction. Automatic closure during reassignment or student revocation does not require a user reason. Availability withdrawal has no such cascade: existing assignment lists, explicit ending and current clinical access remain governed by their existing authorization rules.
 
 ### Initial kinesiology evaluation drafts (T1)
 

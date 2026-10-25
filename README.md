@@ -265,7 +265,24 @@ node --import tsx --test --test-concurrency=1 tests/unit/*.test.js
 ```
 
 `pnpm test` is different: its `pretest` hook **applies migrations** to the configured
-test database before running tests. Do not use it as a database-free check.
+test database before running tests. Do not use it as a database-free check. Source-only
+PostgreSQL availability/API/constraint regressions are in
+`tests/integration/patient-availability-contract.test.js`; withdrawal/create/reassign
+races, including forced waiter orderings behind a real patient lock, are in
+`tests/integration/patient-assignment-lifecycle.test.js`. They are not executed by
+the unit command above. Only run them after explicit authorization to migrate and
+clean the disposable `localhost:5432/saludback_test` target declared in `.env.test`:
+
+```bash
+node --import tsx --env-file=.env.test --test --test-concurrency=1 tests/integration/patient-availability-contract.test.js tests/integration/patient-assignment-lifecycle.test.js
+```
+
+The effective `DATABASE_URL` must match the file exactly; inherited environment
+overrides are not authorization to use another target. Each suite verifies loopback
+server/database identity and the complete migration ledger read-only before fixture
+cleanup. These tests delete fixtures and re-seed permissions; never point them at
+retained/development/production data. The separate `patient-availabilities.test.js`
+opt-in preflight checks only its target and is not functional or concurrency proof.
 
 ### Patient assignments (T2)
 

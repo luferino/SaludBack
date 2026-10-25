@@ -129,3 +129,286 @@ test('real PostgreSQL rejected cross-subject and malformed reason requests leave
   for(const reason of [null,12,'  '])assert.equal((await request('POST',`/patient-assignments/${created.body.id}/end`,t,{end_reason:reason})).status,400);
   const afterRows=await pool.query('SELECT id::text,student_habilitation_id,assigned_by,ended_by,ended_at,end_reason FROM patient_assignments WHERE patient_id=$1 ORDER BY id',[f.patient]);assert.deepEqual(afterRows.rows,before.rows);
 });
+
+
+// These tests require the existing disposable-target preflight and are never
+// executed by the database-free unit command. They exercise public API races.
+async function activeAvailability(fixture, context, adminToken) {
+  const history = await request('GET', `/patient-availabilities/manage?patient_id=${fixture.patient}`, adminToken);
+  assert.equal(history.status, 200);
+  const period = history.body.items.find(row => row.subject_id === context.subject && row.academic_group_id === context.group && row.withdrawn_at === null);
+  assert.ok(period, 'fixture must explicitly enable the requested context');
+  return period;
+}
+
+test('real PostgreSQL withdrawal versus create serializes on the patient and preserves any winning assignment', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const availability = await activeAvailability(f, f.source, adminToken);
+  const [withdrawn, created] = await Promise.all([
+    request('POST', `/patient-availabilities/${availability.id}/withdraw`, adminToken, {}),
+    request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group}),
+  ]);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.withdrawn_by, f.admin.id);
+  assert.ok(withdrawn.body.withdrawn_at);
+  assert.ok([201,409].includes(created.status));
+  if (created.status === 409) assert.deepEqual(created.body, {error:{code:'CONFLICT',message:'patient is not available in the destination context'}});
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items.length, created.status === 201 ? 1 : 0);
+  if (created.status === 201) assert.equal(visible.body.items[0].id, created.body.id);
+  const denied = await request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group});
+  assert.deepEqual(denied, {status:409,body:{error:{code:'CONFLICT',message:'patient is not available in the destination context'}}});
+  const repeated = await request('POST', `/patient-availabilities/${availability.id}/withdraw`, adminToken, {});
+  assert.deepEqual(repeated, withdrawn, 'repeat withdrawal cannot rewrite audit facts');
+  const after = await request('GET', '/patient-assignments', teacherToken);
+  assert.deepEqual(after.body, visible.body, 'denied creation and repeat withdrawal cannot change assignments');
+});
+
+test('real PostgreSQL destination withdrawal versus reassignment preserves the serialized winner without partial closure', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const created = await request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group});
+  assert.equal(created.status, 201);
+  const destination = await activeAvailability(f, f.target, adminToken);
+  const [withdrawn, moved] = await Promise.all([
+    request('POST', `/patient-availabilities/${destination.id}/withdraw`, adminToken, {}),
+    request('POST', `/patient-assignments/${created.body.id}/reassign`, teacherToken, {student_habilitation_id:f.target.period,subject_id:f.target.subject,academic_group_id:f.target.group}),
+  ]);
+  assert.equal(withdrawn.status, 200);
+  assert.ok([200,409].includes(moved.status));
+  if (moved.status === 409) assert.deepEqual(moved.body, {error:{code:'CONFLICT',message:'patient is not available in the destination context'}});
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items.length, 1);
+  assert.equal(visible.body.items[0].id, moved.status === 200 ? moved.body.id : created.body.id);
+  assert.equal(visible.body.items[0].student_habilitation_id, moved.status === 200 ? f.target.period : f.source.period);
+  const {rows} = await pool.query('SELECT id::text id,ended_by,ended_at FROM patient_assignments WHERE patient_id=$1 ORDER BY id', [f.patient]);
+  assert.equal(rows.length, moved.status === 200 ? 2 : 1);
+  assert.equal(rows[0].ended_at === null, moved.status !== 200);
+  assert.equal(rows[0].ended_by, moved.status === 200 ? f.teacher.id : null);
+  const end = await request('POST', `/patient-assignments/${visible.body.items[0].id}/end`, teacherToken, {end_reason:'completed after withdrawal race'});
+  assert.equal(end.status, 200, 'withdrawal must never block explicit assignment ending');
+});
+
+async function startPatientBlocker(f) {
+  const blocker = new pg.Client({
+    connectionString: pool.options.connectionString,
+    application_name: `${APP_NAME}-blocker-${process.pid}-${Math.random().toString(16).slice(2)}`,
+    connectionTimeoutMillis: TIMEOUT,
+    statement_timeout: TIMEOUT,
+    query_timeout: TIMEOUT + 1000,
+    lock_timeout: TIMEOUT,
+    idle_in_transaction_session_timeout: TIMEOUT,
+    options: '-c search_path=public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000',
+  });
+  await blocker.connect();
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT id FROM patients WHERE id=$1 FOR UPDATE', [f.patient]);
+    return blocker;
+  } catch (error) {
+    await blocker.query('ROLLBACK').catch(() => {});
+    await blocker.end().catch(() => {});
+    throw error;
+  }
+}
+
+async function waitForPatientLockWaiters(count) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const { rows } = await pool.query(`
+      SELECT pid FROM pg_stat_activity
+      WHERE datname=current_database() AND usename=current_user AND application_name=$1
+        AND state='active' AND wait_event_type='Lock'
+        AND query ILIKE '%patient%FOR UPDATE%'
+    `, [APP_NAME]);
+    if (rows.length >= count) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail(`timed out waiting for ${count} patient FOR UPDATE lock waiter(s)`);
+}
+
+async function assignmentRows(patientId) {
+  const { rows } = await pool.query(`
+    SELECT id::text id, patient_id::text patient_id, student_habilitation_id::text student_habilitation_id,
+      assigned_by::text assigned_by, assigned_at, ended_by::text ended_by, ended_at, end_reason
+    FROM patient_assignments WHERE patient_id=$1 ORDER BY assigned_at,id
+  `, [patientId]);
+  return rows;
+}
+
+async function assignmentActiveCount(patientId) {
+  const { rows } = await pool.query('SELECT count(*)::int count, count(*) FILTER (WHERE ended_at IS NULL)::int active FROM patient_assignments WHERE patient_id=$1', [patientId]);
+  return rows[0];
+}
+
+async function settleRace(blocker, pending) {
+  try {
+    await blocker.query('ROLLBACK');
+  } finally {
+    const settled = await Promise.allSettled(pending);
+    await blocker.end();
+    for (const result of settled) if (result.status === 'rejected') throw result.reason;
+  }
+}
+
+test('real PostgreSQL forced withdrawal-first blocks create until availability is withdrawn', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const availability = await activeAvailability(f, f.source, adminToken);
+  const blocker = await startPatientBlocker(f), pending = [];
+  try {
+    pending.push(request('POST', `/patient-availabilities/${availability.id}/withdraw`, adminToken, {}));
+    await waitForPatientLockWaiters(1);
+    pending.push(request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group}));
+    await waitForPatientLockWaiters(2);
+  } finally {
+    await settleRace(blocker, pending);
+  }
+  const [withdrawn, created] = await Promise.all(pending);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.withdrawn_by, f.admin.id);
+  assert.ok(withdrawn.body.withdrawn_at);
+  assert.deepEqual(created, {status:409,body:{error:{code:'CONFLICT',message:'patient is not available in the destination context'}}});
+  const history = await request('GET', `/patient-availabilities/manage?patient_id=${f.patient}`, adminToken);
+  assert.equal(history.status, 200);
+  const withdrawnPeriod = history.body.items.find(row => row.id === availability.id);
+  assert.equal(withdrawnPeriod.withdrawn_by, f.admin.id);
+  assert.equal(withdrawnPeriod.withdrawn_at, withdrawn.body.withdrawn_at);
+  assert.deepEqual(await assignmentRows(f.patient), []);
+  assert.deepEqual(await assignmentActiveCount(f.patient), {count:0,active:0});
+});
+
+test('real PostgreSQL forced create-first preserves assignment after subsequent withdrawal', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const availability = await activeAvailability(f, f.source, adminToken);
+  const blocker = await startPatientBlocker(f), pending = [];
+  try {
+    pending.push(request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group}));
+    await waitForPatientLockWaiters(1);
+    pending.push(request('POST', `/patient-availabilities/${availability.id}/withdraw`, adminToken, {}));
+    await waitForPatientLockWaiters(2);
+  } finally {
+    await settleRace(blocker, pending);
+  }
+  const [created, withdrawn] = await Promise.all(pending);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.student_habilitation_id, f.source.period);
+  assert.equal(created.body.assigned_by, f.teacher.id);
+  assert.ok(created.body.assigned_at);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.withdrawn_by, f.admin.id);
+  assert.ok(withdrawn.body.withdrawn_at);
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items.length, 1);
+  assert.equal(visible.body.items[0].id, created.body.id);
+  const rows = await assignmentRows(f.patient);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, created.body.id);
+  assert.equal(rows[0].assigned_by, f.teacher.id);
+  assert.equal(new Date(rows[0].assigned_at).toISOString(), created.body.assigned_at);
+  assert.equal(rows[0].student_habilitation_id, f.source.period);
+  assert.equal(rows[0].ended_at, null);
+  assert.deepEqual(await assignmentActiveCount(f.patient), {count:1,active:1});
+  const ended = await request('POST', `/patient-assignments/${created.body.id}/end`, teacherToken, {end_reason:'explicitly ended after withdrawal'});
+  assert.equal(ended.status, 200);
+  assert.equal(ended.body.ended_by, f.teacher.id);
+});
+
+test('real PostgreSQL forced withdrawal-first blocks reassignment without partially ending source', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const created = await request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group});
+  assert.equal(created.status, 201);
+  const beforeRows = await assignmentRows(f.patient), beforeCount = await assignmentActiveCount(f.patient);
+  const destination = await activeAvailability(f, f.target, adminToken);
+  const blocker = await startPatientBlocker(f), pending = [];
+  try {
+    pending.push(request('POST', `/patient-availabilities/${destination.id}/withdraw`, adminToken, {}));
+    await waitForPatientLockWaiters(1);
+    pending.push(request('POST', `/patient-assignments/${created.body.id}/reassign`, teacherToken, {student_habilitation_id:f.target.period,subject_id:f.target.subject,academic_group_id:f.target.group}));
+    await waitForPatientLockWaiters(2);
+  } finally {
+    await settleRace(blocker, pending);
+  }
+  const [withdrawn, moved] = await Promise.all(pending);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.withdrawn_by, f.admin.id);
+  assert.ok(withdrawn.body.withdrawn_at);
+  assert.deepEqual(moved, {status:409,body:{error:{code:'CONFLICT',message:'patient is not available in the destination context'}}});
+  assert.deepEqual(await assignmentRows(f.patient), beforeRows, 'rejected reassign cannot end or rewrite source history');
+  assert.deepEqual(await assignmentActiveCount(f.patient), beforeCount);
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items.length, 1);
+  assert.equal(visible.body.items[0].id, created.body.id);
+  assert.equal(visible.body.items[0].student_habilitation_id, f.source.period);
+});
+
+test('real PostgreSQL forced reassign-first preserves ended source and visible destination after withdrawal', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const created = await request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group});
+  assert.equal(created.status, 201);
+  const destination = await activeAvailability(f, f.target, adminToken);
+  const blocker = await startPatientBlocker(f), pending = [];
+  try {
+    pending.push(request('POST', `/patient-assignments/${created.body.id}/reassign`, teacherToken, {student_habilitation_id:f.target.period,subject_id:f.target.subject,academic_group_id:f.target.group}));
+    await waitForPatientLockWaiters(1);
+    pending.push(request('POST', `/patient-availabilities/${destination.id}/withdraw`, adminToken, {}));
+    await waitForPatientLockWaiters(2);
+  } finally {
+    await settleRace(blocker, pending);
+  }
+  const [moved, withdrawn] = await Promise.all(pending);
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.student_habilitation_id, f.target.period);
+  assert.equal(moved.body.assigned_by, f.teacher.id);
+  assert.ok(moved.body.assigned_at);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.withdrawn_by, f.admin.id);
+  assert.ok(withdrawn.body.withdrawn_at);
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items.length, 1);
+  assert.equal(visible.body.items[0].id, moved.body.id);
+  assert.equal(visible.body.items[0].student_habilitation_id, f.target.period);
+  const rows = await assignmentRows(f.patient);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].id, created.body.id);
+  assert.equal(rows[0].student_habilitation_id, f.source.period);
+  assert.equal(rows[0].assigned_by, f.teacher.id);
+  assert.equal(rows[0].ended_by, f.teacher.id);
+  assert.ok(rows[0].ended_at);
+  assert.equal(rows[0].end_reason, null);
+  assert.equal(rows[1].id, moved.body.id);
+  assert.equal(rows[1].student_habilitation_id, f.target.period);
+  assert.equal(rows[1].assigned_by, f.teacher.id);
+  assert.equal(new Date(rows[1].assigned_at).toISOString(), moved.body.assigned_at);
+  assert.equal(rows[1].ended_at, null);
+  assert.deepEqual(await assignmentActiveCount(f.patient), {count:2,active:1});
+  const ended = await request('POST', `/patient-assignments/${moved.body.id}/end`, teacherToken, {end_reason:'explicitly ended after withdrawal'});
+  assert.equal(ended.status, 200);
+  assert.equal(ended.body.ended_by, f.teacher.id);
+});
+
+
+test('real PostgreSQL permits moving an existing assignment out of a withdrawn source into an enabled destination', async () => {
+  const f = await fixture(), teacherToken = await token(f.teacher), adminToken = await token(f.admin);
+  const created = await request('POST', '/patient-assignments', teacherToken, {patient_id:f.patient,student_habilitation_id:f.source.period,subject_id:f.source.subject,academic_group_id:f.source.group});
+  assert.equal(created.status, 201);
+  const source = await activeAvailability(f, f.source, adminToken);
+  const withdrawn = await request('POST', `/patient-availabilities/${source.id}/withdraw`, adminToken, {});
+  assert.equal(withdrawn.status, 200);
+  const visible = await request('GET', '/patient-assignments', teacherToken);
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.items[0].id, created.body.id);
+  const moved = await request('POST', `/patient-assignments/${created.body.id}/reassign`, teacherToken, {student_habilitation_id:f.target.period,subject_id:f.target.subject,academic_group_id:f.target.group});
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.student_habilitation_id, f.target.period);
+  const {rows} = await pool.query('SELECT id::text id,ended_by,ended_at FROM patient_assignments WHERE patient_id=$1 ORDER BY id', [f.patient]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].id, created.body.id);
+  assert.equal(rows[0].ended_by, f.teacher.id);
+  assert.ok(rows[0].ended_at);
+  assert.equal(rows[1].id, moved.body.id);
+  assert.equal(rows[1].ended_at, null);
+});

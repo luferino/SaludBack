@@ -184,8 +184,15 @@ test('real PostgreSQL destination withdrawal versus reassignment preserves the s
   assert.equal(visible.body.items[0].student_habilitation_id, moved.status === 200 ? f.target.period : f.source.period);
   const {rows} = await pool.query('SELECT id::text id,ended_by,ended_at FROM patient_assignments WHERE patient_id=$1 ORDER BY id', [f.patient]);
   assert.equal(rows.length, moved.status === 200 ? 2 : 1);
-  assert.equal(rows[0].ended_at === null, moved.status !== 200);
-  assert.equal(rows[0].ended_by, moved.status === 200 ? f.teacher.id : null);
+  const sourceRow = rows.find(row => row.id === created.body.id);
+  assert.ok(sourceRow, 'source assignment history must remain present');
+  assert.equal(sourceRow.ended_at === null, moved.status !== 200);
+  assert.equal(sourceRow.ended_by, moved.status === 200 ? f.teacher.id : null);
+  if (moved.status === 200) {
+    const destinationRow = rows.find(row => row.id === moved.body.id);
+    assert.ok(destinationRow, 'destination assignment history must remain present');
+    assert.equal(destinationRow.ended_at, null);
+  }
   const end = await request('POST', `/patient-assignments/${visible.body.items[0].id}/end`, teacherToken, {end_reason:'completed after withdrawal race'});
   assert.equal(end.status, 200, 'withdrawal must never block explicit assignment ending');
 });
@@ -406,9 +413,11 @@ test('real PostgreSQL permits moving an existing assignment out of a withdrawn s
   assert.equal(moved.body.student_habilitation_id, f.target.period);
   const {rows} = await pool.query('SELECT id::text id,ended_by,ended_at FROM patient_assignments WHERE patient_id=$1 ORDER BY id', [f.patient]);
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].id, created.body.id);
-  assert.equal(rows[0].ended_by, f.teacher.id);
-  assert.ok(rows[0].ended_at);
-  assert.equal(rows[1].id, moved.body.id);
-  assert.equal(rows[1].ended_at, null);
+  const sourceRow = rows.find(row => row.id === created.body.id);
+  const destinationRow = rows.find(row => row.id === moved.body.id);
+  assert.ok(sourceRow, 'source assignment history must remain present');
+  assert.ok(destinationRow, 'destination assignment history must remain present');
+  assert.equal(sourceRow.ended_by, f.teacher.id);
+  assert.ok(sourceRow.ended_at);
+  assert.equal(destinationRow.ended_at, null);
 });

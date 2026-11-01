@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const MIGRATIONS = [
   '001_create_users.sql', '002_create_patients.sql', '003_add_email_and_reset_tokens.sql',
@@ -63,6 +64,10 @@ function isLoopback(address) {
 }
 
 async function verifyDisposableTarget() {
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') {
+    await verifyDisposableIntegrationTarget();
+    return process.env.DATABASE_URL;
+  }
   const fileUrl = databaseUrlFromFile();
   assert.equal(process.env.DATABASE_URL, fileUrl, 'effective DATABASE_URL must exactly match .env.test');
   const url = new URL(fileUrl);

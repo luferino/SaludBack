@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 import config from '../../src/config.ts';
 import { cleanDb } from './helpers/clean-db.js';
 import { createApp } from '../../src/app.ts';
@@ -28,6 +29,10 @@ let pool, server, baseUrl, safeToClean = false;
 function normalize(value) { const ip = value?.replace(/^\[|\]$/g, '').split('/')[0].toLowerCase(); return ip?.startsWith('::ffff:') ? ip.slice(7) : ip; }
 function loopback(value) { const ip = normalize(value); return ip && (net.isIP(ip) === 4 ? ip.startsWith('127.') : ip === '::1'); }
 async function verifyTarget() {
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') {
+    await verifyDisposableIntegrationTarget();
+    return process.env.DATABASE_URL;
+  }
   const value = readFileSync('.env.test', 'utf8').match(/^\s*DATABASE_URL\s*=\s*(.*?)\s*$/m)?.[1]?.replace(/^("|')(.*)\1$/, '$2');
   assert.ok(value && process.env.DATABASE_URL === value, 'effective DATABASE_URL must exactly match .env.test');
   const url = new URL(value); assert.ok(url.hostname === 'localhost' && url.port === '5432' && decodeURIComponent(url.pathname.slice(1)) === 'saludback_test' && !url.search && !url.hash);

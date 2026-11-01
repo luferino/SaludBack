@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const APP_NAME = 'kinesiology-evaluation-drafts-integration';
 const TIMEOUT = 5000;
@@ -75,6 +76,10 @@ function exactTestUrl() {
   return { value, url };
 }
 async function readonlyPreflight() {
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') {
+    await verifyDisposableIntegrationTarget();
+    return process.env.DATABASE_URL;
+  }
   const { value, url } = exactTestUrl();
   const resolved = await dns.lookup('localhost', { all: true });
   assert.ok(resolved.length && resolved.every(row => loopback(row.address)), 'localhost must resolve only to loopback');

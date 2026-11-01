@@ -120,6 +120,25 @@ test('retains original guard defaults and subject-suite isolation fingerprints w
   assert.match(groups,/EXPECTED_TARGET_FINGERPRINT/);
 });
 
+test('remaining legacy suites opt into the shared live guard before pool cleanup and retain defaults', () => {
+  const adapters = [
+    ['patient-assignments.test.js', /process\.env\.DATABASE_URL === fileUrl/, 'const fileUrl = testUrl();'],
+    ['kinesiology-evaluation-drafts.test.js', /process\.env\.DATABASE_URL === value/, 'const { value, url } = exactTestUrl();'],
+    ['student-habilitations.test.js', /assert\.equal\(process\.env\.DATABASE_URL, fileUrl/, 'const fileUrl = databaseUrlFromFile();'],
+    ['student-habilitation-revocation.test.js', /process\.env\.DATABASE_URL === value/, "const value = readFileSync('.env.test', 'utf8')"],
+  ];
+  for (const [file, defaultGuard, defaultPath] of adapters) {
+    const source = readFileSync(path.join(cwd,'tests/integration',file),'utf8');
+    const optIn = source.indexOf("if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true')");
+    const verify = source.indexOf('await verifyDisposableIntegrationTarget();',optIn);
+    assert.ok(optIn >= 0 && verify > optIn, `${file} must invoke the shared verifier on explicit opt-in`);
+    assert.ok(source.indexOf(defaultPath,verify) > verify, `${file} must preserve its default .env.test path`);
+    assert.ok(source.indexOf('new pg.Pool') > verify, `${file} must verify before opening its fixture pool`);
+    assert.ok(source.indexOf('await cleanDb(pool)') > verify, `${file} must verify before fixture cleanup`);
+    assert.match(source, defaultGuard, `${file} must retain its original DATABASE_URL equality check`);
+  }
+});
+
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {
   rejectsSafely(cloneTarget({ identity: { ...identity, databaseOid: '99999' } }), /identity mismatch/);
   rejectsSafely(cloneTarget({ identity: { ...identity, databaseOwner: 'other_owner' } }), /identity mismatch/);

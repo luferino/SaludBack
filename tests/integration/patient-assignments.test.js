@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const TIMEOUT = 5000;
 const APP_NAME = 'patient-assignments-integration';
@@ -44,6 +45,10 @@ function loopback(value) {
   return ip && (net.isIP(ip) === 4 ? ip.startsWith('127.') : ip === '::1');
 }
 async function verifyTarget() {
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') {
+    await verifyDisposableIntegrationTarget();
+    return process.env.DATABASE_URL;
+  }
   const fileUrl = testUrl();
   assert.ok(process.env.DATABASE_URL === fileUrl, 'effective DATABASE_URL must match .env.test');
   const url = new URL(fileUrl);

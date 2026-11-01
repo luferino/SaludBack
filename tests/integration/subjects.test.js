@@ -164,7 +164,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–026 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–030 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -238,6 +238,7 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'student-habilitations:%' ORDER BY permission",
   );
   assert.deepEqual(studentHabilitationPermissions, [
+    { permission: 'student-habilitations:read', enforced: true },
     { permission: 'student-habilitations:revoke', enforced: true },
     { permission: 'student-habilitations:write', enforced: true },
   ]);
@@ -245,6 +246,8 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
     "SELECT role, permission FROM role_permissions WHERE permission LIKE 'student-habilitations:%' ORDER BY role, permission",
   );
   assert.deepEqual(studentHabilitationGrants, [
+    { role: 'admin', permission: 'student-habilitations:read' },
+    { role: 'teacher', permission: 'student-habilitations:read' },
     { role: 'teacher', permission: 'student-habilitations:revoke' },
     { role: 'teacher', permission: 'student-habilitations:write' },
   ]);
@@ -253,6 +256,7 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'teacher-habilitations:%' ORDER BY permission",
   );
   assert.deepEqual(teacherHabilitationPermissions, [
+    { permission: 'teacher-habilitations:read', enforced: true },
     { permission: 'teacher-habilitations:revoke', enforced: true },
     { permission: 'teacher-habilitations:write', enforced: true },
   ]);
@@ -260,11 +264,12 @@ test('migrations 011–026 are present before cleanup and cleanup restores the c
     "SELECT role, permission FROM role_permissions WHERE permission LIKE 'teacher-habilitations:%' ORDER BY role, permission",
   );
   assert.deepEqual(teacherHabilitationGrants, [
+    { role: 'admin', permission: 'teacher-habilitations:read' },
     { role: 'admin', permission: 'teacher-habilitations:revoke' },
     { role: 'admin', permission: 'teacher-habilitations:write' },
   ]);
 
-  // Only the already-proven 011–026 baseline authorizes invoking broad cleanup.
+  // Only the already-proven 011–030 baseline authorizes invoking broad cleanup.
   cleanUpAuthorized = true;
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');

@@ -21,7 +21,7 @@ T4 | S2-S4 | frontend owner B3: bounded writer due runtime context backstop; stu
 T5 | S2-S4 | parent disposable-backend setup/server/init inline + frontend owner real browser proof/cleanup; parent synthesis | done | FINAL run-3 R01-R10 ALL PASS on frontend 008e189 + disposable DB OID38093; both cleanups confirmed; cross-context legitimate reader NOT AVAILABLE in fixture (not tested) (L70)
 
 T6 | S5 | frontend owner delivery preflight + normal branch push and remote SHA readback | done | receipt8dfa0a6f; push0/verify0; origin feature008e189 exact
-T7 | S5-S6 | conditional main promotion | pending | authorized gap resolution and delivery now tracked in odd/tasks/frontend-main-promotion.md; main untouched
+T7 | S5-S6 | conditional main promotion | done | delivered via odd/tasks/frontend-main-promotion.md T6: SaludFrond local+remote main f430aa6d94ec8cda24d7cbb167e1913cdea6c3e3
 
 ## Log
 L1. Original request, verbatim: "okey, continuemos".

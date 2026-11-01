@@ -112,12 +112,16 @@ test('retains original guard defaults and subject-suite isolation fingerprints w
   const availability = readFileSync(path.join(cwd,'tests/integration/patient-availability-contract.test.js'),'utf8');
   const subjects = readFileSync(path.join(cwd,'tests/integration/subjects.test.js'),'utf8');
   const groups = readFileSync(path.join(cwd,'tests/integration/subject-groups.test.js'),'utf8');
+  const groupsFixture = readFileSync(path.join(cwd,'tests/integration/groups.test.js'),'utf8');
   assert.match(lifecycle,/\.env\.test/); assert.match(lifecycle,/saludback_test/);
   assert.match(availability,/\.env\.test/); assert.match(availability,/saludback_test/);
   assert.match(subjects,/SUBJECTS_TEST_ISOLATED/); assert.match(subjects,/REQUIRED_SUBJECTS_TEST_ENV/);
   assert.match(groups,/const ENV_PREFIX = 'SUBJECT_GROUPS_TEST_'/);
   assert.match(groups,/const ISOLATION_FLAG = `\$\{ENV_PREFIX\}ISOLATED`/);
   assert.match(groups,/EXPECTED_TARGET_FINGERPRINT/);
+  assert.ok(groupsFixture.indexOf('await verifyDisposableIntegrationTarget()') < groupsFixture.indexOf('new pg.Pool'));
+  assert.match(groupsFixture,/EXPECTED_TARGET_FINGERPRINT/);
+  assert.match(groupsFixture,/EXPECTED_GRANTS/);
 });
 
 test('remaining legacy suites opt into the shared live guard before pool cleanup and retain defaults', () => {

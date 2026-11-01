@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 // Destructive fixture: the explicit opt-in, private configuration, target
 // identity, schema, migration ledger, and complete grant matrix are checked
@@ -300,6 +301,7 @@ async function setRolePermissions(role, permissions) {
 before(async () => {
   assertPrivateConfiguration();
   connectionSettings = privateConnectionSettings();
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') await verifyDisposableIntegrationTarget();
   // Remove ambient libpq settings before loading pg or application modules;
   // then pin every new PostgreSQL client to this fixture's bounded namespace.
   for (const name of Object.keys(process.env)) {

@@ -44,6 +44,7 @@ function preflight(args, env) {
     const upper = key.toUpperCase();
     return upper.startsWith('PG') || upper.startsWith('JWT_') || upper.startsWith('API_') || upper.startsWith('TOKEN_')
       || upper.startsWith('ACCESS_') || upper.startsWith('SUBJECTS_TEST_') || upper.startsWith('SUBJECT_GROUPS_TEST_')
+      || upper.startsWith('GROUPS_TEST_') || upper.startsWith('PATIENT_AVAILABILITY_')
       || (upper.startsWith('DISPOSABLE_INTEGRATION_') && upper!=='DISPOSABLE_INTEGRATION_TARGET')
       || ['NODE_PG_FORCE_NATIVE','DATABASE_URL','CLIENT_URL'].includes(upper);
   });
@@ -78,7 +79,7 @@ function safeDirectory() {
   if (fs.realpathSync(current) !== current) safe('manifest directory is not canonical');
   return current;
 }
-function makeEnvironment(databaseUrl, targetFingerprint = '') {
+export function makeEnvironment(databaseUrl, targetFingerprint = '') {
   const env = Object.fromEntries(['PATH','SystemRoot','ComSpec','TEMP','TMP','TMPDIR'].filter((k) => process.env[k]).map((k) => [k,process.env[k]]));
   const secret = crypto.randomBytes(48).toString('base64url');
   Object.assign(env, { NODE_ENV:'test', APP_ENV:'test', DATABASE_URL:databaseUrl, JWT_SECRET:secret,
@@ -94,7 +95,14 @@ function makeEnvironment(databaseUrl, targetFingerprint = '') {
     SUBJECT_GROUPS_TEST_JWT_SECRET:secret, SUBJECT_GROUPS_TEST_CLIENT_URL:'http://127.0.0.1:4610',
     SUBJECT_GROUPS_TEST_JWT_SECRET_KID:'current', SUBJECT_GROUPS_TEST_JWT_EXPIRES_IN:'2h',
     SUBJECT_GROUPS_TEST_BCRYPT_COST:'4', SUBJECT_GROUPS_TEST_RESET_TOKEN_TTL:'15',
-    SUBJECT_GROUPS_TEST_RESET_TOKEN_MAX_OUTSTANDING:'3' });
+    SUBJECT_GROUPS_TEST_RESET_TOKEN_MAX_OUTSTANDING:'3',
+    GROUPS_TEST_ISOLATED:'true', GROUPS_TEST_DATABASE_URL:databaseUrl,
+    GROUPS_TEST_EXPECTED_DATABASE:new URL(databaseUrl).pathname.slice(1), GROUPS_TEST_EXPECTED_SCHEMA:'public',
+    GROUPS_TEST_EXPECTED_TARGET_FINGERPRINT:targetFingerprint, GROUPS_TEST_JWT_SECRET:secret,
+    GROUPS_TEST_CLIENT_URL:'http://127.0.0.1:4610', GROUPS_TEST_JWT_SECRET_KID:'current',
+    GROUPS_TEST_JWT_EXPIRES_IN:'2h', GROUPS_TEST_BCRYPT_COST:'4',
+    GROUPS_TEST_RESET_TOKEN_TTL:'15', GROUPS_TEST_RESET_TOKEN_MAX_OUTSTANDING:'3',
+    PATIENT_AVAILABILITY_DISPOSABLE_DATABASE_URL:databaseUrl });
   return env;
 }
 async function identify(client, resolved) {
@@ -110,6 +118,20 @@ async function identify(client, resolved) {
       || norm(id.server) !== norm(socket.remoteAddress) || norm(id.peer) !== norm(socket.localAddress)
       || Number(id.port) !== Number(socket.remotePort) || !resolved.some((r) => norm(r.address) === norm(id.server))) safe('read-only maintenance identity is not verified loopback');
   return { ...id, user:id.usr };
+}
+export async function verifyCreatorSocket(client, resolved, maintenance) {
+  await client.query('BEGIN READ ONLY');
+  const check=await client.query(`SELECT current_database() db,current_user usr,inet_server_addr()::text server,inet_server_port() port,
+    inet_client_addr()::text peer,current_setting('transaction_read_only') readonly,
+    (SELECT rolcreatedb OR rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user) can_create`);
+  const socket=client.connection?.stream, id=check.rows[0];
+  if (check.rows.length!==1 || !socket || id.db!=='postgres'||id.usr!==maintenance.user||id.readonly!=='on'||!id.can_create
+      ||!loopback(id.server)||!loopback(id.peer)||!loopback(socket.remoteAddress)||!loopback(socket.localAddress)
+      ||norm(id.server)!==norm(socket.remoteAddress)||norm(id.peer)!==norm(socket.localAddress)
+      ||Number(id.port)!==Number(socket.remotePort)||norm(id.server)!==norm(maintenance.server)||Number(id.port)!==Number(maintenance.port)
+      ||!resolved.some((r)=>norm(r.address)===norm(id.server))) safe('fresh creator socket identity is not verified loopback');
+  await client.query('ROLLBACK');
+  return id;
 }
 async function readIdentity(client, name) {
   const { rows } = await client.query(`SELECT current_database() AS "databaseName",current_user AS "databaseUser",
@@ -144,13 +166,20 @@ function targetFingerprint(url, id) {
     database:id.databaseName, database_oid:id.databaseOid, public_oid:id.public_oid,
     server_address:id.serverAddress, server_port:Number(id.serverPort), server_version:id.server_version })).digest('hex');
 }
-function sanitizedOutput(text, env) {
+export function sanitizedOutput(text, env) {
   let safeText=text.replace(/postgres(?:ql)?:\/\/[^\s'"),]+/gi,'[database-url]');
-  for(const key of ['JWT_SECRET','SUBJECTS_TEST_JWT_SECRET','SUBJECT_GROUPS_TEST_JWT_SECRET'])
+  for(const key of ['JWT_SECRET','SUBJECTS_TEST_JWT_SECRET','SUBJECT_GROUPS_TEST_JWT_SECRET','GROUPS_TEST_JWT_SECRET'])
     if(env[key]) safeText=safeText.split(env[key]).join('[redacted-secret]');
   return safeText;
 }
 function hasSkippedTests(output) { return /^# skipped [1-9]\d*$/m.test(output); }
+export function mayDropRun(run) {
+  return Boolean(run?.creationAcknowledged && /^\d+$/.test(String(run.oid ?? '')) && run.name && run.owner
+    && typeof run.serverAddress === 'string' && loopback(run.serverAddress) && Number.isInteger(Number(run.serverPort)));
+}
+export function cleanupIdentity(run) {
+  return `${run.name} oid=${mayDropRun(run) ? run.oid : 'unavailable'} owner=${run.owner} server=${run.serverAddress}:${run.serverPort}; manifest=${run.manifestPath}`;
+}
 async function cleanup(source, resolved, run, handle) {
   if (!run) return;
   const fileStat=fs.lstatSync(run.manifestPath);
@@ -210,15 +239,22 @@ async function main() {
     let creatorOpen=true;
     try {
       await creator.connect();
-      const check=await creator.query(`SELECT current_database() db,current_user usr,inet_server_addr()::text server,inet_server_port() port,
-        (SELECT rolcreatedb OR rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user) can_create`);
-      if (check.rows[0].db!=='postgres'||check.rows[0].usr!==maintenance.user||!loopback(check.rows[0].server)
-          ||norm(check.rows[0].server)!==norm(maintenance.server)||Number(check.rows[0].port)!==Number(maintenance.port)||!check.rows[0].can_create
-          ||(await creator.query('SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1',[name])).rowCount) safe('fresh maintenance identity or database absence check failed');
+      const creatorIdentity=await verifyCreatorSocket(creator,resolved,maintenance);
+      if ((await creator.query('SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1',[name])).rowCount) safe('fresh maintenance identity or database absence check failed');
+      manifest={format:1,createdByRun:false,creationMode:'exclusive',state:'creation-attempted',database:{name,oid:'unavailable',owner:maintenance.user,
+        databaseName:name,databaseOid:'unavailable',databaseOwner:maintenance.user,databaseUser:maintenance.user,
+        serverAddress:norm(creatorIdentity.server),serverPort:Number(creatorIdentity.port),createdByRun:false}};
+      manifestHandle=fs.openSync(file,'wx',0o600); writeManifest(manifestHandle,manifest,true);
+      run={name,oid:null,owner:maintenance.user,serverAddress:norm(creatorIdentity.server),serverPort:Number(creatorIdentity.port),manifestPath:file,manifest,creationAcknowledged:false};
       await creator.query(`CREATE DATABASE "${name}"`);
+      run.creationAcknowledged=true; manifest.state='create-acknowledged'; writeManifest(manifestHandle,manifest);
       const catalog=await creator.query('SELECT oid::text AS oid,pg_get_userbyid(datdba) AS owner FROM pg_catalog.pg_database WHERE datname=$1',[name]);
-      if(!catalog.rows[0]||catalog.rows[0].owner!==maintenance.user) safe('created database owner did not match verified maintenance role');
-      run={name,oid:catalog.rows[0].oid,owner:catalog.rows[0].owner,serverAddress:norm(maintenance.server),serverPort:Number(maintenance.port),manifestPath:file,manifest:null};
+      if(!catalog.rows[0]||!/^\d+$/.test(catalog.rows[0].oid??'')||catalog.rows[0].owner!==maintenance.user) safe('created database owner did not match verified maintenance role');
+      run={name,oid:catalog.rows[0].oid,owner:catalog.rows[0].owner,serverAddress:norm(creatorIdentity.server),serverPort:Number(creatorIdentity.port),manifestPath:file,manifest:null,creationAcknowledged:true};
+      manifest={format:1,createdByRun:true,creationMode:'exclusive',state:'database-created',database:{name,oid:catalog.rows[0].oid,
+        owner:catalog.rows[0].owner,databaseName:name,databaseOid:catalog.rows[0].oid,databaseOwner:catalog.rows[0].owner,
+        databaseUser:maintenance.user,serverAddress:run.serverAddress,serverPort:run.serverPort,createdByRun:true}};
+      run.manifest=manifest; writeManifest(manifestHandle,manifest);
       await creator.end(); creatorOpen=false;
       const target=new pg.Client({connectionString:targetUrl.toString(),connectionTimeoutMillis:5000,statement_timeout:5000,query_timeout:6000,options:`-c default_transaction_read_only=on ${OPTIONS}`});
       try {
@@ -234,10 +270,9 @@ async function main() {
         const identity={...id};
         const env={...process.env,DISPOSABLE_INTEGRATION_TARGET:'true',DISPOSABLE_INTEGRATION_DATABASE_URL:targetUrl.toString(),DATABASE_URL:targetUrl.toString()};
         const pathName=file;
-        manifest={format:1,createdByRun:true,creationMode:'exclusive',state:'database-created',database:{name,oid:catalog.rows[0].oid,
-          owner:catalog.rows[0].owner,databaseName:name,databaseOid:catalog.rows[0].oid,databaseOwner:catalog.rows[0].owner,
-          databaseUser:identity.databaseUser,serverAddress:norm(identity.serverAddress),serverPort:Number(identity.serverPort),createdByRun:true,schemaFingerprint}};
-        manifestHandle=fs.openSync(pathName,'wx',0o600); writeManifest(manifestHandle,manifest,true);
+        manifest.database.databaseUser=identity.databaseUser;
+        manifest.database.serverAddress=norm(identity.serverAddress); manifest.database.serverPort=Number(identity.serverPort);
+        manifest.database.schemaFingerprint=schemaFingerprint; writeManifest(manifestHandle,manifest);
         const stat=fs.lstatSync(pathName), real=fs.realpathSync(pathName);
         Object.assign(run,{serverAddress:norm(identity.serverAddress),serverPort:Number(identity.serverPort),manifestPath:pathName,manifest});
         if(stat.isSymbolicLink()||!stat.isFile()||real!==pathName) safe('new run manifest is not a canonical file');
@@ -275,10 +310,10 @@ async function main() {
     const message=error?.safe?error.message:'isolated integration run failed; inspect the canonical run manifest';
     console.error(`RUN_REFUSED_OR_FAILED ${message}`); result=1;
   } finally {
-    if(run&&manifestHandle) {
+    if(run&&manifestHandle&&mayDropRun(run)) {
       try { await cleanup(source.toString(),resolved,run,manifestHandle); }
-      catch(error) { console.error(`CLEANUP_REQUIRED ${error?.safe?error.message:`${run.name} oid=${run.oid} owner=${run.owner} server=${run.serverAddress}:${run.serverPort}; manifest=${run.manifestPath}`}`); result=1; }
-    } else if(run) console.error(`CLEANUP_REQUIRED ${run.name} oid=${run.oid} owner=${run.owner} server=${run.serverAddress}:${run.serverPort}; no verified manifest`);
+      catch(error) { console.error(`CLEANUP_REQUIRED ${error?.safe?error.message:'cleanup refused'}; ${cleanupIdentity(run)}`); result=1; }
+    } else if(run) console.error(`CLEANUP_REQUIRED creation ${run.creationAcknowledged?'acknowledged':'attempted'}; ${cleanupIdentity(run)}`);
     if(manifestHandle) try { fs.closeSync(manifestHandle); } catch {}
   }
   process.exitCode=result;

@@ -59,6 +59,68 @@ test('readIdentity accepts numeric OIDs and rejects invalid OID or peer/socket i
   await assert.rejects(readIdentity(clientFor({}, {remoteAddress:'192.0.2.1'}),name),/new database live identity mismatch/);
 });
 
+test('runner environment supplies the complete groups fixture contract and shared fingerprint', async () => {
+  const { makeEnvironment, sanitizedOutput } = await import('../helpers/run-isolated-integration.mjs');
+  const databaseUrl = 'postgresql://synthetic:secret@127.0.0.1:5432/salud_e2e_0123456789abcdef';
+  const fingerprint = 'f'.repeat(64);
+  const env = makeEnvironment(databaseUrl, fingerprint);
+  for (const [key, value] of Object.entries({
+    GROUPS_TEST_ISOLATED:'true', GROUPS_TEST_DATABASE_URL:databaseUrl,
+    GROUPS_TEST_EXPECTED_DATABASE:'salud_e2e_0123456789abcdef', GROUPS_TEST_EXPECTED_SCHEMA:'public',
+    GROUPS_TEST_EXPECTED_TARGET_FINGERPRINT:fingerprint, GROUPS_TEST_JWT_SECRET:env.JWT_SECRET,
+    GROUPS_TEST_CLIENT_URL:env.CLIENT_URL, GROUPS_TEST_JWT_SECRET_KID:'current',
+    GROUPS_TEST_JWT_EXPIRES_IN:'2h', GROUPS_TEST_BCRYPT_COST:'4',
+    GROUPS_TEST_RESET_TOKEN_TTL:'15', GROUPS_TEST_RESET_TOKEN_MAX_OUTSTANDING:'3',
+  })) assert.equal(env[key], value, key);
+  assert.doesNotMatch(sanitizedOutput(JSON.stringify(env),env), /integration_owner|synthetic:secret/);
+  assert.match(sanitizedOutput(env.JWT_SECRET,env), /^\[redacted-secret\]$/);
+});
+
+test('patient availability disposable adapter verifies before opening its read-only pool', () => {
+  const source = readFileSync(path.join(root,'tests/integration/patient-availabilities.test.js'),'utf8');
+  assert.match(source,/PATIENT_AVAILABILITY_DISPOSABLE_DATABASE_URL/);
+  assert.match(source,/verifyDisposableIntegrationTarget/);
+  assert.ok(source.indexOf('await verifyDisposableIntegrationTarget') < source.indexOf('new pg.Pool'));
+  assert.match(source,/default_transaction_read_only=on/);
+  assert.match(source,/no concurrency assertions/i);
+});
+
+test('creator metadata from a mismatched peer refuses before any CREATE callback', async () => {
+  const { verifyCreatorSocket } = await import('../helpers/run-isolated-integration.mjs');
+  let creates = 0;
+  const client = { connection:{stream:{remoteAddress:'127.0.0.1',localAddress:'127.0.0.2',remotePort:5432}}, query:async sql => {
+    if (sql === 'BEGIN READ ONLY' || sql === 'ROLLBACK') return { rows:[] };
+    return { rows:[{db:'postgres',usr:'owner',server:'127.0.0.1',port:5432,peer:'127.0.0.1',readonly:'on',can_create:true}] };
+  }};
+  await assert.rejects((async () => {
+    await verifyCreatorSocket(client,[{address:'127.0.0.1'}],{user:'owner'});
+    creates++;
+  })(),/fresh creator socket identity/);
+  assert.equal(creates,0);
+});
+
+test('CREATE acknowledgement/catalog failure and cleanup refusal preserve only verified droppable identity', async () => {
+  const { mayDropRun, cleanupIdentity } = await import('../helpers/run-isolated-integration.mjs');
+  const attempt = {name:'salud_e2e_0123456789abcdef',oid:null,owner:'owner',serverAddress:'127.0.0.1',serverPort:5432,
+    manifestPath:'.git/gentle-scratch/disposable-integration/manifest-0123456789abcdef.json',creationAcknowledged:false};
+  assert.equal(mayDropRun(attempt),false);
+  const acknowledged = {...attempt,creationAcknowledged:true};
+  assert.equal(mayDropRun(acknowledged),false); // catalog failed: never infer an OID or drop
+  assert.match(cleanupIdentity(acknowledged),/oid=unavailable owner=owner server=127\.0\.0\.1:5432/);
+  const owned = {...acknowledged,oid:'16384'};
+  assert.equal(mayDropRun(owned),true);
+  assert.match(cleanupIdentity(owned),/oid=16384 owner=owner/);
+  const source = readFileSync(runner,'utf8');
+  const create = source.indexOf('await creator.query(`CREATE DATABASE');
+  const attemptRecord = source.indexOf("state:'creation-attempted'");
+  assert.ok(attemptRecord >= 0 && attemptRecord < create);
+  assert.match(source,/databaseOid:'unavailable'/);
+  assert.match(source,/run\.creationAcknowledged=true; manifest\.state='create-acknowledged'/);
+  assert.match(source,/if\(run&&manifestHandle&&mayDropRun\(run\)\)/);
+  assert.match(source,/CLEANUP_REQUIRED .*; \$\{cleanupIdentity\(run\)\}/);
+  assert.doesNotMatch(source,/console\.error\([^\n]*error\.stack/);
+});
+
 test('readIdentity selects and verifies the connected client peer and socket', () => {
   const source = readFileSync(runner, 'utf8');
   const identity = source.slice(source.indexOf('async function readIdentity'), source.indexOf('function baselineEmptySchema'));

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { validateDisposableTarget } from '../helpers/disposable-integration-target.js';
+import { REQUIRED_EMPTY_BASELINE_TABLES, validateDisposableTarget, validateDisposableTargetEnvironment, verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const fingerprint = 'a'.repeat(64);
 const databaseName = 'salud_e2e_0123456789abcdef';
@@ -41,7 +42,7 @@ const validTarget = {
   },
   identity,
   schemaFingerprint: fingerprint,
-  emptyBaseline: { users: 0, patients: 0, subjects: 0, assignments: 0 },
+  emptyBaseline: Object.fromEntries(REQUIRED_EMPTY_BASELINE_TABLES.map((table) => [table, 0])),
 };
 const cloneTarget = (changes = {}) => ({ ...validTarget, ...changes });
 const rejectsSafely = (input, message) => {
@@ -52,6 +53,10 @@ const rejectsSafely = (input, message) => {
     return true;
   });
 };
+
+test('live guard rejects missing opt-in before reading a manifest or opening a socket', async () => {
+  await assert.rejects(verifyDisposableIntegrationTarget({ env:{}, cwd }), /explicit disposable-target opt-in required/);
+});
 
 test('refuses the shared saludback_test database even with explicit opt-in and matching metadata', () => {
   const unsafeUrl = 'postgresql://integration_owner:secret@127.0.0.1:5432/saludback_test';
@@ -68,6 +73,7 @@ test('accepts a positively opted-in generated target only when manifest, identit
   assert.equal(result.databaseName, databaseName);
   assert.equal(result.manifestPath, manifestPath);
   assert.equal(result.schemaFingerprint, fingerprint);
+  assert.deepEqual(validateDisposableTargetEnvironment(validTarget.env), { databaseName });
   assert.deepEqual(result.identity, {
     databaseName,
     databaseOid: '16384',
@@ -95,10 +101,30 @@ test('rejects missing, noncanonical, symlinked, or non-exclusively-created manif
   rejectsSafely(cloneTarget({ manifest: { ...validTarget.manifest, creationMode: 'overwrite' } }), /manifest mismatch/);
 });
 
+test('requires every known application table in the empty baseline', () => {
+  rejectsSafely(cloneTarget({ emptyBaseline: { irrelevant: 0 } }), /complete disposable database empty baseline required/);
+  const missing = { ...validTarget.emptyBaseline }; delete missing.patients;
+  rejectsSafely(cloneTarget({ emptyBaseline: missing }), /complete disposable database empty baseline required/);
+});
+
+test('retains original guard defaults and subject-suite isolation fingerprints when opt-in is absent', () => {
+  const lifecycle = readFileSync(path.join(cwd,'tests/integration/patient-assignment-lifecycle.test.js'),'utf8');
+  const availability = readFileSync(path.join(cwd,'tests/integration/patient-availability-contract.test.js'),'utf8');
+  const subjects = readFileSync(path.join(cwd,'tests/integration/subjects.test.js'),'utf8');
+  const groups = readFileSync(path.join(cwd,'tests/integration/subject-groups.test.js'),'utf8');
+  assert.match(lifecycle,/\.env\.test/); assert.match(lifecycle,/saludback_test/);
+  assert.match(availability,/\.env\.test/); assert.match(availability,/saludback_test/);
+  assert.match(subjects,/SUBJECTS_TEST_ISOLATED/); assert.match(subjects,/REQUIRED_SUBJECTS_TEST_ENV/);
+  assert.match(groups,/const ENV_PREFIX = 'SUBJECT_GROUPS_TEST_'/);
+  assert.match(groups,/const ISOLATION_FLAG = `\$\{ENV_PREFIX\}ISOLATED`/);
+  assert.match(groups,/EXPECTED_TARGET_FINGERPRINT/);
+});
+
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {
   rejectsSafely(cloneTarget({ identity: { ...identity, databaseOid: '99999' } }), /identity mismatch/);
   rejectsSafely(cloneTarget({ identity: { ...identity, databaseOwner: 'other_owner' } }), /identity mismatch/);
   rejectsSafely(cloneTarget({ identity: { ...identity, serverAddress: '192.0.2.1' } }), /identity mismatch/);
   rejectsSafely(cloneTarget({ schemaFingerprint: 'b'.repeat(64) }), /schema fingerprint mismatch/);
-  rejectsSafely(cloneTarget({ emptyBaseline: { users: 1, patients: 0 } }), /empty baseline required/);
+  rejectsSafely(cloneTarget({ emptyBaseline: { users: 1, patients: 0 } }), /complete disposable database empty baseline required/);
+  rejectsSafely(cloneTarget({ emptyBaseline: { irrelevant: 0 } }), /complete disposable database empty baseline required/);
 });

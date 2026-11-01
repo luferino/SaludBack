@@ -8,6 +8,7 @@ import config from '../../src/config.ts';
 import { cleanDb } from './helpers/clean-db.js';
 import { createApp } from '../../src/app.ts';
 import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const APP_NAME='patient-assignment-lifecycle-integration';
 const TIMEOUT=5000;
@@ -21,6 +22,9 @@ let pool, server, baseUrl, safeToClean=false;
 function address(value){if(!value)return null;const ip=value.replace(/^\[|\]$/g,'').split('/')[0].toLowerCase();return ip.startsWith('::ffff:')?ip.slice(7):ip;}
 function loopback(value){const ip=address(value);return ip&&(net.isIP(ip)===4?ip.startsWith('127.'):ip==='::1');}
 async function verifyTarget(){
+  if(process.env.DISPOSABLE_INTEGRATION_TARGET==='true'){
+    await verifyDisposableIntegrationTarget();return process.env.DATABASE_URL;
+  }
   const raw=readFileSync('.env.test','utf8').match(/^\s*DATABASE_URL\s*=\s*(.*?)\s*$/m)?.[1];
   assert.ok(raw,'.env.test must define DATABASE_URL'); const urlValue=raw.replace(/^(["'])(.*)\1$/,'$2');
   assert.ok(process.env.DATABASE_URL===urlValue,'effective DATABASE_URL must match .env.test');

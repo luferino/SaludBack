@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 const TIMEOUT = 5000;
 const APP_NAME = 'patient-availability-contract-integration';
@@ -19,6 +20,12 @@ function normalizedAddress(value) { if (!value) return null; const ip = value.re
 function loopback(value) { const ip = normalizedAddress(value); return ip && (net.isIP(ip) === 4 ? ip.startsWith('127.') : ip === '::1'); }
 function safeAssert(condition, message) { assert.ok(condition, message); }
 async function verifyTarget() {
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') {
+    await verifyDisposableIntegrationTarget();
+    const declared = Object.fromEntries(['JWT_SECRET','CLIENT_URL','JWT_SECRET_KID','JWT_PREVIOUS_SECRETS','JWT_EXPIRES_IN']
+      .filter((key) => process.env[key] !== undefined).map((key) => [key,process.env[key]]));
+    return { url: process.env.DATABASE_URL, declared };
+  }
   const declared = envFile(), effective = process.env.DATABASE_URL;
   safeAssert(declared.DATABASE_URL && effective === declared.DATABASE_URL, 'effective DATABASE_URL must exactly match .env.test');
   for (const key of ['JWT_SECRET', 'CLIENT_URL']) safeAssert(declared[key] && process.env[key] === declared[key], `effective ${key} must be explicitly supplied by .env.test`);

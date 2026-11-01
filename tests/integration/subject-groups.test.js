@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 // Destructive fixture: the explicit opt-in, private configuration, target
 // identity, schema, migration ledger, and complete grant matrix are checked
@@ -300,7 +301,6 @@ before(async () => {
     const normalizedName = name.toUpperCase();
     if (normalizedName.startsWith('PG') || normalizedName === 'NODE_PG_FORCE_NATIVE') delete process.env[name];
   }
-  process.env.PGOPTIONS = PG_OPTIONS;
   process.env.DATABASE_URL = process.env[`${ENV_PREFIX}DATABASE_URL`];
   process.env.JWT_SECRET = process.env[`${ENV_PREFIX}JWT_SECRET`];
   process.env.CLIENT_URL = process.env[`${ENV_PREFIX}CLIENT_URL`];
@@ -311,6 +311,8 @@ before(async () => {
   process.env.RESET_TOKEN_TTL = process.env[`${ENV_PREFIX}RESET_TOKEN_TTL`];
   process.env.RESET_TOKEN_MAX_OUTSTANDING = process.env[`${ENV_PREFIX}RESET_TOKEN_MAX_OUTSTANDING`];
   process.env.PORT = '0';
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') await verifyDisposableIntegrationTarget();
+  process.env.PGOPTIONS = PG_OPTIONS;
 
   const { default: pg } = await import('pg');
   ({ default: config } = await import('../../src/config.ts'));

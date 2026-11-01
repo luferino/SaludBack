@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
 
 // This suite performs destructive cleanup against its configured database.
 // It requires an explicit isolation opt-in and dedicated credentials; it never
@@ -121,6 +122,7 @@ before(async () => {
   process.env.RESET_TOKEN_TTL = process.env.SUBJECTS_TEST_RESET_TOKEN_TTL;
   process.env.RESET_TOKEN_MAX_OUTSTANDING = process.env.SUBJECTS_TEST_RESET_TOKEN_MAX_OUTSTANDING;
   process.env.PORT = '0';
+  if (process.env.DISPOSABLE_INTEGRATION_TARGET === 'true') await verifyDisposableIntegrationTarget();
 
   ({ default: config } = await import('../../src/config.ts'));
   ({ createApp } = await import('../../src/app.ts'));

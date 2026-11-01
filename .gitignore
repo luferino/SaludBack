@@ -8,3 +8,17 @@ pnpm-workspace.yaml
 
 .env
 .env.test
+
+# Local study notes
+/local-merge-study.md
+/docs/local/database-migrations-014-015.md
+/docs/local/ficha-kinesica-2026.md
+/docs/local/resume-student-patient-assignments.md
+/docs/local/resume-kinesiology-initial-evaluation.md
+/docs/local/student-assignments-job-7.log
+
+# Local generated agent metadata, scratch copies, worktrees, and delivery artifacts
+/.pi/
+/.engram/
+/.codegraph/
+/odd/delivery/group-associations-api/

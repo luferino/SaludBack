@@ -22,3 +22,6 @@ pnpm-workspace.yaml
 /.engram/
 /.codegraph/
 /odd/delivery/group-associations-api/
+
+# Preserved TSX cache from validation with missing TEMP/TMP
+/undefined/temp/

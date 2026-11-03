@@ -10,7 +10,7 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 export const REQUIRED_EMPTY_BASELINE_TABLES = [
   'kinesiology_evaluation_correction_requests','kinesiology_evaluation_validation_reviews','kinesiology_evaluation_submission_studies',
   'kinesiology_evaluation_submissions','kinesiology_consent_attestations','kinesiology_evaluation_amendment_links',
-  'kinesiology_evaluations','patient_assignments','patient_context_availabilities','student_academic_habilitations',
+  'kinesiology_evolutions','kinesiology_evaluations','patient_assignments','patient_context_availabilities','student_academic_habilitations',
   'teacher_academic_habilitations','students','teachers','subject_academic_groups','academic_groups','subjects',
   'clinical_records','patients','password_reset_tokens','users',
 ];
@@ -24,6 +24,7 @@ const MIGRATIONS = [
   'create_kinesiology_submissions.sql','create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql',
   'create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql',
   'create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql',
+  'create_kinesiology_evolutions.sql','seed_kinesiology_evolution_permissions.sql',
 ].map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`);
 
 function reject(message) {

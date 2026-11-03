@@ -563,6 +563,21 @@ references remain UUIDs. There is no record status, endpoint, clinical content,
 or immutable event-audit claim; nullable `created_`/`updated_` columns follow the
 existing actor-bookkeeping convention.
 
+### Clinical evolution schema foundation (A1)
+
+Migrations `031_create_kinesiology_evolutions.sql` and
+`032_seed_kinesiology_evolution_permissions.sql` establish a schema-ready
+foundation only. The draft table uses a BIGINT identity and restrictive foreign
+keys to the same patient's clinical record and initial evaluation. The enforced
+`kinesiology-evolutions:write` and `:read` permissions are granted to students;
+teachers receive read only. Existing initial-evaluation permissions and routes
+are unchanged. **Evolution HTTP endpoints are not available in A1.**
+
+Historical totals of 482 unit tests and 171 PostgreSQL integration tests refer
+to the preserved original completed implementation, not this schema-only slice;
+they are not A1 verification evidence. A1's current checks are reported by its
+review candidate separately, and do not execute PostgreSQL migrations.
+
 ### Academic catalog schema foundation
 
 Migration `009_create_academic_contexts.sql` adds subjects, academic groups and

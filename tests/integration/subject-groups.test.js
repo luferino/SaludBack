@@ -28,6 +28,7 @@ const MIGRATIONS = [
   '024_create_kinesiology_correction_requests.sql', '025_create_kinesiology_validation_reviews.sql',
   '026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql',
+  '031_create_kinesiology_evolutions.sql', '032_seed_kinesiology_evolution_permissions.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
@@ -36,7 +37,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
-  'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read',
+  'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -48,10 +49,11 @@ const EXPECTED_GRANTS = new Set([
   'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
   'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
+  'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:read',
 ]);
 const CLEANUP_TABLES = [
   'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
-  'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+  'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
   'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users',
 ];
@@ -202,11 +204,11 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–030 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–032 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 31, 'Expected the full 31-permission baseline before cleanup.');
+  assert.equal(permissions.length, 33, 'Expected the full 33-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -215,7 +217,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 40, 'Expected the full 40-grant baseline before cleanup.');
+  assert.equal(grants.length, 43, 'Expected the full 43-grant baseline before cleanup.');
 
   const checks = [
     ...CLEANUP_TABLES.map((table_name) => ({ table_name, privilege: 'DELETE' })),

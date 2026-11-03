@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { REQUIRED_EMPTY_BASELINE_TABLES, validateDisposableTarget, validateDisposableTargetEnvironment, verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
@@ -53,6 +53,18 @@ const rejectsSafely = (input, message) => {
     return true;
   });
 };
+
+test('schema guard keeps an explicit 001–032 ledger synchronized with migration files and the new empty baseline', () => {
+  const source = readFileSync(new URL('../helpers/disposable-integration-target.js', import.meta.url), 'utf8');
+  const declaration = source.match(/const MIGRATIONS = \[([\s\S]*?)\]\.map\(/)?.[1];
+  assert.ok(declaration, 'migration ledger must remain an explicit source list');
+  const names = [...declaration.matchAll(/'([^']+\.sql)'/g)].map(([, name]) => name);
+  assert.equal(names.length, 32);
+  assert.deepEqual(names.map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`),
+    readdirSync(new URL('../../src/db/migrations/', import.meta.url)).filter((name) => /^\d{3}_.*\.sql$/.test(name)).sort());
+  assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolutions'));
+  assert.equal(REQUIRED_EMPTY_BASELINE_TABLES.length, 21);
+});
 
 test('live guard rejects missing opt-in before reading a manifest or opening a socket', async () => {
   await assert.rejects(verifyDisposableIntegrationTarget({ env:{}, cwd }), /explicit disposable-target opt-in required/);

@@ -291,7 +291,7 @@ async function main() {
         const actual=await readIdentity(finalTarget,name), targetMeta=await finalTarget.query("SELECT (SELECT oid::text FROM pg_catalog.pg_namespace WHERE nspname='public') public_oid,current_setting('server_version') server_version");
         if(Object.values(counts.rows[0]).some(n=>n!==0)) safe('post-migration application baseline is not empty');
         const ledger=await finalTarget.query('SELECT name FROM public.schema_migrations ORDER BY name');
-        if(ledger.rowCount!==30) safe('migration ledger is incomplete');
+        if(ledger.rowCount!==32) safe('migration ledger is incomplete');
         manifest.database.schemaFingerprint=schemaFingerprint; writeManifest(manifestHandle,manifest);
         run.manifest=manifest;
         const fp=targetFingerprint(targetUrl,{...actual,...targetMeta.rows[0]});

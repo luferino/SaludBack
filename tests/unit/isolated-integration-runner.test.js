@@ -148,6 +148,12 @@ test('read-only post-migration target connection closes before suite execution',
   assert.match(finalTarget, /finally\s*\{\s*await finalTarget\.end\(\);\s*\}/);
 });
 
+test('post-migration target preflight requires exactly the A1 ledger count', () => {
+  const source = readFileSync(runner, 'utf8');
+  assert.match(source, /ledger\.rowCount!==32/);
+  assert.doesNotMatch(source, /ledger\.rowCount!==30/);
+});
+
 test('runner treats any skipped integration test as failure', () => {
   const source = readFileSync(runner, 'utf8');
   assert.match(source, /function hasSkippedTests\(output\)/);

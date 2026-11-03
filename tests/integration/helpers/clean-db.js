@@ -8,14 +8,14 @@
  * `clear correction_from_submission_id -> kinesiology_evaluation_correction_requests ->
  * kinesiology_evaluation_validation_reviews -> kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
  * kinesiology_consent_attestations -> kinesiology_evaluation_amendment_links ->
- * kinesiology_evaluations -> patient_assignments -> patient_context_availabilities ->
+ * kinesiology_evolutions -> kinesiology_evaluations -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
  * password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, and 030 so every suite starts from the canonical permission state.
+ * 011–016, 018–019, 021, 027–028, 030, and 032 so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,10 @@ const patientAvailabilityPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/030_seed_patient_availability_permissions.sql'),
   'utf8',
 );
+const kinesiologyEvolutionPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/032_seed_kinesiology_evolution_permissions.sql'),
+  'utf8',
+);
 
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
@@ -90,6 +94,7 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM kinesiology_evaluation_submission_studies');
   await pool.query('DELETE FROM kinesiology_evaluation_submissions');
   await pool.query('DELETE FROM kinesiology_consent_attestations');
+  await pool.query('DELETE FROM kinesiology_evolutions');
   await pool.query('DELETE FROM kinesiology_evaluations');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');
@@ -120,4 +125,5 @@ export async function cleanDb(pool) {
   await pool.query(profileReadPermissionSeedSql);
   await pool.query(habilitationReadPermissionSeedSql);
   await pool.query(patientAvailabilityPermissionSeedSql);
+  await pool.query(kinesiologyEvolutionPermissionSeedSql);
 }

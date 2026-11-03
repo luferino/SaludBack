@@ -23,7 +23,7 @@ const permissionSeeds = ['007_seed_permission_matrix.sql', '011_seed_subject_per
   '016_seed_student_habilitation_permissions.sql', '018_seed_patient_assignment_permissions.sql',
   '019_seed_student_habilitation_revocation_permission.sql', '021_seed_kinesiology_evaluation_permissions.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql',
-  '030_seed_patient_availability_permissions.sql'];
+  '030_seed_patient_availability_permissions.sql', '032_seed_kinesiology_evolution_permissions.sql'];
 const permissions = new Set(), grants = new Set();
 for (const seed of permissionSeeds) {
   const sql = readFileSync(`src/db/migrations/${seed}`, 'utf8');
@@ -39,7 +39,7 @@ for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evalua
       const declared = vm.runInNewContext(declaration[1], Object.create(null), { timeout: 1000 });
       assert.deepEqual([...declared].sort(), [...expected].sort(), name);
     }
-    assert.equal(permissions.size, 31);
-    assert.equal(grants.size, 40);
+    assert.equal(permissions.size, 33);
+    assert.equal(grants.size, 43);
   });
 }

@@ -19,6 +19,7 @@ import { PgPatientAvailabilityRepository } from '../modules/patient-availabiliti
 import { PgPatientAssignmentOptionsRepository } from '../modules/patient-assignment-options/index.js';
 import { PgUnitOfWork } from '../modules/shared/infrastructure/pg-unit-of-work.js';
 import { PgKinesiologyEvaluationRepository } from '../modules/kinesiology-evaluations/index.js';
+import { PgKinesiologyEvolutionRepository } from '../modules/kinesiology-evolutions/index.js';
 
 /** Build one app-local object graph; shared services are never global singletons. */
 export function createDependencies(pool: Pool) {
@@ -38,6 +39,7 @@ export function createDependencies(pool: Pool) {
   const patientAvailabilityRepository = new PgPatientAvailabilityRepository(unitOfWork, pool);
   const patientAssignmentOptionsRepository = new PgPatientAssignmentOptionsRepository(pool);
   const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
+  const kinesiologyEvolutionRepository = new PgKinesiologyEvolutionRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -66,6 +68,7 @@ export function createDependencies(pool: Pool) {
       availabilityRepository: patientAvailabilityRepository,
       assignmentOptionsRepository: patientAssignmentOptionsRepository,
       evaluationRepository: kinesiologyEvaluationRepository,
+      evolutionRepository: kinesiologyEvolutionRepository,
       tokenService, matrixReader,
     },
   };

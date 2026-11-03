@@ -1,0 +1,161 @@
+import { evolutionActor, evolutionPatient, evolutionSubject, evolutionGroup, evolutionGrants } from './evolution-http.js';
+
+const teacherActor = '30000000-0000-4000-8000-000000000002';
+const profileId = actor => actor === evolutionActor ? '31000000-0000-4000-8000-000000000001' : '31000000-0000-4000-8000-000000000004';
+const defaultPeriod = '60000000-0000-4000-8000-000000000001';
+
+export function evolutionSyntheticPool() {
+  const state = {
+    queries: [], evolutions: [], commits: 0, rollbacks: 0, releases: 0,
+    grantsByRole: { estudiante: evolutionGrants, teacher: ['kinesiology-evolutions:read'], admin: [] },
+    profiles: new Map([[evolutionActor, profileId(evolutionActor)]]),
+    teachers: new Map([[teacherActor, '32000000-0000-4000-8000-000000000002']]),
+    periods: [{ id: defaultPeriod, studentId: profileId(evolutionActor), subject: evolutionSubject, group: evolutionGroup, revoked: false }],
+    teacherPeriods: [{ id: '62000000-0000-4000-8000-000000000002', teacherId: '32000000-0000-4000-8000-000000000002', subject: evolutionSubject, group: evolutionGroup, revoked: false }],
+    assignments: [{ id: '9007199254740992', patient: evolutionPatient, subject: evolutionSubject, period: defaultPeriod, ended: false }],
+    failAfterInsert: false, mutateBeforeLock: null, failUpdate: false,
+    evaluation: { id: '9007199254740993', clinical_record_id: '9007199254740994', patient_id: evolutionPatient,
+      author_id: '30000000-0000-4000-8000-000000000009', origin_student_habilitation_id: '60000000-0000-4000-8000-000000000009',
+      status: 'validated', origin_subject_id: '10000000-0000-4000-8000-000000000009', origin_group_id: '20000000-0000-4000-8000-000000000009' },
+  };
+  const actorForProfile = id => [...state.profiles].find(([, profile]) => profile === id)?.[0];
+  const periodsFor = (studentId, subject, group) => state.periods.filter(period => period.studentId === studentId &&
+    period.subject === subject && period.group === group && !period.revoked);
+  const assignmentsForStudent = (patient, actor, subject, group) => state.assignments.filter(assignment => {
+    const period = state.periods.find(item => item.id === assignment.period);
+    return assignment.patient === patient && !assignment.ended && period && !period.revoked &&
+      period.studentId === state.profiles.get(actor) && period.subject === subject && period.group === group &&
+      assignment.subject === period.subject;
+  });
+  const currentPatientAssignment = actor => state.assignments.some(assignment => {
+    const period = state.periods.find(item => item.id === assignment.period);
+    return period && !period.revoked && !assignment.ended && assignment.patient === state.evaluation.patient_id &&
+      state.profiles.get(actor) === period.studentId && assignment.subject === period.subject;
+  });
+  const teacherHasContext = (actor, subject, group) => {
+    const teacherId = state.teachers.get(actor);
+    return !!teacherId && state.teacherPeriods.some(period => period.teacherId === teacherId && !period.revoked &&
+      period.subject === subject && period.group === group);
+  };
+  const privateReadable = (row, actor) => {
+    const ownAssignment = state.assignments.some(assignment => {
+      const period = state.periods.find(item => item.id === assignment.period);
+      return row.author_id === actor && state.profiles.has(actor) && period && !period.revoked && !assignment.ended &&
+        assignment.patient === row.patient_id && period.studentId === state.profiles.get(actor) &&
+        assignment.subject === period.subject && period.subject === row.origin_subject_id && period.group === row.origin_group_id;
+    });
+    return ownAssignment || teacherHasContext(actor, row.origin_subject_id, row.origin_group_id);
+  };
+  const assertOriginSql = sql => {
+    for (const fragment of ['a.patient_id = e.patient_id', 'a.subject_id = sp.subject_id',
+      'sp.subject_id = e.origin_subject_id', 'sp.academic_group_id = e.origin_group_id',
+      'sp.revoked_at IS NULL', 'a.ended_at IS NULL', 'th.subject_id = e.origin_subject_id',
+      'th.academic_group_id = e.origin_group_id', 'th.revoked_at IS NULL']) assertFragment(sql, fragment);
+  };
+  const assertFragment = (sql, fragment) => {
+    if (!sql.includes(fragment)) throw new Error(`Draft SQL omitted required predicate '${fragment}': ${sql}`);
+  };
+  const query = async (sql, params = []) => {
+    state.queries.push({ sql, params });
+    if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) {
+      if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions });
+      if (sql === 'COMMIT') { state.commits++; state.snapshot = null; }
+      if (sql === 'ROLLBACK') {
+        state.rollbacks++;
+        if (state.snapshot) state.evolutions = state.snapshot.evolutions;
+        state.snapshot = null;
+      }
+      return { rows: [] };
+    }
+    if (sql.includes('FROM role_permissions')) return { rows: (state.grantsByRole[params[0]] || []).map(permission => ({ permission })) };
+    if (sql.includes('FROM students WHERE user_id')) return { rows: state.profiles.has(params[0]) ? [{ id: state.profiles.get(params[0]) }] : [] };
+    if (sql.includes('FROM student_academic_habilitations')) {
+      assertFragment(sql, 'student_id = $1');
+      assertFragment(sql, 'subject_id = $2');
+      assertFragment(sql, 'academic_group_id = $3');
+      assertFragment(sql, 'revoked_at IS NULL');
+      return { rows: periodsFor(params[0], params[1], params[2]).map(period => ({ id: period.id })) };
+    }
+    if (sql.includes('FROM patients')) return { rows: params[0] === evolutionPatient ? [{ id: params[0] }] : [] };
+    if (sql.includes('FROM patient_assignments')) {
+      assertFragment(sql, 'a.patient_id = $1');
+      assertFragment(sql, 'a.ended_at IS NULL');
+      if (sql.includes('p.student_id = $4')) {
+        assertFragment(sql, 'p.revoked_at IS NULL');
+        assertFragment(sql, 'p.subject_id = a.subject_id');
+        assertFragment(sql, 'a.subject_id = $2');
+        assertFragment(sql, 'p.academic_group_id = $3');
+        assertFragment(sql, 'p.student_id = $4');
+        const rows = assignmentsForStudent(params[0], actorForProfile(params[3]), params[1], params[2]);
+        return { rows: rows.map(assignment => ({ id: assignment.id, student_habilitation_id: assignment.period })) };
+      }
+      assertFragment(sql, 'sp.revoked_at IS NULL');
+      assertFragment(sql, 's.user_id = $2');
+      assertFragment(sql, 'a.subject_id = sp.subject_id');
+      assertFragment(sql, 'sp.subject_id = $3');
+      assertFragment(sql, 'sp.academic_group_id = $4');
+      const rows = assignmentsForStudent(params[0], params[1], params[2], params[3]);
+      return { rows: rows.map(assignment => ({ student_habilitation_id: assignment.period })) };
+    }
+    if (sql.includes('FROM kinesiology_evaluations e')) {
+      const e = state.evaluation;
+      assertFragment(sql, "e.status = 'validated'");
+      assertFragment(sql, 'e.patient_id = $2');
+      assertFragment(sql, 'a.patient_id = e.patient_id');
+      assertFragment(sql, 'a.subject_id = sp.subject_id');
+      assertFragment(sql, 'sp.revoked_at IS NULL');
+      assertFragment(sql, 'a.ended_at IS NULL');
+      assertFragment(sql, 'th.subject_id = e.origin_subject_id');
+      assertFragment(sql, 'th.academic_group_id = e.origin_group_id');
+      assertFragment(sql, 'th.revoked_at IS NULL');
+      const readable = currentPatientAssignment(params[2]) || teacherHasContext(params[2], e?.origin_subject_id, e?.origin_group_id);
+      return { rows: e && e.id === params[0] && e.patient_id === params[1] && e.status === 'validated' && readable ? [{ ...e }] : [] };
+    }
+    if (sql.includes('FROM clinical_records')) {
+      const e = state.evaluation;
+      return { rows: e && e.clinical_record_id === params[0] && e.patient_id === params[1] ? [{ id: e.clinical_record_id }] : [] };
+    }
+    if (sql.includes('INSERT INTO kinesiology_evolutions')) {
+      const row = { id: String(9007199254740995n + BigInt(state.evolutions.length)), clinical_record_id: params[0], patient_id: params[1],
+        evaluation_id: params[2], author_id: params[3], origin_student_habilitation_id: params[4], origin_subject_id: params[5],
+        origin_group_id: params[6], content: JSON.parse(params[7]), status: 'draft', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
+      state.evolutions.push(row);
+      if (state.failAfterInsert) throw new Error('synthetic insert failure');
+      return { rows: [{ ...row }] };
+    }
+    if (sql.includes('FROM kinesiology_evolutions e')) {
+      assertOriginSql(sql);
+      const isList = sql.includes('WHERE e.patient_id = $1');
+      let rows = state.evolutions.filter(row => isList ? row.patient_id === params[0] : row.id === params[0]);
+      if (isList) {
+        const subjectParam = sql.match(/e\.origin_subject_id = \$(\d+)/)?.[1];
+        const groupParam = sql.match(/e\.origin_group_id = \$(\d+)/)?.[1];
+        if (subjectParam) rows = rows.filter(row => row.origin_subject_id === params[Number(subjectParam) - 1]);
+        if (groupParam) rows = rows.filter(row => row.origin_group_id === params[Number(groupParam) - 1]);
+      }
+      rows = rows.filter(row => privateReadable(row, params[1]));
+      return { rows: rows.map(row => ({ ...row })) };
+    }
+    if (sql.includes('FROM kinesiology_evolutions WHERE id = $1')) {
+      let row = state.evolutions.find(item => item.id === params[0]);
+      if (row && sql.includes('FOR UPDATE') && state.mutateBeforeLock) {
+        Object.assign(row, state.mutateBeforeLock);
+        state.mutateBeforeLock = null;
+      }
+      return { rows: row ? [{ ...row }] : [] };
+    }
+    if (sql.includes('SELECT e.id FROM kinesiology_evolutions e')) {
+      assertOriginSql(sql);
+      const row = state.evolutions.find(item => item.id === params[0]);
+      return { rows: row && privateReadable(row, params[1]) ? [{ id: row.id }] : [] };
+    }
+    if (sql.includes('UPDATE kinesiology_evolutions')) {
+      const row = state.evolutions.find(item => item.id === params[0]);
+      if (!row || row.status !== 'draft' || state.failUpdate) return { rows: [] };
+      row.content = JSON.parse(params[1]); row.updated_at = '2026-01-02T00:00:00Z';
+      return { rows: [{ ...row }] };
+    }
+    throw new Error(`Unexpected draft SQL: ${sql}`);
+  };
+  return { state, query, async connect() { return { query, release() { state.releases++; } }; } };
+}

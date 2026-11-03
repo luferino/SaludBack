@@ -18,7 +18,7 @@ error handler. Construction and mounting are separated under `src/bootstrap/`:
 - `routes/academic.routes.ts` mounts subjects, groups, linked contexts and
   habilitations. Its separate teacher-habilitation mount preserves the original
   registration order after clinical routes.
-- `routes/clinical.routes.ts` mounts assignments and kinesiology evaluations.
+- `routes/clinical.routes.ts` mounts assignments, kinesiology evaluations and private kinesiology-evolution drafts.
 
 Mounts keep authentication before protected handlers and retain each existing
 permission guard. No DI container, automatic route registry or HTTP contract
@@ -563,20 +563,26 @@ references remain UUIDs. There is no record status, endpoint, clinical content,
 or immutable event-audit claim; nullable `created_`/`updated_` columns follow the
 existing actor-bookkeeping convention.
 
-### Clinical evolution schema foundation (A1)
+### Private kinesiology-evolution drafts (A2)
 
-Migrations `031_create_kinesiology_evolutions.sql` and
-`032_seed_kinesiology_evolution_permissions.sql` establish a schema-ready
-foundation only. The draft table uses a BIGINT identity and restrictive foreign
-keys to the same patient's clinical record and initial evaluation. The enforced
-`kinesiology-evolutions:write` and `:read` permissions are granted to students;
-teachers receive read only. Existing initial-evaluation permissions and routes
-are unchanged. **Evolution HTTP endpoints are not available in A1.**
+`/kinesiology-evolutions` provides private draft creation, read/list and edit.
+A student supplies `patient_id`, `evaluation_id`, `subject_id`,
+`academic_group_id` and a `content` object with optional nullable
+`session_date`, `current_status`, `objectives` and `planned_treatment`. Drafts
+may be incomplete. A validated evaluation for the same patient and clinical
+record is required; the authenticated author, current origin period and active
+assignment are derived from live server state. Civil dates and unknown fields
+are validated, and BIGINT IDs remain decimal strings.
 
-Historical totals of 482 unit tests and 171 PostgreSQL integration tests refer
-to the preserved original completed implementation, not this schema-only slice;
-they are not A1 verification evidence. A1's current checks are reported by its
-review candidate separately, and do not execute PostgreSQL migrations.
+Only the current author with live origin membership and own assignment, or an
+active teacher in the exact origin context, can read an unsubmitted draft.
+Teachers cannot edit; administrators and cross-context care access do not
+bypass this rule. `PATCH /:id` updates only the author's draft. The endpoints
+are composed explicitly in bootstrap and share fresh permission checks and
+transactional repository writes. Submission, review, corrections and amendments
+are later slices, not available in A2. Synthetic HTTP tests and typechecking do
+not establish new PostgreSQL behavior; historical 482-unit/171-integration
+results belong to the preserved final implementation, not this candidate.
 
 ### Academic catalog schema foundation
 

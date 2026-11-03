@@ -10,7 +10,7 @@ function sources(directory) {
   });
 }
 
-for (const module of ['kinesiology-evaluations', 'patient-assignments']) {
+for (const module of ['kinesiology-evaluations', 'kinesiology-evolutions', 'patient-assignments']) {
   test(`${module} preserves inward dependencies and a compatibility-only barrel`, () => {
     const root = `src/modules/${module}`;
     const barrel = readFileSync(`${root}/index.ts`, 'utf8');

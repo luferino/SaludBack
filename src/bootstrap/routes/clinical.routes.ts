@@ -4,10 +4,11 @@ import { createPatientAssignmentRouter } from '../../modules/patient-assignments
 import { createPatientAvailabilityRouter } from '../../modules/patient-availabilities/index.js';
 import { createPatientAssignmentOptionsRouter } from '../../modules/patient-assignment-options/index.js';
 import { createKinesiologyEvaluationRouter } from '../../modules/kinesiology-evaluations/index.js';
+import { createKinesiologyEvolutionRouter } from '../../modules/kinesiology-evolutions/index.js';
 import { authenticate } from '../../modules/auth/infrastructure/middleware/authenticate.js';
 
 export function mountClinicalRoutes(app: Express, dependencies: AppDependencies['clinical']): void {
-  const { assignmentRepository, availabilityRepository, assignmentOptionsRepository, evaluationRepository, tokenService, matrixReader } = dependencies;
+  const { assignmentRepository, availabilityRepository, assignmentOptionsRepository, evaluationRepository, evolutionRepository, tokenService, matrixReader } = dependencies;
 
   app.use(
     '/patient-availabilities',
@@ -31,5 +32,11 @@ export function mountClinicalRoutes(app: Express, dependencies: AppDependencies[
     '/kinesiology-evaluations',
     authenticate(tokenService, matrixReader),
     createKinesiologyEvaluationRouter({ repository: evaluationRepository }),
+  );
+
+  app.use(
+    '/kinesiology-evolutions',
+    authenticate(tokenService, matrixReader),
+    createKinesiologyEvolutionRouter({ repository: evolutionRepository }),
   );
 }

@@ -218,6 +218,7 @@ test('current author, exact active period, assignment and readable validated sam
     [state => state.evaluation.status = 'draft', 404, 'evolution was not found'],
     [state => state.profiles.delete(evolutionActor), 403, 'an active student context is required'],
     [state => state.evaluation.patient_id = '70000000-0000-4000-8000-000000000099', 404, 'evolution was not found'],
+    [state => { state.evaluation = null; }, 404, 'evolution was not found'],
   ];
   for (const [change, status, message] of denied) {
     const pool = evolutionSyntheticPool();
@@ -527,4 +528,53 @@ test('missing patient filter and invalid optional list filters reject without cl
     }
   });
   assert.deepEqual(logicalSnapshot(pool), before);
+});
+
+test('author edit after assignment revocation rolls back once and keeps the draft unchanged', async () => {
+  const pool = evolutionSyntheticPool();
+  const row = seededDraft(pool);
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const token = await tokenFor(tokens);
+    const path = `${base}/kinesiology-evolutions/${row.id}`;
+    const updated = await fetch(path, { method: 'PATCH', headers: headers(token), body: JSON.stringify({ content: { objectives: 'Updated' } }) });
+    assert.equal(updated.status, 200, await updated.clone().text());
+    assert.deepEqual((await updated.json()).content, { objectives: 'Updated' });
+    const before = structuredClone(pool.state.evolutions);
+    pool.state.mutateBeforeLock = { patient_id: '70000000-0000-4000-8000-000000000099' };
+    const raced = await fetch(path, { method: 'PATCH', headers: headers(token), body: JSON.stringify({ content: {} }) });
+    assert.equal(raced.status, 404);
+    assert.deepEqual(await raced.json(), { error: { code: 'NOT_FOUND', message: 'evolution was not found' } });
+    assert.deepEqual(pool.state.evolutions, before);
+    pool.state.assignments = [];
+    const revoked = await fetch(path, { method: 'PATCH', headers: headers(token), body: JSON.stringify({ content: {} }) });
+    assert.equal(revoked.status, 404);
+    assert.deepEqual(await revoked.json(), { error: { code: 'NOT_FOUND', message: 'evolution was not found' } });
+    assert.deepEqual(pool.state.evolutions, before);
+    assert.equal(pool.state.commits, 1);
+    assert.equal(pool.state.rollbacks, 2);
+  });
+});
+
+test('author cannot edit a validated evolution and its validated document stays unchanged', async () => {
+  const pool = evolutionSyntheticPool();
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const author = await tokenFor(tokens);
+    const created = await postDraft(base, author, { ...draft, content: { session_date: '2026-02-28', current_status: 'Stable', objectives: 'Improve mobility', planned_treatment: 'Guided exercise' } });
+    assert.equal(created.status, 201, await created.clone().text());
+    const row = await created.json();
+    const submitted = await fetch(`${base}/kinesiology-evolutions/${row.id}/submissions`, { method: 'POST', headers: headers(author), body: '{}' });
+    assert.equal(submitted.status, 201, await submitted.clone().text());
+    const snapshot = await submitted.json();
+    const teacher = await tokenFor(tokens, 'teacher', '30000000-0000-4000-8000-000000000002', ['kinesiology-evolutions:read', 'kinesiology-evolutions:review']);
+    const validated = await fetch(`${base}/kinesiology-evolutions/${row.id}/validations`, { method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id }) });
+    assert.equal(validated.status, 201, await validated.clone().text());
+    const before = logicalSnapshot(pool);
+    const edit = await fetch(`${base}/kinesiology-evolutions/${row.id}`, { method: 'PATCH', headers: headers(author), body: JSON.stringify({ content: { objectives: 'After validation' } }) });
+    assert.equal(edit.status, 409);
+    assert.deepEqual(await edit.json(), { error: { code: 'CONFLICT', message: 'evolution is not an editable draft' } });
+    assert.deepEqual(logicalSnapshot(pool), before);
+  });
+  assert.equal(pool.state.evolutions[0].status, 'validated');
+  assert.equal(pool.state.reviews.length, 1);
+  assert.equal(pool.state.rollbacks, 1);
 });

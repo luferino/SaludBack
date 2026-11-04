@@ -26,6 +26,11 @@ test('A3 migrations add immutable submission and review-event tables plus separa
   assert.match(submissions, /CREATE TABLE kinesiology_evolution_correction_requests/);
   assert.match(submissions, /CREATE TABLE kinesiology_evolution_validation_reviews/);
   assert.match(submissions, /FOREIGN KEY \(submission_id, evolution_id\)[\s\S]*ON DELETE RESTRICT/);
+  assert.match(submissions, /evolution_id BIGINT NOT NULL REFERENCES kinesiology_evolutions\(id\) ON DELETE RESTRICT/);
+  assert.match(submissions, /FOREIGN KEY \(submission_id, evolution_id\)[\s\S]*REFERENCES kinesiology_evolution_submissions\(id, evolution_id\)/);
+  assert.match(submissions, /UNIQUE \(submission_id\)/);
+  assert.match(submissions, /teacher_habilitation_id UUID NOT NULL REFERENCES teacher_academic_habilitations\(id\)/);
+  assert.doesNotMatch(submissions, /correction_from_submission_id/);
   assert.doesNotMatch(submissions, /amendment|kinesiology_evolution_amendment/);
   const grants = migration('034_seed_kinesiology_evolution_review_permissions.sql');
   assert.match(grants, /\('estudiante', 'kinesiology-evolutions:submit'\)/);
@@ -41,6 +46,9 @@ test('A5 migration links amendment rows to an immutable original and matching cl
   assert.equal((sql.match(/FOREIGN KEY \(/g) ?? []).length, 2);
   assert.match(sql, /FOREIGN KEY \(amendment_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*ON DELETE RESTRICT/);
   assert.match(sql, /FOREIGN KEY \(original_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*ON DELETE RESTRICT/);
+  assert.match(sql, /FOREIGN KEY \(amendment_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*REFERENCES kinesiology_evolutions/);
+  assert.match(sql, /FOREIGN KEY \(original_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*REFERENCES kinesiology_evolutions/);
+  assert.doesNotMatch(sql, /UNIQUE \(original_evolution_id\)/);
   assert.match(sql, /CREATE INDEX kinesiology_evolution_amendment_links_original_idx/);
   assert.doesNotMatch(sql, /INSERT INTO permissions|INSERT INTO role_permissions/);
 });

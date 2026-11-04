@@ -30,6 +30,7 @@ test('complete current author submits a snapshot through the public route', asyn
     const submitted = await response.json();
     assert.deepEqual(submitted.content, { session_date: '2026-02-28', current_status: 'Stable', objectives: 'Improve mobility', planned_treatment: 'Guided exercise' });
     assert.equal(submitted.validation_status, 'pending_validation');
+    assert.equal(submitted.id, '9007199254740996');
     assert.equal(submitted.ordinal, '1');
     assert.equal(submitted.submitted_by, evolutionActor);
   });
@@ -119,6 +120,10 @@ test('submission rechecks current profile, matching assignment and locked docume
     state => { state.mutateBeforeLock = { patient_id: '70000000-0000-4000-8000-000000000099' }; },
     state => { state.mutateBeforeLock = { author_id: '30000000-0000-4000-8000-000000000099' }; },
     state => { state.mutateBeforeLock = { origin_student_habilitation_id: '60000000-0000-4000-8000-000000000099' }; },
+    state => { state.mutateBeforeLock = { clinical_record_id: '9007199254740998' }; },
+    state => { state.mutateBeforeLock = { evaluation_id: '9007199254740998' }; },
+    state => { state.mutateBeforeLock = { origin_subject_id: '10000000-0000-4000-8000-000000000009' }; },
+    state => { state.mutateBeforeLock = { origin_group_id: '20000000-0000-4000-8000-000000000009' }; },
   ];
   for (const mutate of rejected) {
     const pool = evolutionSyntheticPool();
@@ -426,4 +431,49 @@ test('current-care student and teacher lose detail, list and history immediately
       assert.equal(pool.state.releases, 2);
     });
   }
+});
+
+test('submission snapshots the exact origin context when the current active period id differs from the stored origin period', async () => {
+  const pool = evolutionSyntheticPool();
+  const currentPeriod = '60000000-0000-4000-8000-000000000099';
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const auth = await tokenFor(tokens);
+    const draft = await createDraft(base, auth);
+    const storedOrigin = pool.state.evolutions[0].origin_student_habilitation_id;
+    pool.state.periods = [{ id: currentPeriod, studentId: pool.state.profiles.get(evolutionActor), subject: evolutionSubject, group: evolutionGroup, revoked: false }];
+    pool.state.assignments = [{ id: '9007199254741002', patient: evolutionPatient, subject: evolutionSubject, period: currentPeriod, ended: false }];
+    const response = await submit(base, auth, draft.id);
+    assert.equal(response.status, 201, await response.clone().text());
+    const snapshot = await response.json();
+    assert.equal(snapshot.ordinal, '1');
+    assert.equal(snapshot.submitted_by, evolutionActor);
+    assert.equal(snapshot.validation_status, 'pending_validation');
+    assert.deepEqual(snapshot.content, complete);
+    assert.equal(pool.state.periods[0].id, currentPeriod);
+    assert.notEqual(pool.state.periods[0].id, storedOrigin);
+    assert.equal(pool.state.evolutions[0].status, 'submitted');
+    const before = structuredClone(pool.state.evolutions[0]);
+    const edit = await fetch(`${base}/kinesiology-evolutions/${draft.id}`, { method: 'PATCH', headers: headers(auth), body: JSON.stringify({ content: { objectives: 'Changed' } }) });
+    assert.equal(edit.status, 409);
+    assert.deepEqual(pool.state.evolutions[0], before);
+  });
+});
+
+test('submission database failure after the snapshot insert returns 500 and rolls back the snapshot and draft state', async () => {
+  const pool = evolutionSyntheticPool();
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const auth = await tokenFor(tokens);
+    const draft = await createDraft(base, auth);
+    const before = structuredClone({ evolution: pool.state.evolutions[0], submissions: pool.state.submissions });
+    pool.state.failAfterSubmissionSnapshot = true;
+    const response = await submit(base, auth, draft.id);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' } });
+    assert.deepEqual({ evolution: pool.state.evolutions[0], submissions: pool.state.submissions }, before);
+  });
+  assert.equal(pool.state.evolutions[0].status, 'draft');
+  assert.equal(pool.state.submissions.length, 0);
+  assert.equal(pool.state.commits, 1);
+  assert.equal(pool.state.rollbacks, 1);
+  assert.equal(pool.state.releases, 2);
 });

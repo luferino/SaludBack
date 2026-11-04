@@ -14,6 +14,7 @@ export function evolutionSyntheticPool() {
     teacherPeriods: [{ id: '62000000-0000-4000-8000-000000000002', teacherId: '32000000-0000-4000-8000-000000000002', subject: evolutionSubject, group: evolutionGroup, revoked: false }],
     assignments: [{ id: '9007199254740992', patient: evolutionPatient, subject: evolutionSubject, period: defaultPeriod, ended: false }],
     failAfterInsert: false, failAmendmentLink: false, mutateBeforeLock: null, failUpdate: false,
+    failAfterSubmissionSnapshot: false, failOnValidationTransition: false,
     evaluation: { id: '9007199254740993', clinical_record_id: '9007199254740994', patient_id: evolutionPatient,
       author_id: '30000000-0000-4000-8000-000000000009', origin_student_habilitation_id: '60000000-0000-4000-8000-000000000009',
       status: 'validated', origin_subject_id: '10000000-0000-4000-8000-000000000009', origin_group_id: '20000000-0000-4000-8000-000000000009' },
@@ -29,7 +30,7 @@ export function evolutionSyntheticPool() {
   });
   const currentPatientAssignment = actor => state.assignments.some(assignment => {
     const period = state.periods.find(item => item.id === assignment.period);
-    return period && !period.revoked && !assignment.ended && assignment.patient === state.evaluation.patient_id &&
+    return period && !period.revoked && !assignment.ended && assignment.patient === state.evaluation?.patient_id &&
       state.profiles.get(actor) === period.studentId && assignment.subject === period.subject;
   });
   const teacherHasContext = (actor, subject, group) => {
@@ -92,6 +93,12 @@ export function evolutionSyntheticPool() {
   const assertFragment = (sql, fragment) => {
     if (!sql.includes(fragment)) throw new Error(`Draft SQL omitted required predicate '${fragment}': ${sql}`);
   };
+  const assertAbsentFragment = (sql, fragment) => {
+    if (sql.includes(fragment)) throw new Error(`Draft SQL must not contain '${fragment}': ${sql}`);
+  };
+  const assertPattern = (sql, pattern, label) => {
+    if (!pattern.test(sql)) throw new Error(`Draft SQL omitted required ${label}: ${sql}`);
+  };
   const assertLatestAlias = sql => {
     if (/\blatest\./i.test(sql) && !/\)\s*latest\s+ON\s+true/i.test(sql)) {
       throw new Error(`Evolution SQL references latest without joining its lateral alias: ${sql}`);
@@ -99,7 +106,10 @@ export function evolutionSyntheticPool() {
   };
   const query = async (sql, params = []) => {
     state.queries.push({ sql, params });
-    if (sql.includes('FROM kinesiology_evolutions e')) assertLatestAlias(sql);
+    if (sql.includes('FROM kinesiology_evolutions e')) {
+      assertLatestAlias(sql);
+      assertPattern(sql, /e\.id::text AS id|e\.id::text AS visible_evolution_id|SELECT e\.id/, 'evolution id projection');
+    }
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) {
       if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions, submissions: state.submissions, corrections: state.corrections, reviews: state.reviews, amendmentLinks: state.amendmentLinks });
       if (sql === 'COMMIT') { state.commits++; state.snapshot = null; }
@@ -133,6 +143,7 @@ export function evolutionSyntheticPool() {
       assertFragment(sql, 'a.patient_id = $1');
       assertFragment(sql, 'a.ended_at IS NULL');
       if (sql.includes('p.student_id = $4')) {
+        assertAbsentFragment(sql, 'a.academic_group_id');
         assertFragment(sql, 'p.revoked_at IS NULL');
         assertFragment(sql, 'p.subject_id = a.subject_id');
         assertFragment(sql, 'a.subject_id = $2');
@@ -202,6 +213,7 @@ export function evolutionSyntheticPool() {
     if (sql.includes("UPDATE kinesiology_evolutions SET status = 'validated'")) {
       const row = state.evolutions.find(item => item.id === params[0]);
       if (!row || row.status !== 'submitted' || state.failUpdate) return { rows: [] };
+      if (state.failOnValidationTransition) throw new Error('synthetic post-review transition failure');
       row.status = 'validated'; row.updated_at = '2026-02-28T12:00:00Z';
       return { rows: [{ id: row.id }] };
     }
@@ -213,9 +225,10 @@ export function evolutionSyntheticPool() {
     }
     if (sql.includes('INSERT INTO kinesiology_evolution_submissions')) {
       assertFragment(sql, 'COALESCE(MAX(ordinal), 0) + 1');
-      const row = { id: String(1 + state.submissions.length), evolution_id: params[0], ordinal: String(1 + state.submissions.filter(item => item.evolution_id === params[0]).length),
+      const row = { id: String(9007199254740996n + BigInt(state.submissions.length)), evolution_id: params[0], ordinal: String(1 + state.submissions.filter(item => item.evolution_id === params[0]).length),
         submitted_by: params[1], submitted_at: '2026-02-28T12:00:00Z', content: JSON.parse(params[2]) };
       state.submissions.push(row);
+      if (state.failAfterSubmissionSnapshot) throw new Error('synthetic post-snapshot transition failure');
       return { rows: [{ ...row }] };
     }
     if (sql.includes("UPDATE kinesiology_evolutions SET status = 'submitted'")) {
@@ -271,6 +284,15 @@ export function evolutionSyntheticPool() {
     }
     if (sql.includes('FROM kinesiology_evolutions e')) {
       assertOriginSql(sql);
+      if (sql.includes('projected_submission_id')) {
+        assertPattern(sql, /SELECT e\.id::text AS id/, 'projected evolution id');
+        assertPattern(sql, /latest\.id::text AS projected_submission_id/, 'projected submission id');
+        assertAbsentFragment(sql, 'SELECT id::text AS id, clinical_record_id');
+        assertPattern(sql, /JOIN patient_assignments a ON a\.patient_id = e\.patient_id AND a\.subject_id = th\.subject_id/, 'current-care assignment join');
+        assertPattern(sql, /sp\.academic_group_id = th\.academic_group_id AND sp\.revoked_at IS NULL/, 'current-care student period predicate');
+        assertPattern(sql, /CASE WHEN \(e\.author_id/, 'origin-first content projection');
+        assertPattern(sql, /latest\.clinical_content END AS content/, 'latest snapshot content projection');
+      }
       const isList = sql.includes('WHERE e.patient_id = $1');
       let rows = state.evolutions.filter(row => isList ? row.patient_id === params[0] : row.id === params[0]);
       if (isList) {

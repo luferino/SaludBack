@@ -603,10 +603,34 @@ exposes only that latest snapshot. Submission IDs and ordinals are decimal
 strings; submission timestamps are ISO strings. No additional per-session
 consent attestation or legal digital signature is introduced.
 
-Migrations 033/034 add snapshot/review tables and separate submit/review grants.
-Review, correction and amendment endpoints are not mounted until later slices.
+Migrations 033/034 add immutable snapshot/review tables and separate submit/review grants.
 The safe unit suite and synthetic HTTP checks do not establish PostgreSQL
 constraint or concurrent-transaction proof for this reconstructed prefix.
+
+### Review, correction and resubmission (A4)
+
+Origin teachers with the fresh `kinesiology-evolutions:review` grant may review only
+the latest submitted snapshot in its exact live subject/group context. `POST
+/kinesiology-evolutions/:id/corrections` accepts exactly `{ "submission_id":
+"<positive BIGINT decimal string>", "reason": "<nonblank string>" }`. A successful
+`201` records the verified reviewer and server time, and reopens the author's draft
+from that immutable snapshot. The author must still have an active origin profile,
+period and own patient assignment to edit and resubmit; resubmission creates the
+next immutable ordinal. Stale or non-latest targets return `409`, unknown snapshots
+return `404`, and invalid or missing reasons return `400`. Rejected transitions
+leave the document, snapshots and review events unchanged.
+
+`POST /kinesiology-evolutions/:id/validations` accepts exactly
+`{ "submission_id": "<positive BIGINT decimal string>" }`. A successful `201`
+records the authenticated reviewer, active origin teacher period and database time,
+and marks the latest submission validated without rewriting it. Repeated, stale
+or otherwise inapplicable transitions cannot change the existing review.
+
+`GET /kinesiology-evolutions/:id/corrections` exposes reasons and reviewer metadata
+only to live origin-context readers with fresh read permission. Other current-care
+readers continue to see only the latest immutable submitted snapshot, even while an
+origin correction draft is open; they never see its working content or correction
+reason. Linked amendment creation and its endpoint remain outside this A4 slice.
 
 ### Academic catalog schema foundation
 

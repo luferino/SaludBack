@@ -9,17 +9,22 @@ const columns = `id::text AS id, clinical_record_id::text AS clinical_record_id,
 function documentColumns(actor: string): string {
   return `e.id::text AS id, e.clinical_record_id::text AS clinical_record_id, e.evaluation_id::text AS evaluation_id,
     e.patient_id, e.author_id, e.origin_student_habilitation_id, e.origin_subject_id, e.origin_group_id,
-    CASE WHEN e.status = 'draft' OR latest.id IS NULL THEN e.content ELSE latest.clinical_content END AS content, e.status,
+    CASE WHEN (${originRead(actor)}) THEN e.content ELSE latest.clinical_content END AS content,
+    CASE WHEN (${originRead(actor)}) THEN e.status ELSE latest.projected_status END AS status,
     latest.id::text AS projected_submission_id, latest.submitted_by::text AS projected_submitted_by,
-    latest.submitted_at AS projected_submitted_at,
-    CASE WHEN e.status = 'validated' THEN 'validated' WHEN e.status = 'submitted' THEN 'pending_validation' END AS validation_status,
+    latest.submitted_at AS projected_submitted_at, latest.reviewed_by::text AS projected_reviewed_by,
+    latest.reviewed_at AS projected_reviewed_at, latest.validation_status,
     CASE WHEN (${originRead(actor)}) THEN e.created_at ELSE latest.submitted_at END AS created_at,
     CASE WHEN (${originRead(actor)}) THEN e.updated_at ELSE latest.submitted_at END AS updated_at`;
 }
 const latestSubmissionJoin = `LEFT JOIN LATERAL (
-  SELECT s.id, s.clinical_content, s.submitted_by, s.submitted_at
-  FROM kinesiology_evolution_submissions s WHERE s.evolution_id = e.id
-  ORDER BY s.ordinal DESC LIMIT 1
+  SELECT s.id, s.clinical_content, s.submitted_by, s.submitted_at, review.reviewed_by, review.reviewed_at,
+    CASE WHEN review.id IS NULL THEN 'submitted' ELSE 'validated' END AS projected_status,
+    CASE WHEN review.id IS NULL THEN 'pending_validation' ELSE 'validated' END AS validation_status
+  FROM kinesiology_evolution_submissions s
+  LEFT JOIN kinesiology_evolution_validation_reviews review
+    ON review.evolution_id = s.evolution_id AND review.submission_id = s.id
+  WHERE s.evolution_id = e.id ORDER BY s.ordinal DESC LIMIT 1
 ) latest ON true`;
 const inaccessible = () => new NotFoundError('evolution was not found');
 
@@ -38,7 +43,7 @@ function originRead(actor: string): string {
 }
 
 function crossContextRead(actor: string): string {
-  return `((${originRead(actor)}) OR (e.status = 'submitted' AND (
+  return `((${originRead(actor)}) OR (
     EXISTS (SELECT 1 FROM students s JOIN student_academic_habilitations sp ON sp.student_id = s.id
       JOIN patient_assignments a ON a.student_habilitation_id = sp.id
       WHERE s.user_id = ${actor} AND a.patient_id = e.patient_id AND a.subject_id = sp.subject_id
@@ -48,11 +53,11 @@ function crossContextRead(actor: string): string {
         AND EXISTS (SELECT 1 FROM student_academic_habilitations sp JOIN patient_assignments a ON a.student_habilitation_id = sp.id
           WHERE a.patient_id = e.patient_id AND a.subject_id = th.subject_id AND sp.subject_id = th.subject_id
             AND sp.academic_group_id = th.academic_group_id AND sp.revoked_at IS NULL AND a.ended_at IS NULL))
-  )))`;
+  ))`;
 }
 
 function readCondition(actor: string): string {
-  return `(${crossContextRead(actor)})`;
+  return `((${originRead(actor)}) OR (latest.id IS NOT NULL AND ${crossContextRead(actor)}))`;
 }
 
 export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort {
@@ -141,24 +146,106 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
     });
   }
 
+  async requestCorrection(id: string, submissionId: string, reason: string, actorId: string) {
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = await this.find(db, id);
+      if (!hint) throw inaccessible();
+      const teacher = await db.query<{ teacher_habilitation_id: string }>(`SELECT th.id::text AS teacher_habilitation_id
+        FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+        WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+          AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+      [actorId, hint.origin_subject_id, hint.origin_group_id]);
+      if (!teacher.rows.length) throw inaccessible();
+      await this.lockPatient(db, hint.patient_id);
+      const current = await this.find(db, id, true);
+      if (!this.sameIdentity(current, hint)) throw inaccessible();
+      if (current.status !== 'submitted') throw new ConflictError('evolution is not awaiting correction');
+      const target = await db.query<{ id: string; clinical_content: EvolutionContent }>(
+        `SELECT id::text AS id, clinical_content FROM kinesiology_evolution_submissions
+          WHERE id = $1 AND evolution_id = $2 FOR UPDATE`, [submissionId, id]);
+      if (!target.rows.length) throw new NotFoundError('submission was not found');
+      const latest = await db.query<{ id: string }>(`SELECT id::text AS id FROM kinesiology_evolution_submissions
+        WHERE evolution_id = $1 ORDER BY ordinal DESC LIMIT 1`, [id]);
+      if (latest.rows[0]?.id !== submissionId) throw new ConflictError('submission is not the latest version');
+      const event = await db.query<{ id: string; requested_at: Date | string }>(`INSERT INTO kinesiology_evolution_correction_requests
+        (evolution_id, submission_id, reason, reviewed_by) VALUES ($1, $2, $3, $4)
+        RETURNING id::text AS id, requested_at`, [id, submissionId, reason, actorId]);
+      const updated = await db.query(`UPDATE kinesiology_evolutions SET content = $2::jsonb, status = 'draft', updated_at = clock_timestamp()
+        WHERE id = $1 AND status = 'submitted' RETURNING id`, [id, JSON.stringify(target.rows[0].clinical_content)]);
+      if (!updated.rows.length) throw new ConflictError('evolution is not awaiting correction');
+      return { evolution_id: id, submission_id: submissionId, correction_request_id: event.rows[0].id,
+        reason, reviewed_by: actorId, requested_at: new Date(event.rows[0].requested_at).toISOString(), status: 'draft' as const };
+    });
+  }
+
+  async validate(id: string, submissionId: string, actorId: string) {
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = await this.find(db, id);
+      if (!hint) throw inaccessible();
+      const teacher = await db.query<{ teacher_habilitation_id: string }>(`SELECT th.id::text AS teacher_habilitation_id
+        FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
+        WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+          AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+      [actorId, hint.origin_subject_id, hint.origin_group_id]);
+      if (!teacher.rows.length) throw inaccessible();
+      await this.lockPatient(db, hint.patient_id);
+      const current = await this.find(db, id, true);
+      if (!this.sameIdentity(current, hint)) throw inaccessible();
+      if (current.status !== 'submitted') throw new ConflictError('evolution is not awaiting validation');
+      const target = await db.query<{ id: string }>(`SELECT id::text AS id FROM kinesiology_evolution_submissions
+        WHERE id = $1 AND evolution_id = $2 FOR UPDATE`, [submissionId, id]);
+      if (!target.rows.length) throw new NotFoundError('submission was not found');
+      const latest = await db.query<{ id: string }>(`SELECT id::text AS id FROM kinesiology_evolution_submissions
+        WHERE evolution_id = $1 ORDER BY ordinal DESC LIMIT 1`, [id]);
+      if (latest.rows[0]?.id !== submissionId) throw new ConflictError('submission is not the latest version');
+      const review = await db.query<{ reviewed_at: Date | string }>(`INSERT INTO kinesiology_evolution_validation_reviews
+        (evolution_id, submission_id, reviewed_by, teacher_habilitation_id) VALUES ($1, $2, $3, $4)
+        RETURNING reviewed_at`, [id, submissionId, actorId, teacher.rows[0].teacher_habilitation_id]);
+      const updated = await db.query(`UPDATE kinesiology_evolutions SET status = 'validated', updated_at = clock_timestamp()
+        WHERE id = $1 AND status = 'submitted' RETURNING id`, [id]);
+      if (!updated.rows.length) throw new ConflictError('evolution is not awaiting validation');
+      return { evolution_id: id, submission_id: submissionId, status: 'validated' as const,
+        reviewed_by: actorId, reviewed_at: new Date(review.rows[0].reviewed_at).toISOString() };
+    });
+  }
+
+  async corrections(id: string, actorId: string) {
+    const result = await this.pool.query<{ evolution_id: string; submission_id: string | null; reason: string | null;
+      reviewed_by: string | null; requested_at: Date | string | null }>(`SELECT e.id::text AS evolution_id,
+        correction.submission_id::text AS submission_id, correction.reason, correction.reviewed_by::text AS reviewed_by,
+        correction.requested_at FROM kinesiology_evolutions e
+        LEFT JOIN kinesiology_evolution_correction_requests correction ON correction.evolution_id = e.id
+        WHERE e.id = $1 AND (${originRead('$2')}) ORDER BY correction.id`, [id, actorId]);
+    if (!result.rows.length) throw inaccessible();
+    return { evolution_id: result.rows[0].evolution_id,
+      items: result.rows.filter(row => row.submission_id !== null).map(row => ({ submission_id: row.submission_id!,
+        reason: row.reason!, reviewed_by: row.reviewed_by!, requested_at: new Date(row.requested_at!).toISOString() })) };
+  }
+
   async submissions(id: string, actorId: string) {
-    const result = await this.pool.query<{ evolution_id: string; id: string; ordinal: string; submitted_by: string; submitted_at: Date | string; content: EvolutionContent; validation_status: 'pending_validation' | 'validated' }>(
+    const result = await this.pool.query<{ evolution_id: string; id: string; ordinal: string; submitted_by: string; submitted_at: Date | string; content: EvolutionContent; validation_status: 'pending_validation' | 'validated'; reviewed_by: string | null; reviewed_at: Date | string | null }>(
       `SELECT e.id::text AS evolution_id, s.id::text AS id, s.ordinal::text AS ordinal, s.submitted_by::text AS submitted_by,
-        s.submitted_at, s.clinical_content AS content,
+        s.submitted_at, s.clinical_content AS content, vr.reviewed_by::text AS reviewed_by, vr.reviewed_at,
         CASE WHEN vr.submission_id IS NULL THEN 'pending_validation' ELSE 'validated' END AS validation_status
-       FROM kinesiology_evolutions e JOIN kinesiology_evolution_submissions s ON s.evolution_id = e.id
-       LEFT JOIN kinesiology_evolution_validation_reviews vr ON vr.submission_id = s.id
+       FROM kinesiology_evolutions e ${latestSubmissionJoin}
+       JOIN kinesiology_evolution_submissions s ON s.evolution_id = e.id
+       LEFT JOIN kinesiology_evolution_validation_reviews vr ON vr.evolution_id = s.evolution_id AND vr.submission_id = s.id
        WHERE e.id = $1 AND ${readCondition('$2')}
          AND ((${originRead('$2')}) OR s.id = (SELECT latest_submission.id FROM kinesiology_evolution_submissions latest_submission
            WHERE latest_submission.evolution_id = e.id ORDER BY latest_submission.ordinal DESC LIMIT 1))
        ORDER BY s.ordinal`, [id, actorId]);
     if (!result.rows.length) {
-      const exists = await this.pool.query(`SELECT e.id FROM kinesiology_evolutions e WHERE e.id = $1 AND ${readCondition('$2')}`, [id, actorId]);
+      const exists = await this.pool.query(`SELECT e.id FROM kinesiology_evolutions e ${latestSubmissionJoin}
+        WHERE e.id = $1 AND ${readCondition('$2')}`, [id, actorId]);
       if (!exists.rows.length) throw inaccessible();
     }
-    return { evolution_id: id, items: result.rows.map(row => ({
-      ...row, submitted_at: new Date(row.submitted_at).toISOString(),
-    })) };
+    return { evolution_id: id, items: result.rows.map(row => {
+      const { reviewed_by, reviewed_at, ...submission } = row;
+      return { ...submission, submitted_at: new Date(row.submitted_at).toISOString(),
+        ...(reviewed_by ? { reviewed_by } : {}),
+        ...(reviewed_at ? { reviewed_at: new Date(reviewed_at).toISOString() } : {}),
+      };
+    }) };
   }
 
   async detail(id: string, actorId: string): Promise<EvolutionView> {

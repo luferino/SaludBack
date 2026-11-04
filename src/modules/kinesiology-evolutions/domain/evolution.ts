@@ -9,6 +9,11 @@ export interface EvolutionContent {
 
 const fields = ['session_date', 'current_status', 'objectives', 'planned_treatment'] as const;
 
+export function validateCorrectionReason(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) throw new BadRequestError('reason must be a non-empty string');
+  return value;
+}
+
 export function validateEvolutionSubmission(value: unknown): EvolutionContent {
   const content = validateEvolutionContent(value);
   if (!content.session_date || !content.current_status?.trim() || !content.objectives?.trim() || !content.planned_treatment?.trim()) {

@@ -13,6 +13,12 @@ function id(value: unknown): string {
   if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || BigInt(value) > MAX_BIGINT) throw new BadRequestError('evolution id must be a positive BIGINT decimal string');
   return value;
 }
+function submissionId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || BigInt(value) > MAX_BIGINT) {
+    throw new BadRequestError('submission_id must be a positive BIGINT decimal string');
+  }
+  return value;
+}
 function uuid(value: unknown, field: string): string {
   if (!isCanonicalUuid(value)) throw new BadRequestError(`${field} must be a UUID`);
   return value;
@@ -32,7 +38,9 @@ function serialize(row: EvolutionView) {
     origin_subject_id: row.origin_subject_id, origin_group_id: row.origin_group_id, content: row.content, status: row.status,
     ...(row.status !== 'draft' ? { validation_status: row.validation_status ?? 'pending_validation',
       ...(row.projected_submission_id ? { submission_id: row.projected_submission_id, submitted_by: row.projected_submitted_by,
-        submitted_at: row.projected_submitted_at && new Date(row.projected_submitted_at).toISOString() } : {}) } : {}),
+        submitted_at: row.projected_submitted_at && new Date(row.projected_submitted_at).toISOString(),
+        ...(row.projected_reviewed_by ? { reviewed_by: row.projected_reviewed_by,
+          reviewed_at: row.projected_reviewed_at && new Date(row.projected_reviewed_at).toISOString() } : {}) } : {}) } : {}),
     created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString() };
 }
 function queryUuid(value: unknown, field: string, required = false): string | undefined {
@@ -69,6 +77,30 @@ export function createKinesiologyEvolutionRouter({
     const user = await actor(getActor, request);
     if (Object.keys(object(request.body)).length) throw new BadRequestError('body must be an empty object');
     response.status(201).json(await service.submit(id(request.params.id), user));
+  });
+  router.post('/:id/corrections', async (request: Request, response: Response) => {
+    await new PermissionGuard('kinesiology-evolutions:review').authorize(request);
+    const user = await actor(getActor, request);
+    const body = object(request.body);
+    if (Object.keys(body).some(key => !['submission_id', 'reason'].includes(key))) {
+      throw new BadRequestError('body may contain only submission_id and reason');
+    }
+    const target = submissionId(body.submission_id);
+    if (typeof body.reason !== 'string' || !body.reason.trim()) throw new BadRequestError('reason must be a non-empty string');
+    response.status(201).json(await service.requestCorrection(id(request.params.id), target, body.reason, user));
+  });
+  router.get('/:id/corrections', async (request: Request, response: Response) => {
+    await readGuard.authorize(request);
+    response.json(await service.corrections(id(request.params.id), await actor(getActor, request)));
+  });
+  router.post('/:id/validations', async (request: Request, response: Response) => {
+    await new PermissionGuard('kinesiology-evolutions:review').authorize(request);
+    const user = await actor(getActor, request);
+    const body = object(request.body);
+    if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'submission_id')) {
+      throw new BadRequestError('body must contain only submission_id');
+    }
+    response.status(201).json(await service.validate(id(request.params.id), submissionId(body.submission_id), user));
   });
   router.get('/:id/submissions', async (request: Request, response: Response) => {
     await readGuard.authorize(request);

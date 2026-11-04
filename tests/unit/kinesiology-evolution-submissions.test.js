@@ -226,6 +226,165 @@ test('submission input, non-author and stale permission denials leave public his
   });
 });
 
+test('origin teacher can correct the latest submitted snapshot and current-care readers stay on that snapshot', async () => {
+  const pool = evolutionSyntheticPool();
+  const careActor = '30000000-0000-4000-8000-000000000006';
+  const careProfile = '31000000-0000-4000-8000-000000000006';
+  const carePeriod = '60000000-0000-4000-8000-000000000006';
+  const careSubject = '10000000-0000-4000-8000-000000000006';
+  const careGroup = '20000000-0000-4000-8000-000000000006';
+  pool.state.profiles.set(careActor, careProfile);
+  pool.state.periods.push({ id: carePeriod, studentId: careProfile, subject: careSubject, group: careGroup, revoked: false });
+  pool.state.assignments.push({ id: '9007199254741000', patient: evolutionPatient, subject: careSubject, period: carePeriod, ended: false });
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const author = await tokenFor(tokens);
+    const draft = await createDraft(base, author);
+    const submitted = await submit(base, author, draft.id);
+    assert.equal(submitted.status, 201, await submitted.clone().text());
+    const snapshot = await submitted.json();
+    const teacherId = '30000000-0000-4000-8000-000000000002';
+    const teacher = await tokenFor(tokens, 'teacher', teacherId, ['kinesiology-evolutions:read', 'kinesiology-evolutions:review']);
+    pool.state.grantsByRole.teacher = ['kinesiology-evolutions:read'];
+    const noReview = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: 'No permission' }),
+    });
+    assert.equal(noReview.status, 403);
+    assert.deepEqual(await noReview.json(), { error: { code: 'FORBIDDEN', message: "Permission 'kinesiology-evolutions:review' required" } });
+    assert.equal(pool.state.commits, 2);
+    assert.equal(pool.state.rollbacks, 0);
+    pool.state.grantsByRole.teacher.push('kinesiology-evolutions:review');
+    pool.state.teacherPeriods[0].revoked = true;
+    const revokedContext = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: 'No longer authorized' }),
+    });
+    assert.equal(revokedContext.status, 404);
+    assert.deepEqual(await revokedContext.json(), { error: { code: 'NOT_FOUND', message: 'evolution was not found' } });
+    assert.equal(pool.state.corrections.length, 0);
+    assert.equal(pool.state.rollbacks, 1);
+    pool.state.teacherPeriods[0].revoked = false;
+    const beforeInvalidReason = structuredClone({ evolution: pool.state.evolutions[0], submissions: pool.state.submissions, corrections: pool.state.corrections });
+    const blankReason = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: '  ' }),
+    });
+    assert.equal(blankReason.status, 400);
+    assert.deepEqual(await blankReason.json(), { error: { code: 'BAD_REQUEST', message: 'reason must be a non-empty string' } });
+    assert.deepEqual({ evolution: pool.state.evolutions[0], submissions: pool.state.submissions, corrections: pool.state.corrections }, beforeInvalidReason);
+    pool.state.failUpdate = true;
+    const failedCorrection = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: 'Rollback on failed reopen' }),
+    });
+    assert.equal(failedCorrection.status, 409);
+    assert.deepEqual(await failedCorrection.json(), { error: { code: 'CONFLICT', message: 'evolution is not awaiting correction' } });
+    assert.deepEqual({ evolution: pool.state.evolutions[0], submissions: pool.state.submissions, corrections: pool.state.corrections }, beforeInvalidReason);
+    assert.equal(pool.state.rollbacks, 2);
+    pool.state.failUpdate = false;
+    const correction = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: 'Please clarify the treatment' }),
+    });
+    assert.equal(correction.status, 201, await correction.clone().text());
+    const request = await correction.json();
+    assert.deepEqual(request, { evolution_id: draft.id, submission_id: snapshot.id, status: 'draft',
+      correction_request_id: '1', reason: 'Please clarify the treatment', reviewed_by: '30000000-0000-4000-8000-000000000002',
+      requested_at: '2026-02-28T12:00:00.000Z' });
+    assert.equal(pool.state.evolutions[0].status, 'draft');
+    assert.deepEqual(pool.state.evolutions[0].content, complete);
+    assert.deepEqual(pool.state.submissions[0].content, complete);
+    const correctionHistory = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, { headers: headers(teacher) });
+    assert.equal(correctionHistory.status, 200);
+    assert.deepEqual((await correctionHistory.json()).items, [{ submission_id: snapshot.id, reason: 'Please clarify the treatment',
+      reviewed_by: teacherId, requested_at: '2026-02-28T12:00:00.000Z' }]);
+
+    const care = await tokenFor(tokens, 'estudiante', careActor);
+    const detail = await fetch(`${base}/kinesiology-evolutions/${draft.id}`, { headers: headers(care) });
+    assert.equal(detail.status, 200, await detail.clone().text());
+    const projected = await detail.json();
+    assert.equal(projected.status, 'submitted');
+    assert.deepEqual(projected.content, complete);
+    assert.equal(projected.submission_id, snapshot.id);
+    const history = await fetch(`${base}/kinesiology-evolutions/${draft.id}/submissions`, { headers: headers(care) });
+    assert.equal(history.status, 200);
+    assert.deepEqual((await history.json()).items, [snapshot]);
+    const currentCareCorrections = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, { headers: headers(care) });
+    assert.equal(currentCareCorrections.status, 404);
+    assert.deepEqual(await currentCareCorrections.json(), { error: { code: 'NOT_FOUND', message: 'evolution was not found' } });
+    const careList = await fetch(`${base}/kinesiology-evolutions?patient_id=${evolutionPatient}`, { headers: headers(care) });
+    assert.equal(careList.status, 200);
+    assert.equal((await careList.json()).items[0].status, 'submitted');
+
+    const edited = await fetch(`${base}/kinesiology-evolutions/${draft.id}`, { method: 'PATCH', headers: headers(author),
+      body: JSON.stringify({ content: { ...complete, current_status: 'Updated after review' } }) });
+    assert.equal(edited.status, 200, await edited.clone().text());
+    const resubmitted = await submit(base, author, draft.id);
+    assert.equal(resubmitted.status, 201, await resubmitted.clone().text());
+    const latest = await resubmitted.json();
+    assert.equal(latest.ordinal, '2');
+    assert.equal(latest.submitted_by, evolutionActor);
+    assert.equal(pool.state.submissions[0].content.current_status, 'Stable');
+
+    const staleCorrection = await fetch(`${base}/kinesiology-evolutions/${draft.id}/corrections`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id, reason: 'Stale snapshot' }),
+    });
+    assert.equal(staleCorrection.status, 409);
+    assert.deepEqual(await staleCorrection.json(), { error: { code: 'CONFLICT', message: 'submission is not the latest version' } });
+    const staleValidation = await fetch(`${base}/kinesiology-evolutions/${draft.id}/validations`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id }),
+    });
+    assert.equal(staleValidation.status, 409);
+    assert.deepEqual(await staleValidation.json(), { error: { code: 'CONFLICT', message: 'submission is not the latest version' } });
+    assert.equal(pool.state.reviews.length, 0);
+    assert.equal(pool.state.corrections.length, 1);
+
+    const validation = await fetch(`${base}/kinesiology-evolutions/${draft.id}/validations`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: latest.id }),
+    });
+    assert.equal(validation.status, 201, await validation.clone().text());
+    assert.deepEqual(await validation.json(), { evolution_id: draft.id, submission_id: latest.id, status: 'validated',
+      reviewed_by: '30000000-0000-4000-8000-000000000002', reviewed_at: '2026-02-28T12:00:00.000Z' });
+    assert.equal(pool.state.submissions.length, 2);
+    assert.equal(pool.state.evolutions[0].status, 'validated');
+    assert.equal(pool.state.commits, 6);
+    assert.equal(pool.state.rollbacks, 4);
+    assert.equal(pool.state.releases, 10);
+  });
+});
+
+test('validation accepts only the latest submitted snapshot and records the active reviewer', async () => {
+  const pool = evolutionSyntheticPool();
+  await withEvolutionServer(pool, async (base, tokens) => {
+    const author = await tokenFor(tokens);
+    const draft = await createDraft(base, author);
+    const submitted = await submit(base, author, draft.id);
+    const snapshot = await submitted.json();
+    const teacherId = '30000000-0000-4000-8000-000000000002';
+    const teacher = await tokenFor(tokens, 'teacher', teacherId, ['kinesiology-evolutions:read', 'kinesiology-evolutions:review']);
+    pool.state.failUpdate = true;
+    const failedValidation = await fetch(`${base}/kinesiology-evolutions/${draft.id}/validations`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id }),
+    });
+    assert.equal(failedValidation.status, 409);
+    assert.deepEqual(await failedValidation.json(), { error: { code: 'CONFLICT', message: 'evolution is not awaiting validation' } });
+    assert.equal(pool.state.evolutions[0].status, 'submitted');
+    assert.deepEqual(pool.state.reviews, []);
+    assert.equal(pool.state.rollbacks, 1);
+    pool.state.failUpdate = false;
+    const validation = await fetch(`${base}/kinesiology-evolutions/${draft.id}/validations`, {
+      method: 'POST', headers: headers(teacher), body: JSON.stringify({ submission_id: snapshot.id }),
+    });
+    assert.equal(validation.status, 201, await validation.clone().text());
+    assert.deepEqual(await validation.json(), { evolution_id: draft.id, submission_id: snapshot.id, status: 'validated',
+      reviewed_by: teacherId, reviewed_at: '2026-02-28T12:00:00.000Z' });
+    assert.equal(pool.state.evolutions[0].status, 'validated');
+    assert.deepEqual(pool.state.reviews, [{ evolution_id: draft.id, submission_id: snapshot.id, reviewed_by: teacherId,
+      teacher_habilitation_id: '62000000-0000-4000-8000-000000000002', reviewed_at: '2026-02-28T12:00:00Z' }]);
+    const history = await fetch(`${base}/kinesiology-evolutions/${draft.id}/submissions`, { headers: headers(author) });
+    assert.deepEqual((await history.json()).items, [{ ...snapshot, validation_status: 'validated', reviewed_by: teacherId,
+      reviewed_at: '2026-02-28T12:00:00.000Z' }]);
+    assert.equal(pool.state.commits, 3);
+    assert.equal(pool.state.rollbacks, 1);
+    assert.equal(pool.state.releases, 4);
+  });
+});
+
 test('current-care student and teacher lose detail, list and history immediately after live context revocation', async () => {
   for (const revoke of ['assignment', 'student-period', 'teacher-period']) {
     const pool = evolutionSyntheticPool();

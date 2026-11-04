@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanDb } from '../integration/helpers/clean-db.js';
 
-test('cleanDb checks correction-link privilege and deletes review/submission children before parents', async () => {
+test('cleanDb checks correction-link column privilege and clears cyclic links before child rows', async () => {
   const calls = [];
   await cleanDb({ async query(text) {
     calls.push(text);
@@ -51,8 +51,8 @@ test('cleanDb checks correction-link privilege and deletes review/submission chi
   assert.match(calls[38], /teachers:read[\s\S]*students:read/);
   assert.match(calls[39], /teacher-habilitations:read[\s\S]*student-habilitations:read/);
   assert.match(calls[40], /patient-availabilities:manage[\s\S]*patient-availabilities:read/);
-  assert.match(calls[41], /kinesiology-evolutions:write[\s\S]*teacher/);
-  assert.match(calls[42], /kinesiology-evolutions:submit[\s\S]*review/);
+  assert.match(calls[41], /kinesiology-evolutions:write[\s\S]*kinesiology-evolutions:read/);
+  assert.match(calls[42], /kinesiology-evolutions:submit[\s\S]*kinesiology-evolutions:review/);
   assert.equal(calls.length, 43);
 });
 

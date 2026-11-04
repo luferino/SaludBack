@@ -46,9 +46,9 @@ async function verifyTarget() {
     safeAssert(normalizedAddress(client.connection.stream.remoteAddress) === normalizedAddress(identity.server), 'database socket server identity mismatch');
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001-035 required before fixture cleanup');
-    const { rows: counts } = await client.query('SELECT (SELECT count(*)::int FROM patient_context_availabilities) availabilities,(SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM patients) patients,(SELECT count(*)::int FROM users) users');
-    assert.deepEqual(counts[0], { availabilities: 0, assignments: 0, patients: 0, users: 0 }, 'fixture baseline must be empty before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–035 required before fixture cleanup');
+    const { rows: counts } = await client.query('SELECT (SELECT count(*)::int FROM kinesiology_evolutions) evolutions,(SELECT count(*)::int FROM patient_context_availabilities) availabilities,(SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM patients) patients,(SELECT count(*)::int FROM users) users');
+    assert.deepEqual(counts[0], { evolutions: 0, availabilities: 0, assignments: 0, patients: 0, users: 0 }, 'fixture baseline must be empty before cleanup');
   } catch { throw new Error('Read-only disposable database preflight failed; details intentionally sanitized'); }
   finally { await client.end(); }
   return { url: declared.DATABASE_URL, declared };
@@ -108,7 +108,7 @@ before(async () => {
 beforeEach(async () => { const { rows } = await pool.query('SELECT name FROM schema_migrations ORDER BY name'); assert.deepEqual(rows.map(row => row.name), MIGRATIONS); await cleanDb(pool); });
 after(async () => {
   const errors = [];
-  if (pool && safeToClean) try { await cleanDb(pool); const { rows } = await pool.query('SELECT (SELECT count(*)::int FROM patient_context_availabilities) availabilities,(SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM patients) patients,(SELECT count(*)::int FROM users) users'); assert.deepEqual(rows[0], { availabilities: 0, assignments: 0, patients: 0, users: 0 }); } catch { errors.push(new Error('fixture cleanup or empty-state assertion failed')); }
+  if (pool && safeToClean) try { await cleanDb(pool); const { rows } = await pool.query('SELECT (SELECT count(*)::int FROM kinesiology_evolutions) evolutions,(SELECT count(*)::int FROM patient_context_availabilities) availabilities,(SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM patients) patients,(SELECT count(*)::int FROM users) users'); assert.deepEqual(rows[0], { evolutions: 0, availabilities: 0, assignments: 0, patients: 0, users: 0 }); } catch { errors.push(new Error('fixture cleanup or empty-state assertion failed')); }
   if (server) try { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); } catch { errors.push(new Error('test server shutdown failed')); }
   if (pool) try { await pool.end(); } catch { errors.push(new Error('pool shutdown failed')); }
   if (errors.length) throw new AggregateError(errors, 'Patient availability integration cleanup failed');

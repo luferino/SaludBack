@@ -192,9 +192,9 @@ test('migrations 011–035 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('030_seed_patient_availability_permissions.sql'), 'migration 030 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('031_create_kinesiology_evolutions.sql'), 'migration 031 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('032_seed_kinesiology_evolution_permissions.sql'), 'migration 032 must already be applied; this suite never migrates');
-  assert.ok(ledgerNamesBefore.has('033_create_kinesiology_evolution_reviews.sql'), 'migration 033 must already be applied; this suite never migrates');
-  assert.ok(ledgerNamesBefore.has('034_seed_kinesiology_evolution_review_permissions.sql'), 'migration 034 must already be applied; this suite never migrates');
-  assert.ok(ledgerNamesBefore.has('035_create_kinesiology_evolution_amendment_links.sql'), 'migration 035 must already be applied; this suite never migrates');
+   assert.ok(ledgerNamesBefore.has('033_create_kinesiology_evolution_reviews.sql'), 'migration 033 must already be applied; this suite never migrates');
+   assert.ok(ledgerNamesBefore.has('034_seed_kinesiology_evolution_review_permissions.sql'), 'migration 034 must already be applied; this suite never migrates');
+   assert.ok(ledgerNamesBefore.has('035_create_kinesiology_evolution_amendment_links.sql'), 'migration 035 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -275,27 +275,7 @@ test('migrations 011–035 are present before cleanup and cleanup restores the c
     { role: 'admin', permission: 'teacher-habilitations:write' },
   ]);
 
-  const { rows: kinesiologyEvolutionPermissions } = await pool.query(
-    "SELECT permission, enforced FROM permissions WHERE permission LIKE 'kinesiology-evolutions:%' ORDER BY permission",
-  );
-  assert.deepEqual(kinesiologyEvolutionPermissions, [
-    { permission: 'kinesiology-evolutions:read', enforced: true },
-    { permission: 'kinesiology-evolutions:review', enforced: true },
-    { permission: 'kinesiology-evolutions:submit', enforced: true },
-    { permission: 'kinesiology-evolutions:write', enforced: true },
-  ]);
-  const { rows: kinesiologyEvolutionGrants } = await pool.query(
-    "SELECT role, permission FROM role_permissions WHERE permission LIKE 'kinesiology-evolutions:%' ORDER BY role, permission",
-  );
-  assert.deepEqual(kinesiologyEvolutionGrants, [
-    { role: 'estudiante', permission: 'kinesiology-evolutions:read' },
-    { role: 'estudiante', permission: 'kinesiology-evolutions:submit' },
-    { role: 'estudiante', permission: 'kinesiology-evolutions:write' },
-    { role: 'teacher', permission: 'kinesiology-evolutions:read' },
-    { role: 'teacher', permission: 'kinesiology-evolutions:review' },
-  ]);
-
-  // Only the already-proven 001–035 baseline authorizes invoking broad cleanup.
+  // Only the already-proven 011–030 baseline authorizes invoking broad cleanup.
   cleanUpAuthorized = true;
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');

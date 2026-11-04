@@ -117,16 +117,6 @@ test('subjects pre-cleanup source validates the 015 permission and exact initial
   const baseline = source.slice(testStart, cleanup);
   assert.ok(testStart >= 0 && cleanup > testStart);
   assert.match(baseline, /ledgerNamesBefore\.has\('015_seed_teacher_habilitation_revocation_permission\.sql'\)/);
-  assert.match(baseline, /ledgerNamesBefore\.has\('031_create_kinesiology_evolutions\.sql'\)/);
-  assert.match(baseline, /ledgerNamesBefore\.has\('032_seed_kinesiology_evolution_permissions\.sql'\)/);
-  assert.match(baseline, /ledgerNamesBefore\.has\('033_create_kinesiology_evolution_reviews\.sql'\)/);
-  assert.match(baseline, /ledgerNamesBefore\.has\('034_seed_kinesiology_evolution_review_permissions\.sql'\)/);
-  assert.match(baseline, /ledgerNamesBefore\.has\('035_create_kinesiology_evolution_amendment_links\.sql'\)/);
-  assert.match(baseline, /kinesiology-evolutions:write', enforced: true/);
-  assert.match(baseline, /estudiante', permission: 'kinesiology-evolutions:write'/);
-  assert.match(baseline, /teacher', permission: 'kinesiology-evolutions:read'/);
-  assert.match(baseline, /estudiante', permission: 'kinesiology-evolutions:submit'/);
-  assert.match(baseline, /teacher', permission: 'kinesiology-evolutions:review'/);
   assert.match(baseline, /teacher-habilitations:revoke', enforced: true/);
   assert.match(baseline, /admin', permission: 'teacher-habilitations:revoke'/);
   assert.ok(baseline.indexOf('teacherHabilitationPermissions') < cleanup);

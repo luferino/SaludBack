@@ -42,7 +42,7 @@ async function verifyTarget(){
     assert.ok(Number(rows[0].port)===Number(url.port),'connected database port mismatch');assert.equal(rows[0].ro,'on');
     assert.ok(dnsRows.some(row=>address(row.address)===address(rows[0].server)));for(const ip of [rows[0].server,rows[0].peer,c.connection.stream.remoteAddress,c.connection.stream.localAddress])assert.ok(loopback(ip));
     await c.query('ROLLBACK');const {rows:ledger}=await c.query('SELECT name FROM public.schema_migrations ORDER BY name');assert.deepEqual(ledger.map(r=>r.name),MIGRATIONS);
-    const {rows:counts}=await c.query('SELECT (SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM users) users');assert.deepEqual(counts[0],{assignments:0,users:0});
+    const {rows:counts}=await c.query('SELECT (SELECT count(*)::int FROM kinesiology_evolutions) evolutions,(SELECT count(*)::int FROM patient_assignments) assignments,(SELECT count(*)::int FROM users) users');assert.deepEqual(counts[0],{evolutions:0,assignments:0,users:0});
     console.log(`Disposable test DB read-only preflight passed: ${rows[0].db}:${rows[0].port}; ledger=${ledger.length}; assignments=${counts[0].assignments}; users=${counts[0].users}`);
   }finally{await c.end();}return urlValue;
 }

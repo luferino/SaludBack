@@ -148,10 +148,12 @@ test('read-only post-migration target connection closes before suite execution',
   assert.match(finalTarget, /finally\s*\{\s*await finalTarget\.end\(\);\s*\}/);
 });
 
-test('post-migration target preflight requires exactly the A5 ledger count', () => {
+test('runner post-migration count matches the complete canonical migration inventory', () => {
   const source = readFileSync(runner, 'utf8');
-  assert.match(source, /ledger\.rowCount!==35/);
-  assert.doesNotMatch(source, /ledger\.rowCount!==32/);
+  const guard = source.match(/if\(ledger\.rowCount!==(\d+)\) safe\('migration ledger is incomplete'\)/);
+  assert.ok(guard, 'post-migration ledger count must be checked explicitly');
+  const migrations = readdirSync(path.join(root, 'src/db/migrations')).filter(name => /^\d+_.*\.sql$/.test(name));
+  assert.equal(Number(guard[1]), migrations.length);
 });
 
 test('runner treats any skipped integration test as failure', () => {

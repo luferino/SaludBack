@@ -28,10 +28,9 @@ const MIGRATIONS = [
   '022_create_kinesiology_consent_attestations.sql', '023_create_kinesiology_submissions.sql',
   '024_create_kinesiology_correction_requests.sql', '025_create_kinesiology_validation_reviews.sql',
   '026_create_kinesiology_amendment_links.sql',
-  '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql',
-  '031_create_kinesiology_evolutions.sql', '032_seed_kinesiology_evolution_permissions.sql',
-  '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql',
-  '035_create_kinesiology_evolution_amendment_links.sql',
+  '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql', '031_create_kinesiology_evolutions.sql',
+  '032_seed_kinesiology_evolution_permissions.sql', '033_create_kinesiology_evolution_reviews.sql',
+  '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
@@ -55,8 +54,9 @@ const EXPECTED_GRANTS = new Set([
   'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'estudiante:kinesiology-evolutions:submit', 'teacher:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:review',
 ]);
 const CLEANUP_TABLES = [
+  'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions',
   'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
-  'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
+  'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolution_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
   'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users',
 ];
@@ -206,7 +206,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 35, 'Expected the full 33-permission baseline before cleanup.');
+  assert.equal(permissions.length, 35, 'Expected the full 35-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -215,7 +215,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 45, 'Expected the full 43-grant baseline before cleanup.');
+  assert.equal(grants.length, 45, 'Expected the full 45-grant baseline before cleanup.');
 
   // Check every privilege used by cleanup and this fixture before its first
   // DELETE/TRUNCATE, reducing known failures for restricted roles without

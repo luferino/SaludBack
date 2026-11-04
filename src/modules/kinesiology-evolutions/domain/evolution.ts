@@ -9,9 +9,25 @@ export interface EvolutionContent {
 
 const fields = ['session_date', 'current_status', 'objectives', 'planned_treatment'] as const;
 
-export function validateCorrectionReason(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) throw new BadRequestError('reason must be a non-empty string');
-  return value;
+export function validateEvolutionContent(value: unknown): EvolutionContent {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BadRequestError('content must be an object');
+  }
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some(key => !fields.includes(key as typeof fields[number]))) {
+    throw new BadRequestError('content contains an unknown field');
+  }
+  const output: EvolutionContent = {};
+  for (const field of fields) {
+    const item = input[field];
+    if (item === undefined) continue;
+    if (item !== null && typeof item !== 'string') throw new BadRequestError(`${field} must be a string or null`);
+    if (field === 'session_date' && item !== null && !isCivilDate(item as string)) {
+      throw new BadRequestError('session_date must be a valid YYYY-MM-DD date');
+    }
+    output[field] = item as never;
+  }
+  return output;
 }
 
 export function validateEvolutionSubmission(value: unknown): EvolutionContent {
@@ -22,19 +38,9 @@ export function validateEvolutionSubmission(value: unknown): EvolutionContent {
   return content;
 }
 
-export function validateEvolutionContent(value: unknown): EvolutionContent {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new BadRequestError('content must be an object');
-  const input = value as Record<string, unknown>;
-  if (Object.keys(input).some(key => !fields.includes(key as typeof fields[number]))) throw new BadRequestError('content contains an unknown field');
-  const output: EvolutionContent = {};
-  for (const field of fields) {
-    const item = input[field];
-    if (item === undefined) continue;
-    if (item !== null && typeof item !== 'string') throw new BadRequestError(`${field} must be a string or null`);
-    if (field === 'session_date' && item !== null && !isCivilDate(item as string)) throw new BadRequestError('session_date must be a valid YYYY-MM-DD date');
-    output[field] = item as never;
-  }
-  return output;
+export function validateCorrectionReason(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) throw new BadRequestError('reason must be a non-empty string');
+  return value;
 }
 
 function isCivilDate(value: string): boolean {

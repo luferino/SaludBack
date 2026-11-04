@@ -54,19 +54,20 @@ const rejectsSafely = (input, message) => {
   });
 };
 
-test('schema guard keeps an explicit 001–034 ledger synchronized with migration files and the new empty baseline', () => {
+test('schema guard keeps an explicit 001–035 ledger synchronized with migration files and the new empty baseline', () => {
   const source = readFileSync(new URL('../helpers/disposable-integration-target.js', import.meta.url), 'utf8');
   const declaration = source.match(/const MIGRATIONS = \[([\s\S]*?)\]\.map\(/)?.[1];
   assert.ok(declaration, 'migration ledger must remain an explicit source list');
   const names = [...declaration.matchAll(/'([^']+\.sql)'/g)].map(([, name]) => name);
-  assert.equal(names.length, 34);
+  assert.equal(names.length, 35);
   assert.deepEqual(names.map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`),
     readdirSync(new URL('../../src/db/migrations/', import.meta.url)).filter((name) => /^\d{3}_.*\.sql$/.test(name)).sort());
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolutions'));
-  assert.equal(REQUIRED_EMPTY_BASELINE_TABLES.length, 24);
+  assert.equal(REQUIRED_EMPTY_BASELINE_TABLES.length, 25);
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_submissions'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_correction_requests'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_validation_reviews'));
+  assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_amendment_links'));
 });
 
 test('live guard rejects missing opt-in before reading a manifest or opening a socket', async () => {

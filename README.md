@@ -630,7 +630,19 @@ or otherwise inapplicable transitions cannot change the existing review.
 only to live origin-context readers with fresh read permission. Other current-care
 readers continue to see only the latest immutable submitted snapshot, even while an
 origin correction draft is open; they never see its working content or correction
-reason. Linked amendment creation and its endpoint remain outside this A4 slice.
+reason. A5 adds `POST /kinesiology-evolutions/:id/amendments`, which accepts exactly
+`{}` and requires a current student profile, active origin period, and the actor's
+own patient assignment. It can target only a validated original that remains
+readable in the same patient and origin context. The new evolution copies the
+reviewed immutable submission snapshot, records the original link, and receives
+new authorship; it never edits the original. The amendment follows the ordinary
+submission/correction/review/validation workflow. Migration
+`035_create_kinesiology_evolution_amendment_links.sql` enforces the immutable
+original link and matching clinical context. Hidden, unvalidated, unavailable, or
+mismatched parents do not create an amendment. The 001–035 empty application
+baseline contains 25 tables, alongside 35 permissions and 45 role grants. The
+synthetic public-API tests do not prove PostgreSQL constraints, locks, or
+concurrency; no PostgreSQL execution was performed for this slice.
 
 ### Academic catalog schema foundation
 

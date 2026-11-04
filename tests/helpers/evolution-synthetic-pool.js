@@ -6,14 +6,14 @@ const defaultPeriod = '60000000-0000-4000-8000-000000000001';
 
 export function evolutionSyntheticPool() {
   const state = {
-    queries: [], evolutions: [], submissions: [], corrections: [], reviews: [], commits: 0, rollbacks: 0, releases: 0,
+    queries: [], evolutions: [], submissions: [], corrections: [], reviews: [], amendmentLinks: [], commits: 0, rollbacks: 0, releases: 0,
     grantsByRole: { estudiante: evolutionGrants, teacher: ['kinesiology-evolutions:read', 'kinesiology-evolutions:review'], admin: [] },
     profiles: new Map([[evolutionActor, profileId(evolutionActor)]]),
     teachers: new Map([[teacherActor, '32000000-0000-4000-8000-000000000002']]),
     periods: [{ id: defaultPeriod, studentId: profileId(evolutionActor), subject: evolutionSubject, group: evolutionGroup, revoked: false }],
     teacherPeriods: [{ id: '62000000-0000-4000-8000-000000000002', teacherId: '32000000-0000-4000-8000-000000000002', subject: evolutionSubject, group: evolutionGroup, revoked: false }],
     assignments: [{ id: '9007199254740992', patient: evolutionPatient, subject: evolutionSubject, period: defaultPeriod, ended: false }],
-    failAfterInsert: false, mutateBeforeLock: null, failUpdate: false,
+    failAfterInsert: false, failAmendmentLink: false, mutateBeforeLock: null, failUpdate: false,
     evaluation: { id: '9007199254740993', clinical_record_id: '9007199254740994', patient_id: evolutionPatient,
       author_id: '30000000-0000-4000-8000-000000000009', origin_student_habilitation_id: '60000000-0000-4000-8000-000000000009',
       status: 'validated', origin_subject_id: '10000000-0000-4000-8000-000000000009', origin_group_id: '20000000-0000-4000-8000-000000000009' },
@@ -69,13 +69,17 @@ export function evolutionSyntheticPool() {
       const latest = state.submissions.filter(item => item.evolution_id === row.id).at(-1);
       if (!latest) return null;
       const review = state.reviews.find(item => item.evolution_id === row.id && item.submission_id === latest.id);
-      return { ...row, status: review ? 'validated' : 'submitted', content: latest.content,
+      const amendment = state.amendmentLinks.find(link => link.amendment_evolution_id === row.id);
+      return { ...row, ...(amendment ? { amendment_of_evolution_id: amendment.original_evolution_id } : {}),
+        status: review ? 'validated' : 'submitted', content: latest.content,
         projected_submission_id: latest.id, projected_submitted_by: latest.submitted_by, projected_submitted_at: latest.submitted_at,
         projected_reviewed_by: review?.reviewed_by ?? null, projected_reviewed_at: review?.reviewed_at ?? null,
         validation_status: review ? 'validated' : 'pending_validation', created_at: latest.submitted_at, updated_at: latest.submitted_at };
     }
     const latest = state.submissions.filter(item => item.evolution_id === row.id).at(-1);
-    return row.status === 'draft' || !latest ? { ...row } : { ...row, content: latest.content,
+    const amendment = state.amendmentLinks.find(link => link.amendment_evolution_id === row.id);
+    return row.status === 'draft' || !latest ? { ...row, ...(amendment ? { amendment_of_evolution_id: amendment.original_evolution_id } : {}) }
+      : { ...row, ...(amendment ? { amendment_of_evolution_id: amendment.original_evolution_id } : {}), content: latest.content,
       projected_submission_id: latest.id, projected_submitted_by: latest.submitted_by, projected_submitted_at: latest.submitted_at,
       validation_status: 'pending_validation' };
   };
@@ -97,12 +101,12 @@ export function evolutionSyntheticPool() {
     state.queries.push({ sql, params });
     if (sql.includes('FROM kinesiology_evolutions e')) assertLatestAlias(sql);
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) {
-      if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions, submissions: state.submissions, corrections: state.corrections, reviews: state.reviews });
+      if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions, submissions: state.submissions, corrections: state.corrections, reviews: state.reviews, amendmentLinks: state.amendmentLinks });
       if (sql === 'COMMIT') { state.commits++; state.snapshot = null; }
       if (sql === 'ROLLBACK') {
         state.rollbacks++;
         if (state.snapshot) { state.evolutions = state.snapshot.evolutions; state.submissions = state.snapshot.submissions;
-          state.corrections = state.snapshot.corrections; state.reviews = state.snapshot.reviews; }
+          state.corrections = state.snapshot.corrections; state.reviews = state.snapshot.reviews; state.amendmentLinks = state.snapshot.amendmentLinks; }
         state.snapshot = null;
       }
       return { rows: [] };
@@ -117,8 +121,9 @@ export function evolutionSyntheticPool() {
       return { rows: periodsFor(params[0], params[1], params[2]).map(period => ({ id: period.id })) };
     }
     if (sql.includes('FROM patients')) return { rows: params[0] === evolutionPatient ? [{ id: params[0] }] : [] };
-    if (sql.includes('FROM teachers t JOIN teacher_academic_habilitations th') &&
-      sql.includes('WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3')) {
+    const normalizedSql = sql.replace(/\s+/g, ' ');
+    if (normalizedSql.includes('FROM teachers t JOIN teacher_academic_habilitations th') &&
+      normalizedSql.includes('WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3')) {
       const teacherId = state.teachers.get(params[0]);
       const periods = state.teacherPeriods.filter(period => period.teacherId === teacherId && !period.revoked &&
         period.subject === params[1] && period.group === params[2]);
@@ -160,7 +165,15 @@ export function evolutionSyntheticPool() {
     }
     if (sql.includes('FROM clinical_records')) {
       const e = state.evaluation;
-      return { rows: e && e.clinical_record_id === params[0] && e.patient_id === params[1] ? [{ id: e.clinical_record_id }] : [] };
+      const originalBindingOrder = sql.includes('WHERE patient_id = $1 AND id = $2');
+      const matches = e && (originalBindingOrder
+        ? e.patient_id === params[0] && e.clinical_record_id === params[1]
+        : e.clinical_record_id === params[0] && e.patient_id === params[1]);
+      return { rows: matches ? [{ id: e.clinical_record_id }] : [] };
+    }
+    if (sql.includes('SELECT s.id::text AS id, s.clinical_content') && sql.includes('JOIN kinesiology_evolution_validation_reviews')) {
+      const row = state.submissions.find(item => item.evolution_id === params[0] && state.reviews.some(review => review.evolution_id === params[0] && review.submission_id === item.id));
+      return { rows: row ? [{ id: row.id, clinical_content: row.content }] : [] };
     }
     if (sql.includes('SELECT id::text AS id, clinical_content FROM kinesiology_evolution_submissions')) {
       const row = state.submissions.find(item => item.id === params[0] && item.evolution_id === params[1]);
@@ -211,8 +224,18 @@ export function evolutionSyntheticPool() {
       row.status = 'submitted'; row.updated_at = '2026-02-28T12:00:00Z';
       return { rows: [{ id: row.id }] };
     }
+    if (sql.includes('INSERT INTO kinesiology_evolution_amendment_links')) {
+      if (state.failAmendmentLink) throw new Error('synthetic amendment link failure');
+      state.amendmentLinks.push({ amendment_evolution_id: params[0], original_evolution_id: params[1], evaluation_id: params[2],
+        clinical_record_id: params[3], patient_id: params[4], origin_subject_id: params[5], origin_group_id: params[6] });
+      return { rows: [] };
+    }
+    if (sql.includes('FROM kinesiology_evolution_amendment_links WHERE amendment_evolution_id = $1')) {
+      const link = state.amendmentLinks.find(item => item.amendment_evolution_id === params[0]);
+      return { rows: link ? [{ original_evolution_id: link.original_evolution_id }] : [] };
+    }
     if (sql.includes('INSERT INTO kinesiology_evolutions')) {
-      const row = { id: String(9007199254740995n + BigInt(state.evolutions.length)), clinical_record_id: params[0], patient_id: params[1],
+      const row = { id: String(9007199254740995n + BigInt(state.evolutions.length)),  clinical_record_id: params[0], patient_id: params[1],
         evaluation_id: params[2], author_id: params[3], origin_student_habilitation_id: params[4], origin_subject_id: params[5],
         origin_group_id: params[6], content: JSON.parse(params[7]), status: 'draft', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
       state.evolutions.push(row);
@@ -233,11 +256,17 @@ export function evolutionSyntheticPool() {
       if (!row || !canRead(row, params[1])) return { rows: [] };
       const history = state.submissions.filter(item => item.evolution_id === row.id);
       const visible = privateReadable(row, params[1]) ? history : history.slice(-1);
+      if (!visible.length) return { rows: [{ visible_evolution_id: row.id, amendment_of_evolution_id: null,
+        id: null, evolution_id: null, ordinal: null, submitted_by: null, submitted_at: null, content: null,
+        validation_status: null, reviewed_by: null, reviewed_at: null }] };
       return { rows: visible.map(item => {
         const review = state.reviews.find(entry => entry.evolution_id === row.id && entry.submission_id === item.id);
-        return { evolution_id: row.id, id: item.id, ordinal: item.ordinal, submitted_by: item.submitted_by,
-          submitted_at: item.submitted_at, content: item.content, validation_status: review ? 'validated' : 'pending_validation',
-          reviewed_by: review?.reviewed_by ?? null, reviewed_at: review?.reviewed_at ?? null };
+        const amendment = state.amendmentLinks.find(link => link.amendment_evolution_id === row.id);
+        return { visible_evolution_id: row.id, evolution_id: item.evolution_id,
+          amendment_of_evolution_id: amendment?.original_evolution_id ?? null, id: item.id, ordinal: item.ordinal,
+          submitted_by: item.submitted_by, submitted_at: item.submitted_at, content: item.content,
+          validation_status: review ? 'validated' : 'pending_validation', reviewed_by: review?.reviewed_by ?? null,
+          reviewed_at: review?.reviewed_at ?? null };
       }) };
     }
     if (sql.includes('FROM kinesiology_evolutions e')) {

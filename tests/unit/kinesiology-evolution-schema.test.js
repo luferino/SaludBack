@@ -32,3 +32,15 @@ test('A3 migrations add immutable submission and review-event tables plus separa
   assert.match(grants, /\('teacher', 'kinesiology-evolutions:review'\)/);
   assert.doesNotMatch(grants, /\('admin',/);
 });
+
+test('A5 migration links amendment rows to an immutable original and matching clinical context', () => {
+  const sql = migration('035_create_kinesiology_evolution_amendment_links.sql');
+  assert.match(sql, /CREATE TABLE kinesiology_evolution_amendment_links/);
+  assert.match(sql, /amendment_evolution_id BIGINT PRIMARY KEY/);
+  assert.match(sql, /CHECK \(amendment_evolution_id <> original_evolution_id\)/);
+  assert.equal((sql.match(/FOREIGN KEY \(/g) ?? []).length, 2);
+  assert.match(sql, /FOREIGN KEY \(amendment_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*ON DELETE RESTRICT/);
+  assert.match(sql, /FOREIGN KEY \(original_evolution_id, evaluation_id, clinical_record_id, patient_id, origin_subject_id, origin_group_id\)[\s\S]*ON DELETE RESTRICT/);
+  assert.match(sql, /CREATE INDEX kinesiology_evolution_amendment_links_original_idx/);
+  assert.doesNotMatch(sql, /INSERT INTO permissions|INSERT INTO role_permissions/);
+});

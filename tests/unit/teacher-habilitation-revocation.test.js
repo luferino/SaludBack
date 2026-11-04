@@ -112,7 +112,7 @@ test('migration 015 adds an enforced separately delegable permission with an ini
 
 test('subjects pre-cleanup source validates the 015 permission and exact initial grant baseline before cleanup', () => {
   const source = readFileSync(new URL('../integration/subjects.test.js', import.meta.url), 'utf8');
-  const testStart = source.indexOf("test('migrations 011–034");
+  const testStart = source.indexOf("test('migrations 011–035");
   const cleanup = source.indexOf('cleanUpAuthorized = true;', testStart);
   const baseline = source.slice(testStart, cleanup);
   assert.ok(testStart >= 0 && cleanup > testStart);
@@ -121,6 +121,7 @@ test('subjects pre-cleanup source validates the 015 permission and exact initial
   assert.match(baseline, /ledgerNamesBefore\.has\('032_seed_kinesiology_evolution_permissions\.sql'\)/);
   assert.match(baseline, /ledgerNamesBefore\.has\('033_create_kinesiology_evolution_reviews\.sql'\)/);
   assert.match(baseline, /ledgerNamesBefore\.has\('034_seed_kinesiology_evolution_review_permissions\.sql'\)/);
+  assert.match(baseline, /ledgerNamesBefore\.has\('035_create_kinesiology_evolution_amendment_links\.sql'\)/);
   assert.match(baseline, /kinesiology-evolutions:write', enforced: true/);
   assert.match(baseline, /estudiante', permission: 'kinesiology-evolutions:write'/);
   assert.match(baseline, /teacher', permission: 'kinesiology-evolutions:read'/);

@@ -26,6 +26,7 @@ const MIGRATIONS = [
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql',
   '031_create_kinesiology_evolutions.sql', '032_seed_kinesiology_evolution_permissions.sql',
   '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql',
+  '035_create_kinesiology_evolution_amendment_links.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';

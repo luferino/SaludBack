@@ -18,7 +18,7 @@ error handler. Construction and mounting are separated under `src/bootstrap/`:
 - `routes/academic.routes.ts` mounts subjects, groups, linked contexts and
   habilitations. Its separate teacher-habilitation mount preserves the original
   registration order after clinical routes.
-- `routes/clinical.routes.ts` mounts assignments, kinesiology evaluations and kinesiology evolutions.
+- `routes/clinical.routes.ts` mounts assignments and kinesiology evaluations.
 
 Mounts keep authentication before protected handlers and retain each existing
 permission guard. No DI container, automatic route registry or HTTP contract
@@ -40,7 +40,7 @@ the current application.
 
 ## Clinical module architecture
 
-`kinesiology-evaluations` and `patient-assignments` follow the same inward dependency
+`kinesiology-evaluations`, `kinesiology-evolutions` and `patient-assignments` follow the same inward dependency
 rule as the other layered modules:
 
 | Layer | Responsibility |
@@ -141,6 +141,16 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/patient-assignments` | assign an available patient to an active student period — `patient-assignments:write` + active teacher context |
 | `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
 | `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
+| `POST` | `/kinesiology-evolutions` | create an independently stored session-evolution draft linked to a validated evaluation — `kinesiology-evolutions:write` + current student context/assignment |
+| `POST` | `/kinesiology-evolutions/:id/amendments` | create a separately authored draft from the original's latest validated snapshot — `kinesiology-evolutions:write` + current student context/assignment |
+| `PATCH` | `/kinesiology-evolutions/:id` | edit an accessible own evolution draft — `kinesiology-evolutions:write` |
+| `GET` | `/kinesiology-evolutions/:id` | read an evolution in live author/origin-teacher context — `kinesiology-evolutions:read` |
+| `GET` | `/kinesiology-evolutions?patient_id=<uuid>` | list visible evolution records for a patient — `kinesiology-evolutions:read` |
+| `POST` | `/kinesiology-evolutions/:id/submissions` | submit a complete own draft — `kinesiology-evolutions:submit` + current student assignment |
+| `GET` | `/kinesiology-evolutions/:id/submissions` | read origin-context submission history — `kinesiology-evolutions:read` |
+| `POST` | `/kinesiology-evolutions/:id/corrections` | return latest submission with a reason — `kinesiology-evolutions:review` + active origin teacher context |
+| `GET` | `/kinesiology-evolutions/:id/corrections` | read origin-context correction history — `kinesiology-evolutions:read` |
+| `POST` | `/kinesiology-evolutions/:id/validations` | validate latest submitted snapshot — `kinesiology-evolutions:review` + active origin teacher context |
 | `POST` | `/kinesiology-evaluations` | create an initial-evaluation draft — `kinesiology-evaluations:write` + current own assignment |
 | `PATCH` | `/kinesiology-evaluations/:id` | edit own accessible draft — `kinesiology-evaluations:write` |
 | `GET` | `/kinesiology-evaluations/:id` | read a draft in live author/origin-teacher context, or a submitted snapshot with current patient-care access — `kinesiology-evaluations:read` |
@@ -295,6 +305,14 @@ Creation locks/revalidates the teacher context, exact active student period, the
 `POST /patient-assignments/:id/reassign` accepts `{ "student_habilitation_id", "subject_id", "academic_group_id" }` and returns `200` with the replacement assignment. `id` is a positive BIGINT decimal string. The actor must have `patient-assignments:write` and active teacher contexts for both source and destination groups in the same subject; the destination period must be active and match that subject/group. Active patient availability is required in the destination context, but not in the source context. Missing destination availability returns `409` with `patient is not available in the destination context` before changing the source. The old row is closed with server-owned actor/time and null `end_reason`, and the replacement row is inserted atomically. Errors include `400` malformed ID/UUID or cross-subject request, `401` missing/invalid authentication, `403` missing permission/context, `404` missing assignment/active destination period, and `409` ended source or active-assignment uniqueness conflict.
 
 `POST /patient-assignments/:id/end` requires `{ "end_reason": "..." }` and returns `200` with the closed assignment. The reason must be a string containing non-whitespace and is persisted trimmed; actor and timestamp are server-owned. Missing, null, non-string, or blank reasons return `400` with `end_reason must be a non-empty string`, without changing state. Already-ended assignments return `409` and retain their original end facts. Both lifecycle routes require the fresh `patient-assignments:write` grant and an active teacher context. They lock teacher contexts, student periods, patient, then assignment and revalidate inside one transaction. Automatic closure during reassignment or student revocation does not require a user reason. Availability withdrawal has no such cascade: existing assignment lists, explicit ending and current clinical access remain governed by their existing authorization rules.
+
+### Clinical session evolutions (T1–T3)
+
+Evolution records are separate editable drafts, not changes to their validated parent evaluation. `POST /kinesiology-evolutions` accepts `{ patient_id, evaluation_id, subject_id, academic_group_id, content }`; `content` may contain optional `session_date`, `current_status`, `objectives`, and `planned_treatment` strings or nulls. Drafts may be incomplete. The session date must be a real civil `YYYY-MM-DD` date when supplied. The author and active student period are derived from the verified actor and current matching context; caller-supplied author/audit fields and unknown content keys are rejected. The evaluation must be validated, readable under current clinical access, and belong to the same patient clinical record. Reassignment does not require the new author to have authored the parent or to belong to its original student period. Each write checks active current context and assignment transactionally; the same date may be used for multiple sessions.
+
+`PATCH /kinesiology-evolutions/:id` edits only the author's own accessible draft and is locked after submission until a teacher requests correction. `POST /:id/submissions` accepts exactly `{}` and requires all four nonblank clinical values plus a real civil session date. It freezes an immutable ordinal snapshot with server-owned author/time. `POST /:id/corrections` accepts `{ submission_id, reason }`; the origin teacher needs the fresh review grant and current origin habilitation, and the target must be the latest snapshot. The correction restores that snapshot to the draft without changing history. `POST /:id/validations` accepts `{ submission_id }` and freezes the latest version with reviewer/time provenance.
+
+Origin readers see the working draft, all snapshots, and correction reasons. Other students and teachers see only the latest submitted snapshot when current patient-care access is active; they do not see drafts, older versions, or correction reasons. These reads project the snapshot content and submitted timestamp, including while the origin draft is being corrected. Cross-context access does not grant edit/review access. A validated evolution is never overwritten: `POST /kinesiology-evolutions/:id/amendments` accepts exactly `{}` and creates a new draft from the original's latest validated snapshot. The current student must have an active matching origin-context period and current assignment; the original author need not remain active. The new author may edit and submit through this same workflow, while the original content and history remain intact. Responses identify the parent with `amendment_of_evolution_id`; cross-context readers still see only submitted snapshots and never an unsubmitted amendment. BIGINT identifiers are decimal strings. Migrations 031–034 create draft/review storage and seed grants; source-only migration 035 adds restrictive, context-matched amendment links. Snapshot immutability is enforced by the application workflow, not a database trigger.
 
 ### Initial kinesiology evaluation drafts (T1)
 
@@ -562,87 +580,6 @@ BIGINT values as decimal strings at JavaScript/API boundaries. Patient and actor
 references remain UUIDs. There is no record status, endpoint, clinical content,
 or immutable event-audit claim; nullable `created_`/`updated_` columns follow the
 existing actor-bookkeeping convention.
-
-### Private kinesiology-evolution drafts (A2)
-
-`/kinesiology-evolutions` provides private draft creation, read/list and edit.
-A student supplies `patient_id`, `evaluation_id`, `subject_id`,
-`academic_group_id` and a `content` object with optional nullable
-`session_date`, `current_status`, `objectives` and `planned_treatment`. Drafts
-may be incomplete. A validated evaluation for the same patient and clinical
-record is required; the authenticated author, current origin period and active
-assignment are derived from live server state. Civil dates and unknown fields
-are validated, and BIGINT IDs remain decimal strings.
-
-Only the current author with live origin membership and own assignment, or an
-active teacher in the exact origin context, can read an unsubmitted draft.
-Teachers cannot edit; administrators and cross-context care access do not
-bypass this rule. `PATCH /:id` updates only the author's draft. The endpoints
-are composed explicitly in bootstrap and share fresh permission checks and
-transactional repository writes. Synthetic HTTP tests and typechecking do
-not establish new PostgreSQL behavior; historical 482-unit/171-integration
-results belong to the preserved final implementation, not this candidate.
-
-### Immutable evolution submissions (A3)
-
-`POST /kinesiology-evolutions/:id/submissions` accepts only `{}` and requires
-fresh `kinesiology-evolutions:submit` permission. The current author must still
-have live origin-context membership and an active patient assignment. All four
-content fields are required; text must be nonblank and `session_date` must be a
-valid civil `YYYY-MM-DD` date. The transaction locks the context, patient,
-assignment and evolution before saving an immutable snapshot and marking the
-draft `submitted`. A failed transition rolls back the snapshot. Submitted
-records cannot be edited or submitted again in this slice.
-
-`GET /kinesiology-evolutions/:id/submissions` requires fresh read permission.
-Origin-author/current-context and origin-teacher visibility remains scoped to
-live membership. Current-care students and teachers outside the origin context
-may read only submitted snapshots, never private drafts. Detail/list project the
-latest submitted content and submission timestamps; cross-context history
-exposes only that latest snapshot. Submission IDs and ordinals are decimal
-strings; submission timestamps are ISO strings. No additional per-session
-consent attestation or legal digital signature is introduced.
-
-Migrations 033/034 add immutable snapshot/review tables and separate submit/review grants.
-The safe unit suite and synthetic HTTP checks do not establish PostgreSQL
-constraint or concurrent-transaction proof for this reconstructed prefix.
-
-### Review, correction and resubmission (A4)
-
-Origin teachers with the fresh `kinesiology-evolutions:review` grant may review only
-the latest submitted snapshot in its exact live subject/group context. `POST
-/kinesiology-evolutions/:id/corrections` accepts exactly `{ "submission_id":
-"<positive BIGINT decimal string>", "reason": "<nonblank string>" }`. A successful
-`201` records the verified reviewer and server time, and reopens the author's draft
-from that immutable snapshot. The author must still have an active origin profile,
-period and own patient assignment to edit and resubmit; resubmission creates the
-next immutable ordinal. Stale or non-latest targets return `409`, unknown snapshots
-return `404`, and invalid or missing reasons return `400`. Rejected transitions
-leave the document, snapshots and review events unchanged.
-
-`POST /kinesiology-evolutions/:id/validations` accepts exactly
-`{ "submission_id": "<positive BIGINT decimal string>" }`. A successful `201`
-records the authenticated reviewer, active origin teacher period and database time,
-and marks the latest submission validated without rewriting it. Repeated, stale
-or otherwise inapplicable transitions cannot change the existing review.
-
-`GET /kinesiology-evolutions/:id/corrections` exposes reasons and reviewer metadata
-only to live origin-context readers with fresh read permission. Other current-care
-readers continue to see only the latest immutable submitted snapshot, even while an
-origin correction draft is open; they never see its working content or correction
-reason. A5 adds `POST /kinesiology-evolutions/:id/amendments`, which accepts exactly
-`{}` and requires a current student profile, active origin period, and the actor's
-own patient assignment. It can target only a validated original that remains
-readable in the same patient and origin context. The new evolution copies the
-reviewed immutable submission snapshot, records the original link, and receives
-new authorship; it never edits the original. The amendment follows the ordinary
-submission/correction/review/validation workflow. Migration
-`035_create_kinesiology_evolution_amendment_links.sql` enforces the immutable
-original link and matching clinical context. Hidden, unvalidated, unavailable, or
-mismatched parents do not create an amendment. The 001–035 empty application
-baseline contains 25 tables, alongside 35 permissions and 45 role grants. The
-synthetic public-API tests do not prove PostgreSQL constraints, locks, or
-concurrency; no PostgreSQL execution was performed for this slice.
 
 ### Academic catalog schema foundation
 

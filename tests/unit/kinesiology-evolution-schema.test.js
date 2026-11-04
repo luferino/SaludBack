@@ -16,3 +16,19 @@ test('A1 migrations establish only the exact original evolution draft schema and
   assert.match(permissions, /\('teacher', 'kinesiology-evolutions:read'\)/);
   assert.doesNotMatch(permissions, /\('teacher', 'kinesiology-evolutions:write'\)|\('admin',/);
 });
+
+test('A3 migrations add immutable submission and review-event tables plus separate grants', () => {
+  const submissions = migration('033_create_kinesiology_evolution_reviews.sql');
+  assert.match(submissions, /CHECK \(status IN \('draft', 'submitted', 'validated'\)\)/);
+  assert.match(submissions, /CREATE TABLE kinesiology_evolution_submissions/);
+  assert.match(submissions, /clinical_content JSONB NOT NULL/);
+  assert.match(submissions, /UNIQUE \(evolution_id, ordinal\)/);
+  assert.match(submissions, /CREATE TABLE kinesiology_evolution_correction_requests/);
+  assert.match(submissions, /CREATE TABLE kinesiology_evolution_validation_reviews/);
+  assert.match(submissions, /FOREIGN KEY \(submission_id, evolution_id\)[\s\S]*ON DELETE RESTRICT/);
+  assert.doesNotMatch(submissions, /amendment|kinesiology_evolution_amendment/);
+  const grants = migration('034_seed_kinesiology_evolution_review_permissions.sql');
+  assert.match(grants, /\('estudiante', 'kinesiology-evolutions:submit'\)/);
+  assert.match(grants, /\('teacher', 'kinesiology-evolutions:review'\)/);
+  assert.doesNotMatch(grants, /\('admin',/);
+});

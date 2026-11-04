@@ -6,8 +6,8 @@ const defaultPeriod = '60000000-0000-4000-8000-000000000001';
 
 export function evolutionSyntheticPool() {
   const state = {
-    queries: [], evolutions: [], commits: 0, rollbacks: 0, releases: 0,
-    grantsByRole: { estudiante: evolutionGrants, teacher: ['kinesiology-evolutions:read'], admin: [] },
+    queries: [], evolutions: [], submissions: [], commits: 0, rollbacks: 0, releases: 0,
+    grantsByRole: { estudiante: evolutionGrants, teacher: ['kinesiology-evolutions:read', 'kinesiology-evolutions:review'], admin: [] },
     profiles: new Map([[evolutionActor, profileId(evolutionActor)]]),
     teachers: new Map([[teacherActor, '32000000-0000-4000-8000-000000000002']]),
     periods: [{ id: defaultPeriod, studentId: profileId(evolutionActor), subject: evolutionSubject, group: evolutionGroup, revoked: false }],
@@ -46,6 +46,36 @@ export function evolutionSyntheticPool() {
     });
     return ownAssignment || teacherHasContext(actor, row.origin_subject_id, row.origin_group_id);
   };
+  const currentCareReadable = (row, actor) => {
+    if (row.status !== 'submitted') return false;
+    const profile = state.profiles.get(actor);
+    const studentCare = !!profile && state.assignments.some(assignment => {
+      const period = state.periods.find(item => item.id === assignment.period);
+      return assignment.patient === row.patient_id && !assignment.ended && period && !period.revoked &&
+        period.studentId === profile && assignment.subject === period.subject;
+    });
+    const teacherId = state.teachers.get(actor);
+    const teacherCare = !!teacherId && state.teacherPeriods.filter(period => period.teacherId === teacherId && !period.revoked).some(period =>
+      state.assignments.some(assignment => {
+        const studentPeriod = state.periods.find(item => item.id === assignment.period);
+        return assignment.patient === row.patient_id && !assignment.ended && studentPeriod && !studentPeriod.revoked &&
+          studentPeriod.subject === period.subject && studentPeriod.group === period.group && assignment.subject === period.subject;
+      }));
+    return studentCare || teacherCare;
+  };
+  const canRead = (row, actor) => privateReadable(row, actor) || currentCareReadable(row, actor);
+  const projected = (row, actor) => {
+    if (!privateReadable(row, actor) && currentCareReadable(row, actor)) {
+      const latest = state.submissions.filter(item => item.evolution_id === row.id).at(-1);
+      if (!latest) return null;
+      return { ...row, content: latest.content, projected_submission_id: latest.id, projected_submitted_by: latest.submitted_by,
+        projected_submitted_at: latest.submitted_at, validation_status: 'pending_validation', created_at: latest.submitted_at, updated_at: latest.submitted_at };
+    }
+    const latest = state.submissions.filter(item => item.evolution_id === row.id).at(-1);
+    return row.status === 'draft' || !latest ? { ...row } : { ...row, content: latest.content,
+      projected_submission_id: latest.id, projected_submitted_by: latest.submitted_by, projected_submitted_at: latest.submitted_at,
+      validation_status: 'pending_validation' };
+  };
   const assertOriginSql = sql => {
     for (const fragment of ['a.patient_id = e.patient_id', 'a.subject_id = sp.subject_id',
       'sp.subject_id = e.origin_subject_id', 'sp.academic_group_id = e.origin_group_id',
@@ -58,18 +88,18 @@ export function evolutionSyntheticPool() {
   const query = async (sql, params = []) => {
     state.queries.push({ sql, params });
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) {
-      if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions });
+      if (sql === 'BEGIN') state.snapshot = structuredClone({ evolutions: state.evolutions, submissions: state.submissions });
       if (sql === 'COMMIT') { state.commits++; state.snapshot = null; }
       if (sql === 'ROLLBACK') {
         state.rollbacks++;
-        if (state.snapshot) state.evolutions = state.snapshot.evolutions;
+        if (state.snapshot) { state.evolutions = state.snapshot.evolutions; state.submissions = state.snapshot.submissions; }
         state.snapshot = null;
       }
       return { rows: [] };
     }
     if (sql.includes('FROM role_permissions')) return { rows: (state.grantsByRole[params[0]] || []).map(permission => ({ permission })) };
     if (sql.includes('FROM students WHERE user_id')) return { rows: state.profiles.has(params[0]) ? [{ id: state.profiles.get(params[0]) }] : [] };
-    if (sql.includes('FROM student_academic_habilitations')) {
+    if (sql.includes('FROM student_academic_habilitations') && sql.includes('WHERE student_id = $1')) {
       assertFragment(sql, 'student_id = $1');
       assertFragment(sql, 'subject_id = $2');
       assertFragment(sql, 'academic_group_id = $3');
@@ -115,6 +145,19 @@ export function evolutionSyntheticPool() {
       const e = state.evaluation;
       return { rows: e && e.clinical_record_id === params[0] && e.patient_id === params[1] ? [{ id: e.clinical_record_id }] : [] };
     }
+    if (sql.includes('INSERT INTO kinesiology_evolution_submissions')) {
+      assertFragment(sql, 'COALESCE(MAX(ordinal), 0) + 1');
+      const row = { id: String(1 + state.submissions.length), evolution_id: params[0], ordinal: String(1 + state.submissions.filter(item => item.evolution_id === params[0]).length),
+        submitted_by: params[1], submitted_at: '2026-02-28T12:00:00Z', content: JSON.parse(params[2]) };
+      state.submissions.push(row);
+      return { rows: [{ ...row }] };
+    }
+    if (sql.includes("UPDATE kinesiology_evolutions SET status = 'submitted'")) {
+      const row = state.evolutions.find(item => item.id === params[0]);
+      if (!row || row.status !== 'draft' || state.failUpdate) return { rows: [] };
+      row.status = 'submitted'; row.updated_at = '2026-02-28T12:00:00Z';
+      return { rows: [{ id: row.id }] };
+    }
     if (sql.includes('INSERT INTO kinesiology_evolutions')) {
       const row = { id: String(9007199254740995n + BigInt(state.evolutions.length)), clinical_record_id: params[0], patient_id: params[1],
         evaluation_id: params[2], author_id: params[3], origin_student_habilitation_id: params[4], origin_subject_id: params[5],
@@ -122,6 +165,15 @@ export function evolutionSyntheticPool() {
       state.evolutions.push(row);
       if (state.failAfterInsert) throw new Error('synthetic insert failure');
       return { rows: [{ ...row }] };
+    }
+    if (sql.includes('JOIN kinesiology_evolution_submissions s ON s.evolution_id = e.id')) {
+      assertOriginSql(sql);
+      const row = state.evolutions.find(item => item.id === params[0]);
+      if (!row || !canRead(row, params[1])) return { rows: [] };
+      const history = state.submissions.filter(item => item.evolution_id === row.id);
+      const visible = privateReadable(row, params[1]) ? history : history.slice(-1);
+      return { rows: visible.map(item => ({ evolution_id: row.id, id: item.id,
+        ordinal: item.ordinal, submitted_by: item.submitted_by, submitted_at: item.submitted_at, content: item.content, validation_status: 'pending_validation' })) };
     }
     if (sql.includes('FROM kinesiology_evolutions e')) {
       assertOriginSql(sql);
@@ -133,8 +185,8 @@ export function evolutionSyntheticPool() {
         if (subjectParam) rows = rows.filter(row => row.origin_subject_id === params[Number(subjectParam) - 1]);
         if (groupParam) rows = rows.filter(row => row.origin_group_id === params[Number(groupParam) - 1]);
       }
-      rows = rows.filter(row => privateReadable(row, params[1]));
-      return { rows: rows.map(row => ({ ...row })) };
+      rows = rows.filter(row => canRead(row, params[1]));
+      return { rows: rows.map(row => projected(row, params[1])).filter(Boolean) };
     }
     if (sql.includes('FROM kinesiology_evolutions WHERE id = $1')) {
       let row = state.evolutions.find(item => item.id === params[0]);

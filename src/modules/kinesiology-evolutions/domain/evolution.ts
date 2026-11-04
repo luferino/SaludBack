@@ -9,6 +9,14 @@ export interface EvolutionContent {
 
 const fields = ['session_date', 'current_status', 'objectives', 'planned_treatment'] as const;
 
+export function validateEvolutionSubmission(value: unknown): EvolutionContent {
+  const content = validateEvolutionContent(value);
+  if (!content.session_date || !content.current_status?.trim() || !content.objectives?.trim() || !content.planned_treatment?.trim()) {
+    throw new BadRequestError('all evolution fields are required for submission');
+  }
+  return content;
+}
+
 export function validateEvolutionContent(value: unknown): EvolutionContent {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new BadRequestError('content must be an object');
   const input = value as Record<string, unknown>;

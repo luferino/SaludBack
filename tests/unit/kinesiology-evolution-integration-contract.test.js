@@ -13,6 +13,8 @@ test('schema scenario proves the exact selected disposable target before a read-
   assert.match(source, /finally[\s\S]*pool\.end\(\)/);
   assert.match(source, /pg_catalog\.(?:pg_attribute|pg_constraint)/);
   assert.match(source, /kinesiology_evolutions/);
+  assert.match(source, /draft'::text, 'submitted'::text, 'validated'::text/);
+  assert.doesNotMatch(source, /CHECK \(\(status = 'draft'::text\)\)/);
   assert.doesNotMatch(source, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|CREATE|DROP)\s+(?:INTO\s+)?(?:TABLE|INDEX|public\.)/i);
   assert.doesNotMatch(source, /\b(?:cleanDb|fixture|seed|\.skip\s*\(\s*false)/i);
 });

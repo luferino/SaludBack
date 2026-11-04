@@ -30,6 +30,9 @@ function serialize(row: EvolutionView) {
   return { id: row.id, clinical_record_id: row.clinical_record_id, evaluation_id: row.evaluation_id,
     patient_id: row.patient_id, author_id: row.author_id, origin_student_habilitation_id: row.origin_student_habilitation_id,
     origin_subject_id: row.origin_subject_id, origin_group_id: row.origin_group_id, content: row.content, status: row.status,
+    ...(row.status !== 'draft' ? { validation_status: row.validation_status ?? 'pending_validation',
+      ...(row.projected_submission_id ? { submission_id: row.projected_submission_id, submitted_by: row.projected_submitted_by,
+        submitted_at: row.projected_submitted_at && new Date(row.projected_submitted_at).toISOString() } : {}) } : {}),
     created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString() };
 }
 function queryUuid(value: unknown, field: string, required = false): string | undefined {
@@ -60,6 +63,16 @@ export function createKinesiologyEvolutionRouter({
     const body = object(request.body);
     if (Object.keys(body).some(key => key !== 'content')) throw new BadRequestError('body may contain only content');
     response.json(serialize(await service.edit(id(request.params.id), body.content, user)));
+  });
+  router.post('/:id/submissions', async (request: Request, response: Response) => {
+    await new PermissionGuard('kinesiology-evolutions:submit').authorize(request);
+    const user = await actor(getActor, request);
+    if (Object.keys(object(request.body)).length) throw new BadRequestError('body must be an empty object');
+    response.status(201).json(await service.submit(id(request.params.id), user));
+  });
+  router.get('/:id/submissions', async (request: Request, response: Response) => {
+    await readGuard.authorize(request);
+    response.json(await service.submissions(id(request.params.id), await actor(getActor, request)));
   });
   router.get('/:id', async (request: Request, response: Response) => {
     await readGuard.authorize(request);

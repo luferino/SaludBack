@@ -5,7 +5,7 @@ import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integra
 
 const selected = process.env.DISPOSABLE_INTEGRATION_TARGET === 'true';
 
-test('generated disposable target exposes the read-only A1 evolution schema', {
+test('generated disposable target exposes the read-only A3 evolution schema', {
   skip: selected ? false : 'requires explicit disposable integration target opt-in',
 }, async () => {
   await verifyDisposableIntegrationTarget();
@@ -67,7 +67,7 @@ test('generated disposable target exposes the read-only A1 evolution schema', {
       { columns: ['origin_subject_id'], referenced_table: 'subjects', referenced_columns: ['id'] },
     ]);
     assert.ok(foreignKeys.every(({ definition }) => /ON DELETE RESTRICT$/.test(definition)));
-    assert.ok(constraints.rows.some(({ type, definition }) => type === 'c' && /CHECK \(\(status = 'draft'::text\)\)/.test(definition)));
+    assert.ok(constraints.rows.some(({ type, definition }) => type === 'c' && /CHECK \(\(status = ANY \(ARRAY\['draft'::text, 'submitted'::text, 'validated'::text\]\)\)\)/.test(definition)));
   } finally {
     await pool.end();
   }

@@ -18,7 +18,7 @@ error handler. Construction and mounting are separated under `src/bootstrap/`:
 - `routes/academic.routes.ts` mounts subjects, groups, linked contexts and
   habilitations. Its separate teacher-habilitation mount preserves the original
   registration order after clinical routes.
-- `routes/clinical.routes.ts` mounts assignments, kinesiology evaluations and private kinesiology-evolution drafts.
+- `routes/clinical.routes.ts` mounts assignments, kinesiology evaluations and kinesiology evolutions.
 
 Mounts keep authentication before protected handlers and retain each existing
 permission guard. No DI container, automatic route registry or HTTP contract
@@ -579,10 +579,34 @@ active teacher in the exact origin context, can read an unsubmitted draft.
 Teachers cannot edit; administrators and cross-context care access do not
 bypass this rule. `PATCH /:id` updates only the author's draft. The endpoints
 are composed explicitly in bootstrap and share fresh permission checks and
-transactional repository writes. Submission, review, corrections and amendments
-are later slices, not available in A2. Synthetic HTTP tests and typechecking do
+transactional repository writes. Synthetic HTTP tests and typechecking do
 not establish new PostgreSQL behavior; historical 482-unit/171-integration
 results belong to the preserved final implementation, not this candidate.
+
+### Immutable evolution submissions (A3)
+
+`POST /kinesiology-evolutions/:id/submissions` accepts only `{}` and requires
+fresh `kinesiology-evolutions:submit` permission. The current author must still
+have live origin-context membership and an active patient assignment. All four
+content fields are required; text must be nonblank and `session_date` must be a
+valid civil `YYYY-MM-DD` date. The transaction locks the context, patient,
+assignment and evolution before saving an immutable snapshot and marking the
+draft `submitted`. A failed transition rolls back the snapshot. Submitted
+records cannot be edited or submitted again in this slice.
+
+`GET /kinesiology-evolutions/:id/submissions` requires fresh read permission.
+Origin-author/current-context and origin-teacher visibility remains scoped to
+live membership. Current-care students and teachers outside the origin context
+may read only submitted snapshots, never private drafts. Detail/list project the
+latest submitted content and submission timestamps; cross-context history
+exposes only that latest snapshot. Submission IDs and ordinals are decimal
+strings; submission timestamps are ISO strings. No additional per-session
+consent attestation or legal digital signature is introduced.
+
+Migrations 033/034 add snapshot/review tables and separate submit/review grants.
+Review, correction and amendment endpoints are not mounted until later slices.
+The safe unit suite and synthetic HTTP checks do not establish PostgreSQL
+constraint or concurrent-transaction proof for this reconstructed prefix.
 
 ### Academic catalog schema foundation
 

@@ -112,16 +112,20 @@ test('migration 015 adds an enforced separately delegable permission with an ini
 
 test('subjects pre-cleanup source validates the 015 permission and exact initial grant baseline before cleanup', () => {
   const source = readFileSync(new URL('../integration/subjects.test.js', import.meta.url), 'utf8');
-  const testStart = source.indexOf("test('migrations 011–032");
+  const testStart = source.indexOf("test('migrations 011–034");
   const cleanup = source.indexOf('cleanUpAuthorized = true;', testStart);
   const baseline = source.slice(testStart, cleanup);
   assert.ok(testStart >= 0 && cleanup > testStart);
   assert.match(baseline, /ledgerNamesBefore\.has\('015_seed_teacher_habilitation_revocation_permission\.sql'\)/);
   assert.match(baseline, /ledgerNamesBefore\.has\('031_create_kinesiology_evolutions\.sql'\)/);
   assert.match(baseline, /ledgerNamesBefore\.has\('032_seed_kinesiology_evolution_permissions\.sql'\)/);
+  assert.match(baseline, /ledgerNamesBefore\.has\('033_create_kinesiology_evolution_reviews\.sql'\)/);
+  assert.match(baseline, /ledgerNamesBefore\.has\('034_seed_kinesiology_evolution_review_permissions\.sql'\)/);
   assert.match(baseline, /kinesiology-evolutions:write', enforced: true/);
   assert.match(baseline, /estudiante', permission: 'kinesiology-evolutions:write'/);
   assert.match(baseline, /teacher', permission: 'kinesiology-evolutions:read'/);
+  assert.match(baseline, /estudiante', permission: 'kinesiology-evolutions:submit'/);
+  assert.match(baseline, /teacher', permission: 'kinesiology-evolutions:review'/);
   assert.match(baseline, /teacher-habilitations:revoke', enforced: true/);
   assert.match(baseline, /admin', permission: 'teacher-habilitations:revoke'/);
   assert.ok(baseline.indexOf('teacherHabilitationPermissions') < cleanup);

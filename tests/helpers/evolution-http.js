@@ -4,7 +4,7 @@ export const evolutionActor = '30000000-0000-4000-8000-000000000001';
 export const evolutionPatient = '70000000-0000-4000-8000-000000000001';
 export const evolutionSubject = '10000000-0000-4000-8000-000000000001';
 export const evolutionGroup = '20000000-0000-4000-8000-000000000001';
-export const evolutionGrants = ['kinesiology-evolutions:read', 'kinesiology-evolutions:write', 'kinesiology-evaluations:read'];
+export const evolutionGrants = ['kinesiology-evolutions:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:submit', 'kinesiology-evaluations:read'];
 
 Object.assign(process.env, {
   DATABASE_URL: 'postgres://synthetic.invalid/never-connect', JWT_SECRET: 'synthetic-evolutions-secret',

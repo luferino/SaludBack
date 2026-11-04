@@ -6,7 +6,8 @@
  * constraint on leftover rows. It first verifies the single column UPDATE privilege
  * needed to clear the correction FK cycle. The order below is the contract:
  * `clear correction_from_submission_id -> kinesiology_evaluation_correction_requests ->
- * kinesiology_evaluation_validation_reviews -> kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
+ * kinesiology_evaluation_validation_reviews -> kinesiology_evolution_correction_requests ->
+ * kinesiology_evolution_validation_reviews -> kinesiology_evolution_submissions -> kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
  * kinesiology_consent_attestations -> kinesiology_evaluation_amendment_links ->
  * kinesiology_evolutions -> kinesiology_evaluations -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
@@ -15,7 +16,7 @@
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, and 032 so every suite starts from the canonical permission state.
+ * 011–016, 018–019, 021, 027–028, 030, 032, and 034 so every suite starts from the canonical permission state.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -79,6 +80,10 @@ const kinesiologyEvolutionPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/032_seed_kinesiology_evolution_permissions.sql'),
   'utf8',
 );
+const kinesiologyEvolutionReviewPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/034_seed_kinesiology_evolution_review_permissions.sql'),
+  'utf8',
+);
 
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
@@ -91,6 +96,9 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM kinesiology_evaluation_correction_requests');
   await pool.query('DELETE FROM kinesiology_evaluation_validation_reviews');
   await pool.query('DELETE FROM kinesiology_evaluation_amendment_links');
+  await pool.query('DELETE FROM kinesiology_evolution_correction_requests');
+  await pool.query('DELETE FROM kinesiology_evolution_validation_reviews');
+  await pool.query('DELETE FROM kinesiology_evolution_submissions');
   await pool.query('DELETE FROM kinesiology_evaluation_submission_studies');
   await pool.query('DELETE FROM kinesiology_evaluation_submissions');
   await pool.query('DELETE FROM kinesiology_consent_attestations');
@@ -126,4 +134,5 @@ export async function cleanDb(pool) {
   await pool.query(habilitationReadPermissionSeedSql);
   await pool.query(patientAvailabilityPermissionSeedSql);
   await pool.query(kinesiologyEvolutionPermissionSeedSql);
+  await pool.query(kinesiologyEvolutionReviewPermissionSeedSql);
 }

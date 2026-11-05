@@ -12,6 +12,18 @@ DISPOSABLE_INTEGRATION_TARGET=true node tests/helpers/run-isolated-integration.m
 
 Do not supply `DATABASE_URL`, `PG*`, JWT/API/token secrets, or subject-suite settings. The runner creates a child environment with disposable credentials and the project-local temporary directory inherited through `TEMP`, `TMP`, and `TMPDIR`.
 
+## Populated career upgrade rehearsal
+
+For the separately authorized synthetic legacy-data rehearsal, use:
+
+```sh
+DISPOSABLE_INTEGRATION_TARGET=true node tests/helpers/run-isolated-integration.mjs --disposable --career-upgrade-rehearsal
+```
+
+This explicit mode replaces the full suite, not its default behavior. It reuses the runner's exact identity-verified empty database socket and unchanged cleanup. It applies 001–035 with per-file transactions and ledger entries, inserts synthetic academic contexts, habilitations, assignments, availability, a patient, clinical record, evaluation and evolution, then commits 036/037. It compares complete legacy rows and sequence state, verifies kinesiology backfill and permission grants, and probes per-career uniqueness, same-career association FKs and unknown-career FK names. Every rejected probe must leave rows and counters unchanged.
+
+Success prints `CAREER_UPGRADE_OK` followed by identity-checked `CLEANUP_OK`; either alone is insufficient. SQLSTATE/constraint checks prove database enforcement and constraint names, not HTTP error translation (covered separately by integration tests). No production data is read or copied. It does not claim an odontology ficha or exhaustive historical snapshot coverage.
+
 ## What runs and what is checked
 
 - The runner recursively discovers and sorts every `*.test.js` file under `tests/integration/`. It does not search `.pi`, `odd`, scratch directories, or run only a hand-picked subset. Discovery errors or an empty set fail the run; test failures and any skipped tests are never treated as success.

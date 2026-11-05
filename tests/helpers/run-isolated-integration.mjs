@@ -35,10 +35,12 @@ function discoverIntegrationSuites() {
   return suites;
 }
 const usage = `Usage: node tests/helpers/run-isolated-integration.mjs --disposable
-Requires DISPOSABLE_INTEGRATION_TARGET=true. Creates a fresh salud_e2e_<16 hex> database, migrates it, and runs every sorted tests/integration/**/*.test.js file (including history-dependent fixtures) without skipping failures. It then drops only this run's exact database identity when it has zero connections. Never points writes at .env.test's database.`;
+Requires DISPOSABLE_INTEGRATION_TARGET=true. Creates a fresh salud_e2e_<16 hex> database, migrates it, and runs every sorted tests/integration/**/*.test.js file (including history-dependent fixtures) without skipping failures. It then drops only this run's exact database identity when it has zero connections. Never points writes at .env.test's database.
+Upgrade-only mode: node tests/helpers/run-isolated-integration.mjs --disposable --career-upgrade-rehearsal
+Applies 001–035, seeds synthetic legacy data, then applies 036/037 and checks preservation, backfill, constraints and grants instead of running the full suite. Uses the same target guards and cleanup.`;
 function preflight(args, env) {
   if (args.includes('--help')) { console.log(usage); process.exit(0); }
-  if (args.length !== 1 || args[0] !== '--disposable') safe('use the explicit --disposable option (or --help)');
+  if (args[0] !== '--disposable' || !(args.length === 1 || (args.length === 2 && args[1] === '--career-upgrade-rehearsal'))) safe('use the explicit --disposable option (or --help)');
   if (env.DISPOSABLE_INTEGRATION_TARGET !== 'true') safe('explicit disposable-target opt-in required');
   const injected = Object.keys(env).find((key) => {
     const upper = key.toUpperCase();
@@ -216,6 +218,14 @@ async function cleanup(source, resolved, run, handle) {
   } finally { try { await client.end(); } catch {} }
 }
 
+export async function finishRun({ run, manifestHandle, result, status=process, cleanup:cleanupRun=cleanup, log=(line)=>console.error(line), source, resolved }) {
+  if(run&&manifestHandle&&mayDropRun(run)) {
+    try { await cleanupRun(source.toString(),resolved,run,manifestHandle); }
+    catch(error) { log(`CLEANUP_REQUIRED ${error?.safe?error.message:'cleanup refused'}; ${cleanupIdentity(run)}`); result=1; }
+  } else if(run) log(`CLEANUP_REQUIRED creation ${run.creationAcknowledged?'acknowledged':'attempted'}; ${cleanupIdentity(run)}`);
+  status.exitCode=result;
+}
+
 async function main() {
   let source, resolved, run, manifestHandle, result=1, manifest;
   preflight(process.argv.slice(2),process.env);
@@ -278,6 +288,15 @@ async function main() {
         if(stat.isSymbolicLink()||!stat.isFile()||real!==pathName) safe('new run manifest is not a canonical file');
         validateDisposableTarget({env,cwd:ROOT,manifestPath:pathName,manifestRealPath:real,manifestPathHasSymlink:false,
           manifest,identity,schemaFingerprint,emptyBaseline});
+        if (process.argv.includes('--career-upgrade-rehearsal')) {
+          // Reuse this exact identity-verified, empty database socket. No new write target.
+          const { rehearseCareerUpgrade } = await import('./career-upgrade-rehearsal.js');
+          await target.query('SET default_transaction_read_only = off');
+          const proof = await rehearseCareerUpgrade(target);
+          console.log(`CAREER_UPGRADE_OK ${JSON.stringify(proof)}`);
+          result=0;
+          return;
+        }
       } finally { await target.end(); }
       const migrationEnv=makeEnvironment(targetUrl.toString());
       const migrated=spawnSync(process.execPath,['--import','tsx','src/db/migrate.ts'],{cwd:ROOT,env:migrationEnv,encoding:'utf8',timeout:120000,windowsHide:true});
@@ -310,13 +329,9 @@ async function main() {
     const message=error?.safe?error.message:'isolated integration run failed; inspect the canonical run manifest';
     console.error(`RUN_REFUSED_OR_FAILED ${message}`); result=1;
   } finally {
-    if(run&&manifestHandle&&mayDropRun(run)) {
-      try { await cleanup(source.toString(),resolved,run,manifestHandle); }
-      catch(error) { console.error(`CLEANUP_REQUIRED ${error?.safe?error.message:'cleanup refused'}; ${cleanupIdentity(run)}`); result=1; }
-    } else if(run) console.error(`CLEANUP_REQUIRED creation ${run.creationAcknowledged?'acknowledged':'attempted'}; ${cleanupIdentity(run)}`);
+    await finishRun({run,manifestHandle,result,source,resolved});
     if(manifestHandle) try { fs.closeSync(manifestHandle); } catch {}
   }
-  process.exitCode=result;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

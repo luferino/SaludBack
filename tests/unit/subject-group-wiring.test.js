@@ -23,8 +23,9 @@ const [{ createApp }, { JwtTokenService }] = await Promise.all([
 
 const SUBJECT_ID = '10000000-0000-4000-8000-000000000001';
 const GROUP_ID = '20000000-0000-4000-8000-000000000002';
+const CAREER_ID = '11111111-1111-4111-8111-111111111111';
 
-async function withApp(run, { grants = {}, failPermissionRead = false, failure = undefined } = {}) {
+async function withApp(run, { grants = {}, failPermissionRead = false, failure = undefined, careers = { subjectCareerId: CAREER_ID, academicGroupCareerId: CAREER_ID } } = {}) {
   let fail = failPermissionRead;
   const queries = [];
   const pool = {
@@ -34,11 +35,14 @@ async function withApp(run, { grants = {}, failPermissionRead = false, failure =
         if (fail) throw new Error('permission reader unavailable');
         return { rows: (grants[params[0]] ?? []).map((permission) => ({ permission })) };
       }
+      if (text.includes('AS subject_career_id')) {
+        return { rows: [{ subject_career_id: careers.subjectCareerId, academic_group_career_id: careers.academicGroupCareerId }] };
+      }
       if (text.includes('INSERT INTO subject_academic_groups')) {
         if (failure === 'duplicate') throw Object.assign(new Error('duplicate'), { code: '23505', constraint: 'subject_academic_groups_pkey' });
         if (failure === 'missing-subject') throw Object.assign(new Error('missing'), { code: '23503', constraint: 'subject_academic_groups_subject_id_fkey' });
         if (failure === 'unknown') throw new Error('database details must not leak');
-        return { rows: [{ subject_id: params[0], academic_group_id: params[1], created_by: params[2], created_at: new Date('2026-03-04T05:06:07Z') }] };
+        return { rows: [{ subject_id: params[0], academic_group_id: params[1], career_id: params[2], created_by: params[3], created_at: new Date('2026-03-04T05:06:07Z') }] };
       }
       if (text.includes('FROM subject_academic_groups')) {
         return { rows: [{ subject_id: SUBJECT_ID, academic_group_id: GROUP_ID, created_by: null, created_at: new Date('2026-03-04T05:06:07Z') }] };
@@ -114,8 +118,19 @@ test('verified nullable actor is retained and body attribution never enters SQL'
     assert.equal(response.status, 201);
     assert.equal((await response.json()).created_by, null);
     const insert = queries.find(({ text }) => text.includes('INSERT INTO subject_academic_groups'));
-    assert.deepEqual(insert.params, [SUBJECT_ID, GROUP_ID, null]);
+    assert.deepEqual(insert.params, [SUBJECT_ID, GROUP_ID, CAREER_ID, null]);
   }, { grants });
+});
+
+test('a cross-career pair is rejected by the production wiring before any association insert', async () => {
+  const grants = { admin: ['subject-groups:write'] };
+  await withApp(async (base, service, queries) => {
+    const admin = await token(service, 'admin', 'admin-1', ['subject-groups:write']);
+    const response = await fetch(`${base}/subject-groups`, postOptions(admin));
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: { code: 'CONFLICT', message: 'subject and academic group belong to different careers' } });
+    assert.equal(queries.filter(({ text }) => text.includes('INSERT INTO subject_academic_groups')).length, 0);
+  }, { grants, careers: { subjectCareerId: CAREER_ID, academicGroupCareerId: '22222222-2222-4222-8222-222222222222' } });
 });
 
 test('permission-read failures and repository duplicate, missing-reference, and unexpected errors use standard responses', async () => {

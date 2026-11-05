@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
+import { kinesiologyCareerId } from './helpers/careers.js';
 
 // Destructive fixture: the explicit opt-in, private configuration, target
 // identity, schema, migration ledger, and complete grant matrix are checked
@@ -31,6 +32,7 @@ const MIGRATIONS = [
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql', '031_create_kinesiology_evolutions.sql',
   '032_seed_kinesiology_evolution_permissions.sql', '033_create_kinesiology_evolution_reviews.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql',
+  '036_create_careers.sql', '037_seed_career_permissions.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
@@ -40,18 +42,20 @@ const EXPECTED_PERMISSIONS = new Set([
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
+  'careers:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
   'teacher:profile:read', 'teacher:materias:read', 'teacher:turnos:read',
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
-  'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
+  'admin:subjects:write', 'admin:subjects:read', 'admin:careers:read', 'admin:groups:write', 'admin:groups:read',
   'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write', 'teacher:student-habilitations:revoke',
   'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
   'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
   'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'estudiante:kinesiology-evolutions:submit', 'teacher:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:review',
+  'admin:careers:read',
 ]);
 const CLEANUP_TABLES = [
   'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions',
@@ -60,7 +64,7 @@ const CLEANUP_TABLES = [
   'subject_academic_groups', 'academic_groups', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users',
 ];
-const REQUIRED_TABLES = [...CLEANUP_TABLES, 'permissions', 'role_permissions', 'schema_migrations'];
+const REQUIRED_TABLES = [...CLEANUP_TABLES, 'careers', 'permissions', 'role_permissions', 'schema_migrations'];
 const ADMIN_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const ACTOR_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 const GROUP_IDS = [
@@ -70,6 +74,7 @@ const GROUP_IDS = [
 ];
 
 let pool;
+let KINESIOLOGY_CAREER_ID;
 let connectionSettings;
 let server;
 let baseUrl;
@@ -179,34 +184,48 @@ async function verifyDestructivePreflight() {
        FROM pg_catalog.pg_constraint c
        JOIN pg_catalog.pg_class t ON t.oid = c.conrelid
       WHERE t.relnamespace = 'public'::regnamespace
-        AND ((t.relname = 'academic_groups' AND c.conname = 'academic_groups_year_semester_name_unique')
+        AND ((t.relname = 'academic_groups' AND c.conname IN ('academic_groups_career_year_semester_name_unique', 'academic_groups_id_career_unique'))
+          OR (t.relname = 'subjects' AND c.conname = 'subjects_id_career_unique')
           OR (t.relname = 'subject_academic_groups' AND c.conname IN (
             'subject_academic_groups_pkey', 'subject_academic_groups_subject_id_fkey',
-            'subject_academic_groups_academic_group_id_fkey')))
+            'subject_academic_groups_academic_group_id_fkey', 'subject_academic_groups_subject_career_fkey',
+            'subject_academic_groups_academic_group_career_fkey')))
       ORDER BY c.conname`,
   );
   assert.deepEqual(constraints, [
-    { name: 'academic_groups_year_semester_name_unique', type: 'u', validated: true,
+    { name: 'academic_groups_career_year_semester_name_unique', type: 'u', validated: true,
       deferrable: false, initially_deferred: false, delete_action: ' ', update_action: ' ', match_type: ' ',
-      columns: ['academic_year', 'curriculum_semester', 'name'], referenced_table: null, referenced_columns: [] },
+      columns: ['career_id', 'academic_year', 'curriculum_semester', 'name'], referenced_table: null, referenced_columns: [] },
+    { name: 'academic_groups_id_career_unique', type: 'u', validated: true,
+      deferrable: false, initially_deferred: false, delete_action: ' ', update_action: ' ', match_type: ' ',
+      columns: ['id', 'career_id'], referenced_table: null, referenced_columns: [] },
+    { name: 'subject_academic_groups_academic_group_career_fkey', type: 'f', validated: true,
+      deferrable: false, initially_deferred: false, delete_action: 'a', update_action: 'a', match_type: 's',
+      columns: ['academic_group_id', 'career_id'], referenced_table: 'academic_groups', referenced_columns: ['id', 'career_id'] },
     { name: 'subject_academic_groups_academic_group_id_fkey', type: 'f', validated: true,
       deferrable: false, initially_deferred: false, delete_action: 'a', update_action: 'a', match_type: 's',
       columns: ['academic_group_id'], referenced_table: 'academic_groups', referenced_columns: ['id'] },
     { name: 'subject_academic_groups_pkey', type: 'p', validated: true,
       deferrable: false, initially_deferred: false, delete_action: ' ', update_action: ' ', match_type: ' ',
       columns: ['subject_id', 'academic_group_id'], referenced_table: null, referenced_columns: [] },
+    { name: 'subject_academic_groups_subject_career_fkey', type: 'f', validated: true,
+      deferrable: false, initially_deferred: false, delete_action: 'a', update_action: 'a', match_type: 's',
+      columns: ['subject_id', 'career_id'], referenced_table: 'subjects', referenced_columns: ['id', 'career_id'] },
     { name: 'subject_academic_groups_subject_id_fkey', type: 'f', validated: true,
       deferrable: false, initially_deferred: false, delete_action: 'a', update_action: 'a', match_type: 's',
       columns: ['subject_id'], referenced_table: 'subjects', referenced_columns: ['id'] },
+    { name: 'subjects_id_career_unique', type: 'u', validated: true,
+      deferrable: false, initially_deferred: false, delete_action: ' ', update_action: ' ', match_type: ' ',
+      columns: ['id', 'career_id'], referenced_table: null, referenced_columns: [] },
   ], 'Catalog uniqueness/foreign-key structure does not match the fixture contract.');
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–035 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–037 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 35, 'Expected the full 35-permission baseline before cleanup.');
+  assert.equal(permissions.length, 36, 'Expected the full 36-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -215,7 +234,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 45, 'Expected the full 45-grant baseline before cleanup.');
+  assert.equal(grants.length, 46, 'Expected the full 46-grant baseline before cleanup.');
 
   // Check every privilege used by cleanup and this fixture before its first
   // DELETE/TRUNCATE, reducing known failures for restricted roles without
@@ -342,9 +361,10 @@ before(async () => {
     options: PG_OPTIONS,
   });
   await verifyDestructivePreflight();
+  KINESIOLOGY_CAREER_ID = await kinesiologyCareerId(pool);
   cleanupAuthorized = true;
-  // cleanDb issues 27 non-transactional query calls:
-  // 16 ordered DELETEs, one TRUNCATE, and ten permission-seed batches.
+  // cleanDb issues 44 non-transactional query calls:
+  // one privilege probe, one correction-link UPDATE, 25 ordered DELETEs, one TRUNCATE, and sixteen permission-seed batches.
   // Its destructive scope is not atomic; failed preflight never reaches cleanup.
   await cleanDb(pool);
   await seedUser(ADMIN_ID, 'GROUPS_ADMIN', 'admin');
@@ -377,6 +397,7 @@ after(async () => {
 test('POST persists a trimmed group, returns explicit fields, rejects duplicates, and trusts only the verified actor', async () => {
   const token = await signedToken({ role: 'admin', sub: ADMIN_ID, permissions: ['groups:write'] });
   const body = {
+    career_id: KINESIOLOGY_CAREER_ID,
     academic_year: 2042,
     curriculum_semester: 1,
     name: '  Bio-Group  ',
@@ -387,7 +408,7 @@ test('POST persists a trimmed group, returns explicit fields, rejects duplicates
   const created = await request('POST', '/groups', { token, body });
   assert.equal(created.status, 201);
   assert.deepEqual(Object.keys(created.body).sort(), [
-    'academic_year', 'created_at', 'created_by', 'curriculum_semester', 'id', 'name',
+    'academic_year', 'career_id', 'created_at', 'created_by', 'curriculum_semester', 'id', 'name',
   ]);
   assert.equal(created.body.academic_year, 2042);
   assert.equal(created.body.curriculum_semester, 1);
@@ -397,7 +418,7 @@ test('POST persists a trimmed group, returns explicit fields, rejects duplicates
   assert.ok(Number.isFinite(Date.parse(created.body.created_at)));
   assert.equal(new Date(created.body.created_at).toISOString(), created.body.created_at);
   const duplicate = await request('POST', '/groups', {
-    token, body: { academic_year: 2042, curriculum_semester: 1, name: 'Bio-Group' },
+    token, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2042, curriculum_semester: 1, name: 'Bio-Group' },
   });
   assert.equal(duplicate.status, 409);
   const { rows } = await pool.query(
@@ -411,7 +432,7 @@ test('POST supports nullable verified attribution without accepting client attri
   const token = await signedToken({ role: 'admin', permissions: ['groups:write'] });
   const created = await request('POST', '/groups', {
     token,
-    body: { academic_year: 2042, curriculum_semester: 99, name: 'Upper Case' , created_by: ADMIN_ID },
+    body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2042, curriculum_semester: 99, name: 'Upper Case' , created_by: ADMIN_ID },
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.name, 'Upper Case');
@@ -426,8 +447,8 @@ test('GET returns ordered explicit serialization and stable bounded pages', asyn
     [GROUP_IDS[2], 3, 'Cohort'], [GROUP_IDS[0], 1, 'Zeta'], [GROUP_IDS[1], 1, 'Alpha'],
   ]) {
     await pool.query(
-      'INSERT INTO academic_groups (id, academic_year, curriculum_semester, name, created_by) VALUES ($1, $2, $3, $4, $5)',
-      [id, 2038, curriculumSemester, name, ADMIN_ID],
+      'INSERT INTO academic_groups (id, academic_year, curriculum_semester, name, career_id, created_by) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, 2038, curriculumSemester, name, KINESIOLOGY_CAREER_ID, ADMIN_ID],
     );
   }
   const token = await signedToken({ role: 'admin', sub: ADMIN_ID, permissions: ['groups:read'] });
@@ -438,7 +459,7 @@ test('GET returns ordered explicit serialization and stable bounded pages', asyn
   assert.deepEqual(all.body.items.slice(0, 3).map(({ id }) => id), [GROUP_IDS[1], GROUP_IDS[0], GROUP_IDS[2]]);
   for (const item of all.body.items) {
     assert.deepEqual(Object.keys(item).sort(), [
-      'academic_year', 'created_at', 'created_by', 'curriculum_semester', 'id', 'name',
+      'academic_year', 'career_id', 'created_at', 'created_by', 'curriculum_semester', 'id', 'name',
     ]);
   }
   const page = await request('GET', '/groups?limit=1&offset=1', { token });
@@ -463,7 +484,7 @@ test('invalid group values and pagination fail before persistence; missing or in
     { academic_year: '2042', curriculum_semester: 1, name: 'X' },
     { academic_year: 1, curriculum_semester: 1, name: [] },
   ]) {
-    assert.equal((await request('POST', '/groups', { token: write, body: candidate })).status, 400);
+    assert.equal((await request('POST', '/groups', { token: write, body: { career_id: KINESIOLOGY_CAREER_ID, ...candidate } })).status, 400);
   }
   for (const query of [
     '?limit=', '?limit=0', '?limit=101', '?limit=1.5', '?limit=-1', '?limit=1e2',
@@ -492,28 +513,28 @@ test('read/write grants are independent, delegated from fresh database state, an
     const writer = await signedToken({ role: writerRole, sub: ACTOR_ID, permissions: ['groups:read', 'groups:write'] });
     const delegated = await signedToken({ role: delegatedRole, sub: delegatedId, permissions: [] });
     assert.equal((await request('GET', '/groups', { token: reader })).status, 200);
-    assert.equal((await request('POST', '/groups', { token: reader, body: { academic_year: 2050, curriculum_semester: 1, name: 'Reader denied' } })).status, 403);
-    assert.equal((await request('POST', '/groups', { token: writer, body: { academic_year: 2050, curriculum_semester: 1, name: 'Writer allowed' } })).status, 201);
+    assert.equal((await request('POST', '/groups', { token: reader, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 1, name: 'Reader denied' } })).status, 403);
+    assert.equal((await request('POST', '/groups', { token: writer, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 1, name: 'Writer allowed' } })).status, 201);
     assert.equal((await request('GET', '/groups', { token: writer })).status, 403);
-    assert.equal((await request('POST', '/groups', { token: delegated, body: { academic_year: 2050, curriculum_semester: 1, name: 'Delegated' } })).status, 201);
+    assert.equal((await request('POST', '/groups', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 1, name: 'Delegated' } })).status, 201);
     const legacy = await signedToken({ role: 'groups_legacy', sub: ACTOR_ID, permissions: ['materias:read'] });
     assert.equal((await request('GET', '/groups', { token: legacy })).status, 403);
 
     const admin = await signedToken({ role: 'admin', sub: ADMIN_ID, permissions: ['groups:read', 'groups:write'] });
     await setRolePermissions('admin', []);
     assert.equal((await request('GET', '/groups', { token: admin })).status, 403);
-    assert.equal((await request('POST', '/groups', { token: admin, body: { academic_year: 2050, curriculum_semester: 1, name: 'Admin denied' } })).status, 403);
+    assert.equal((await request('POST', '/groups', { token: admin, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 1, name: 'Admin denied' } })).status, 403);
     await setRolePermissions(delegatedRole, ['groups:write']);
     assert.equal((await request('GET', '/groups', { token: delegated })).status, 403);
-    assert.equal((await request('POST', '/groups', { token: delegated, body: { academic_year: 2050, curriculum_semester: 2, name: 'Before revoke' } })).status, 201);
+    assert.equal((await request('POST', '/groups', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 2, name: 'Before revoke' } })).status, 201);
     await setRolePermissions(delegatedRole, []);
-    assert.equal((await request('POST', '/groups', { token: delegated, body: { academic_year: 2050, curriculum_semester: 3, name: 'After revoke' } })).status, 403);
+    assert.equal((await request('POST', '/groups', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, academic_year: 2050, curriculum_semester: 3, name: 'After revoke' } })).status, 403);
   } catch (error) {
     failure = error;
   } finally {
     const restorationErrors = [];
     for (const [role, permissions] of [
-      ['admin', ['users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read', 'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read', 'subject-groups:write', 'subject-groups:read']],
+      ['admin', ['users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read', 'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'careers:read', 'groups:write', 'groups:read', 'subject-groups:write', 'subject-groups:read']],
       [readerRole, []], [writerRole, []], [delegatedRole, []], ['groups_legacy', []],
     ]) {
       try { await setRolePermissions(role, permissions); } catch (error) { restorationErrors.push(error); }

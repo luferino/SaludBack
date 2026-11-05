@@ -8,7 +8,7 @@ const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
 async function createSubject(name = 'Mathematics') {
   const { rows } = await pool.query(
-    'INSERT INTO subjects (name) VALUES ($1) RETURNING id',
+    "INSERT INTO subjects (name, career_id) VALUES ($1, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id",
     [name],
   );
   return rows[0].id;
@@ -16,8 +16,8 @@ async function createSubject(name = 'Mathematics') {
 
 async function createGroup({ academicYear = 2026, curriculumSemester = 5, name = 'A' } = {}) {
   const { rows } = await pool.query(
-    `INSERT INTO academic_groups (academic_year, curriculum_semester, name)
-     VALUES ($1, $2, $3) RETURNING id`,
+    `INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id)
+     VALUES ($1, $2, $3, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id`,
     [academicYear, curriculumSemester, name],
   );
   return rows[0].id;
@@ -25,7 +25,7 @@ async function createGroup({ academicYear = 2026, curriculumSemester = 5, name =
 
 async function associate(subjectId, groupId) {
   await pool.query(
-    'INSERT INTO subject_academic_groups (subject_id, academic_group_id) VALUES ($1, $2)',
+    `INSERT INTO subject_academic_groups (subject_id, academic_group_id, career_id) VALUES ($1, $2, (SELECT id FROM careers WHERE code = 'kinesiology'))`,
     [subjectId, groupId],
   );
 }
@@ -78,12 +78,12 @@ test('group identity is unique by academic year, curriculum semester, and name',
 test('catalog names are required and nonblank; year and curriculum semester are positive', async () => {
   for (const value of [null, '', '   ']) {
     await assert.rejects(
-      pool.query('INSERT INTO subjects (name) VALUES ($1)', [value]),
+      pool.query("INSERT INTO subjects (name, career_id) VALUES ($1, (SELECT id FROM careers WHERE code = 'kinesiology'))", [value]),
       (error) => ['23502', '23514'].includes(error.code),
     );
     await assert.rejects(
       pool.query(
-        'INSERT INTO academic_groups (academic_year, curriculum_semester, name) VALUES (2026, 5, $1)',
+        "INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id) VALUES (2026, 5, $1, (SELECT id FROM careers WHERE code = 'kinesiology'))",
         [value],
       ),
       (error) => ['23502', '23514'].includes(error.code),
@@ -93,8 +93,8 @@ test('catalog names are required and nonblank; year and curriculum semester are 
   for (const [academicYear, curriculumSemester] of [[0, 1], [-1, 1], [2026, 0], [2026, -1]]) {
     await assert.rejects(
       pool.query(
-        `INSERT INTO academic_groups (academic_year, curriculum_semester, name)
-         VALUES ($1, $2, 'A')`,
+        `INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id)
+         VALUES ($1, $2, 'A', (SELECT id FROM careers WHERE code = 'kinesiology'))`,
         [academicYear, curriculumSemester],
       ),
       (error) => error.code === '23514',
@@ -104,8 +104,8 @@ test('catalog names are required and nonblank; year and curriculum semester are 
   for (const [academicYear, curriculumSemester] of [[null, 1], [2026, null]]) {
     await assert.rejects(
       pool.query(
-        `INSERT INTO academic_groups (academic_year, curriculum_semester, name)
-         VALUES ($1, $2, 'A')`,
+        `INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id)
+         VALUES ($1, $2, 'A', (SELECT id FROM careers WHERE code = 'kinesiology'))`,
         [academicYear, curriculumSemester],
       ),
       (error) => error.code === '23502',
@@ -131,11 +131,11 @@ test('subject-group pairs are unique and both references must exist', async () =
     (error) => error.code === '23503',
   );
   await assert.rejects(
-    pool.query('INSERT INTO subject_academic_groups (subject_id, academic_group_id) VALUES (NULL, $1)', [groupId]),
+    pool.query("INSERT INTO subject_academic_groups (subject_id, academic_group_id, career_id) VALUES (NULL, $1, (SELECT id FROM careers WHERE code = 'kinesiology'))", [groupId]),
     (error) => error.code === '23502',
   );
   await assert.rejects(
-    pool.query('INSERT INTO subject_academic_groups (subject_id, academic_group_id) VALUES ($1, NULL)', [subjectId]),
+    pool.query("INSERT INTO subject_academic_groups (subject_id, academic_group_id, career_id) VALUES ($1, NULL, (SELECT id FROM careers WHERE code = 'kinesiology'))", [subjectId]),
     (error) => error.code === '23502',
   );
 });

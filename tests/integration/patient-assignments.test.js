@@ -9,7 +9,7 @@ import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integra
 
 const TIMEOUT = 5000;
 const APP_NAME = 'patient-assignments-integration';
-const EXPECTED_MIGRATIONS = Array.from({ length: 35 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const EXPECTED_MIGRATIONS = Array.from({ length: 37 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -21,6 +21,7 @@ const EXPECTED_MIGRATIONS = Array.from({ length: 35 }, (_, i) => `${String(i + 1
   'create_kinesiology_consent_attestations.sql', 'create_kinesiology_submissions.sql',
   'create_kinesiology_correction_requests.sql','create_kinesiology_validation_reviews.sql','create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql','create_kinesiology_evolutions.sql','seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql','seed_kinesiology_evolution_review_permissions.sql','create_kinesiology_evolution_amendment_links.sql',
+  'create_careers.sql', 'seed_career_permissions.sql',
 ][i]}`);
 let pool;
 let server;
@@ -85,7 +86,7 @@ async function verifyTarget() {
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
     assert.deepEqual(ledger.map(row => row.name), EXPECTED_MIGRATIONS,
-      'the exact expected migration ledger 001-035 is required before fixture cleanup');
+      'the exact expected migration ledger 001-037 is required before fixture cleanup');
     const { rows: counts } = await client.query(`SELECT
       (SELECT count(*)::int FROM patient_assignments) assignments,
       (SELECT count(*)::int FROM student_academic_habilitations) student_periods,
@@ -107,9 +108,9 @@ async function user(role) {
 }
 async function context() {
   const n = name('fixture');
-  const { rows: s } = await pool.query('INSERT INTO subjects(name) VALUES ($1) RETURNING id', [`${n}_subject`]);
-  const { rows: g } = await pool.query('INSERT INTO academic_groups(academic_year,curriculum_semester,name) VALUES (2098,1,$1) RETURNING id', [`${n}_group`]);
-  await pool.query('INSERT INTO subject_academic_groups(subject_id,academic_group_id) VALUES ($1,$2)', [s[0].id,g[0].id]);
+  const { rows: s } = await pool.query("INSERT INTO subjects(name,career_id) VALUES ($1,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [`${n}_subject`]);
+  const { rows: g } = await pool.query("INSERT INTO academic_groups(academic_year,curriculum_semester,name,career_id) VALUES (2098,1,$1,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [`${n}_group`]);
+  await pool.query("INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code='kinesiology'))", [s[0].id,g[0].id]);
   return { subjectId:s[0].id, groupId:g[0].id };
 }
 async function fixture() {
@@ -225,10 +226,10 @@ test('invalid, unauthorized, missing patient, and mismatched period requests pre
 
 test('simultaneous same-patient/subject creates across different groups commit exactly one active row and a conflict',async()=>{
   const f=await fixture(); const t=await token(f.teacher); const body=payload(f);
-  const {rows:groupRows}=await pool.query(`INSERT INTO academic_groups(academic_year,curriculum_semester,name)
-    VALUES (2098,1,$1) RETURNING id`,[name('other_group')]);
+  const {rows:groupRows}=await pool.query(`INSERT INTO academic_groups(academic_year,curriculum_semester,name,career_id)
+    VALUES (2098,1,$1,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id`,[name('other_group')]);
   const groupId=groupRows[0].id;
-  await pool.query('INSERT INTO subject_academic_groups(subject_id,academic_group_id) VALUES ($1,$2)',[f.ctx.subjectId,groupId]);
+  await pool.query("INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code='kinesiology'))",[f.ctx.subjectId,groupId]);
   await pool.query(`INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at)
     SELECT id,$1,$2,$3,clock_timestamp() FROM teachers WHERE user_id=$4`,[f.ctx.subjectId,groupId,f.admin.id,f.teacher.id]);
   const {rows:periodRows}=await pool.query(`INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at)

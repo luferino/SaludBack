@@ -119,10 +119,11 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
 | `GET` | `/teachers` | minimal paginated teacher selector — Bearer token + `teachers:read` |
 | `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
-| `POST` | `/subjects` | create subject — Bearer token + `subjects:write` |
-| `GET` | `/subjects` | list subjects — Bearer token + `subjects:read` |
-| `POST` | `/groups` | create academic group — Bearer token + `groups:write` |
-| `GET` | `/groups` | list academic groups — Bearer token + `groups:read` |
+| `GET` | `/careers` | list careers (`id`, `code`, `name`) — Bearer token + `careers:read` |
+| `POST` | `/subjects` | create subject in a career (`career_id` required) — Bearer token + `subjects:write` |
+| `GET` | `/subjects` | list subjects, optional `career_id` filter — Bearer token + `subjects:read` |
+| `POST` | `/groups` | create academic group in a career (`career_id` required) — Bearer token + `groups:write` |
+| `GET` | `/groups` | list academic groups, optional `career_id` filter — Bearer token + `groups:read` |
 | `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 | `GET` | `/teacher-habilitations` | paginated teacher periods — Bearer token + `teacher-habilitations:read` |
@@ -475,18 +476,32 @@ Clinical entity only — no account is created. Requires a Bearer token and
 curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
 ```
 
+### GET /careers
+
+Lists the careers in the catalog. Requires a Bearer token whose database role
+has `careers:read`; this grant is independent from `subjects:read` and is
+initially held only by admin (migration `037`).
+
+- `200` → `{ "items": [{ "id", "code", "name" }] }`, ordered by `name ASC`, then
+  `id ASC`. Migration `036` seeds exactly two careers: `kinesiology` (Kinesiología)
+  and `odontology` (Odontología).
+- No pagination, filters, or write endpoints.
+- `401` — missing/invalid token; `403` — missing `careers:read` grant.
+
 ### POST /subjects
 
-Creates a subject catalog entry. Requires a Bearer token whose database role
+Creates a subject catalog entry in one career. Requires a Bearer token whose database role
 has `subjects:write`; client-supplied actor fields are ignored. Subject names
 are trimmed nonblank strings, and duplicate names are allowed.
 
-- Body: `{ "name" }` — required string; whitespace-only values are rejected
-- `201` → `{ "id", "name", "created_by", "created_at" }`; `id` is a UUID,
+- Body: `{ "name", "career_id" }` — `name` is a required string; whitespace-only
+  values are rejected. `career_id` is required and must be a canonical UUID of an
+  existing career.
+- `201` → `{ "id", "name", "career_id", "created_by", "created_at" }`; `id` is a UUID,
   `created_by` is the verified token subject or `null`, and `created_at` is an
   ISO timestamp
-- `400` — invalid name; `401` — missing/invalid token;
-  `403` — missing `subjects:write` grant
+- `400` — invalid name, or `career_id must be a UUID`; `401` — missing/invalid token;
+  `403` — missing `subjects:write` grant; `404` — `career was not found`
 
 ### GET /subjects
 
@@ -497,7 +512,9 @@ is independent from the write grant.
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.
 - `200` → `{ "items", "limit", "offset" }`; items are ordered by `name ASC`,
-  then `id ASC`. There are no totals or filters.
+  then `id ASC`. There are no totals. Optional `career_id` (canonical UUID) filters
+  to one career; a malformed or repeated value returns `400` with
+  `career_id must be a UUID`.
 - `400` — invalid pagination; `401` — missing/invalid token;
   `403` — missing `subjects:read` grant
 
@@ -511,15 +528,19 @@ Creates an academic group. Requires a Bearer token whose database role has
 `groups:write`; client-supplied attribution is ignored and `created_by` records
 the verified token subject or `null`.
 
-- Body: `{ "academic_year", "curriculum_semester", "name" }` — both numbers
+- Body: `{ "academic_year", "curriculum_semester", "name", "career_id" }` — both numbers
   must be positive JSON integers within PostgreSQL's 32-bit integer range;
-  `name` is trimmed and must be nonblank. Semester has no curricular ceiling.
-- `201` → `{ "id", "academic_year", "curriculum_semester", "name", "created_by", "created_at" }`;
+  `name` is trimmed and must be nonblank. Semester has no curricular ceiling. `career_id` is required and must be a canonical
+  UUID of an existing career; a missing or malformed value returns `400` with
+  `career_id must be a UUID`, and an unknown career returns `404` with
+  `career was not found`.
+- `201` → `{ "id", "academic_year", "curriculum_semester", "name", "career_id", "created_by", "created_at" }`;
   timestamps are ISO strings.
 - `400` — invalid fields; `401` — missing/invalid token;
-  `403` — missing `groups:write` grant; `409` — the `(academic_year,
-  curriculum_semester, name)` tuple already exists. Group names are case-sensitive
-  for this uniqueness rule.
+  `403` — missing `groups:write` grant; `404` — unknown career; `409` — the `(career_id, academic_year,
+  curriculum_semester, name)` tuple already exists (`group already exists for career,
+  academic year, semester, and name`). The same name may exist in another career.
+  Group names are case-sensitive for this uniqueness rule.
 
 ### GET /groups
 
@@ -531,7 +552,8 @@ be explicitly delegated either permission.
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.
 - `200` → `{ "items", "limit", "offset" }`; items are ordered by academic
-  year, curriculum semester, name and ID ascending. No totals or filters.
+  year, curriculum semester, name and ID ascending. No totals. Optional `career_id`
+  (canonical UUID) filters to one career; malformed or repeated values return `400`.
 - `401` — missing/invalid token; `403` — missing `groups:read` grant.
 
 No group update or delete endpoints are provided.
@@ -544,12 +566,15 @@ is initially granted only to admin and can be delegated to other roles. Admin
 has no bypass. Client-supplied actor fields are ignored; `created_by` is the
 verified token subject or `null`.
 
-- Body: `{ "subject_id", "academic_group_id" }` — both values must be UUIDs.
+- Body: `{ "subject_id", "academic_group_id" }` — both values must be UUIDs. The
+  subject and the academic group must belong to the same career.
 - `201` → `{ "subject_id", "academic_group_id", "created_by", "created_at" }`;
   timestamps are ISO strings.
 - `400` — malformed UUID or invalid request; `401` — missing/invalid token;
   `403` — missing `subject-groups:write` grant; `404` — a referenced subject or
-  academic group does not exist; `409` — this subject/group pair is already linked.
+  academic group does not exist; `409` — this subject/group pair is already linked, or
+  the subject and academic group belong to different careers
+  (`subject and academic group belong to different careers`).
 
 ### GET /subject-groups
 
@@ -864,6 +889,33 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 | `RESET_TOKEN_MAX_OUTSTANDING` | `3` | cap on outstanding reset tokens per user |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | optional; fallback credentials when `pnpm create-admin` runs without `--username`/`--password` |
 
+### Career foundation (migrations 036–037)
+
+Migration `036_create_careers.sql` adds the `careers` table with exactly two seeded
+rows: `kinesiology` (Kinesiología) and `odontology` (Odontología). Subjects and
+academic groups now belong to exactly one career through a required `career_id`:
+
+- Existing subjects and groups are backfilled to kinesiology in the same migration.
+  No odontology subjects or groups are seeded; they are created through
+  `POST /subjects` and `POST /groups`.
+- Group identity is per career: `(career_id, academic_year, curriculum_semester,
+  name)` is unique, so two careers can each have a group named "Grupo A".
+- A subject-group association must join a subject and an academic group from the
+  same career. The database enforces this with composite foreign keys on
+  `subject_academic_groups (subject_id, career_id)` and
+  `(academic_group_id, career_id)`, so a cross-career link cannot be stored even
+  outside the API; the API reports it as `409`.
+- Migration `037_seed_career_permissions.sql` adds the enforced `careers:read`
+  permission and grants it to admin only, mirroring `subjects:read` today. Other
+  roles need an explicit database grant.
+
+**Rollout:** apply `036` and then `037` before routing subject, group, or
+association traffic that sends `career_id`. Migration `036` is not idempotent; the
+ledger prevents replay, so do not rerun it over an existing schema. After `037`
+the canonical matrix has **36 permission rows and 46 grants**. Careers CRUD, a
+coordinator role, the odontology clinical forms, and kinesiology cross-career
+read isolation are outside this delivery.
+
 ## Permission-matrix deployment and rollback
 
 These are prerequisites for a separately authorized deployment, not evidence
@@ -875,6 +927,8 @@ that migrations or database checks have been performed.
    migration ledger. Review customized grants against the approved access policy.
 2. Apply migrations through `015_seed_teacher_habilitation_revocation_permission.sql`
    before routing subject, group, association, or teacher-habilitation traffic.
+   Migrations `036` and `037` (careers) must also be applied before routing any
+   traffic that sends `career_id`.
    Migration `006` creates the permission tables, `007` seeds the original matrix,
    `009` creates academic catalog tables, and `011`–`015` add independent subject,
    group, association, activation, and revocation permissions with initial admin
@@ -921,7 +975,7 @@ tests against a shared or valuable database.
 The subjects integration test additionally requires
 `SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
 configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
-bcrypt cost and reset-token settings). Apply migrations `011`–`015`
+bcrypt cost and reset-token settings). Apply migrations `011`–`015` and `036`–`037`
 beforehand; the test verifies all ledger entries and grants before invoking
 destructive cleanup. Run it
 only after explicit authorization and independent verification of a dedicated

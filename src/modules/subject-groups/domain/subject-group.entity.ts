@@ -1,22 +1,26 @@
 export class SubjectGroup {
   subjectId: string;
   academicGroupId: string;
+  careerId: string | null;
   createdBy: string | null;
   createdAt: Date | string | null;
 
   constructor({
     subjectId,
     academicGroupId,
+    careerId = null,
     createdBy = null,
     createdAt = null,
   }: {
     subjectId: string;
     academicGroupId: string;
+    careerId?: string | null;
     createdBy?: string | null;
     createdAt?: Date | string | null;
   }) {
     this.subjectId = subjectId;
     this.academicGroupId = academicGroupId;
+    this.careerId = careerId;
     this.createdBy = createdBy;
     this.createdAt = createdAt;
   }

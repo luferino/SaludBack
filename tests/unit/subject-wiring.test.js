@@ -25,7 +25,8 @@ const grants = {
   teacher: ['subjects:read', 'subjects:write'],
   estudiante: ['materias:read'],
 };
-const subjectRow = { id: 'subject-1', name: 'Physics', created_by: 'actor-1', created_at: new Date('2026-03-04T05:06:07Z') };
+const CAREER_ID = '11111111-1111-4111-8111-111111111111';
+const subjectRow = { id: 'subject-1', name: 'Physics', career_id: CAREER_ID, created_by: 'actor-1', created_at: new Date('2026-03-04T05:06:07Z') };
 
 async function withApp(run, { failPermissionRead = false, grantsOverride = grants } = {}) {
   let fail = failPermissionRead;
@@ -37,7 +38,7 @@ async function withApp(run, { failPermissionRead = false, grantsOverride = grant
         if (fail) throw new Error('permission reader unavailable');
         return { rows: (grantsOverride[params[0]] ?? []).map((permission) => ({ permission })) };
       }
-      if (text.includes('INSERT INTO subjects')) return { rows: [{ ...subjectRow, name: params[0], created_by: params[1] }] };
+      if (text.includes('INSERT INTO subjects')) return { rows: [{ ...subjectRow, name: params[0], career_id: params[1], created_by: params[2] }] };
       if (text.includes('FROM subjects')) return { rows: [subjectRow] };
       throw new Error(`Unexpected query: ${text}`);
     },
@@ -66,9 +67,13 @@ test('production wiring uses fresh database grants, independent of role and toke
     const teacherToken = await token(service, 'teacher', 'teacher-1', []);
     const read = await fetch(`${base}/subjects`, { headers: { authorization: `Bearer ${teacherToken}` } });
     assert.equal(read.status, 200, 'explicit database read grant authorizes a non-admin');
-    const create = await fetch(`${base}/subjects`, { method: 'POST', headers: { authorization: `Bearer ${teacherToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: ' Physics ', createdBy: 'forged' }) });
+    const create = await fetch(`${base}/subjects`, { method: 'POST', headers: { authorization: `Bearer ${teacherToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: ' Physics ', career_id: CAREER_ID, createdBy: 'forged' }) });
     assert.equal(create.status, 201, 'explicit database write grant is independently effective');
-    assert.equal((await create.json()).created_by, 'teacher-1');
+    const created = await create.json();
+    assert.equal(created.created_by, 'teacher-1');
+    assert.equal(created.career_id, CAREER_ID);
+    const insert = queries.find(({ text }) => text.includes('INSERT INTO subjects'));
+    assert.deepEqual(insert.params, ['Physics', CAREER_ID, 'teacher-1']);
 
     const legacyOnly = await token(service, 'estudiante', 'student-2', ['materias:read']);
     const legacyDenied = await fetch(`${base}/subjects`, { headers: { authorization: `Bearer ${legacyOnly}` } });

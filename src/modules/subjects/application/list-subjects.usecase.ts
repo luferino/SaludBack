@@ -1,8 +1,10 @@
 import { BadRequestError } from '../../shared/domain/errors.js';
 import type { Subject } from '../domain/subject.entity.js';
+import { validateCareerId } from './create-subject.usecase.js';
 import type { SubjectRepositoryPort } from './subject.ports.js';
 
 export interface ListSubjectsInput {
+  career_id?: unknown;
   limit?: unknown;
   offset?: unknown;
 }
@@ -21,9 +23,10 @@ export class ListSubjects {
   }
 
   async execute(input: ListSubjectsInput = {}): Promise<ListSubjectsResult> {
+    const careerId = input.career_id === undefined ? undefined : validateCareerId(input.career_id);
     const limit = parseBoundedInteger(input.limit, 50, 1, 100, 'limit');
     const offset = parseBoundedInteger(input.offset, 0, 0, 10000, 'offset');
-    const items = await this.repository.list({ limit, offset });
+    const items = await this.repository.list({ careerId, limit, offset });
     return { items, limit, offset };
   }
 }

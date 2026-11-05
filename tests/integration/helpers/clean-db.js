@@ -16,7 +16,7 @@
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, and 034 so every suite starts from the canonical permission state. Migration 035 adds no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, and 037 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +84,10 @@ const kinesiologyEvolutionReviewPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/034_seed_kinesiology_evolution_review_permissions.sql'),
   'utf8',
 );
+const careerPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/037_seed_career_permissions.sql'),
+  'utf8',
+);
 
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
@@ -136,4 +140,5 @@ export async function cleanDb(pool) {
   await pool.query(patientAvailabilityPermissionSeedSql);
   await pool.query(kinesiologyEvolutionPermissionSeedSql);
   await pool.query(kinesiologyEvolutionReviewPermissionSeedSql);
+  await pool.query(careerPermissionSeedSql);
 }

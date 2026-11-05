@@ -12,7 +12,7 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME = 'student-habilitation-revocation-integration';
 const TIMEOUT = 5000;
-const MIGRATIONS = Array.from({ length: 35 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const MIGRATIONS = Array.from({ length: 37 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -25,6 +25,7 @@ const MIGRATIONS = Array.from({ length: 35 }, (_, i) => `${String(i + 1).padStar
   'create_kinesiology_correction_requests.sql',
   'create_kinesiology_validation_reviews.sql', 'create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql', 'create_kinesiology_evolutions.sql', 'seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql', 'seed_kinesiology_evolution_review_permissions.sql', 'create_kinesiology_evolution_amendment_links.sql',
+  'create_careers.sql', 'seed_career_permissions.sql',
 ][i]}`);
 let pool, server, baseUrl, safeToClean = false;
 function normalize(value) { const ip = value?.replace(/^\[|\]$/g, '').split('/')[0].toLowerCase(); return ip?.startsWith('::ffff:') ? ip.slice(7) : ip; }
@@ -59,7 +60,7 @@ async function verifyTarget() {
       (SELECT count(*)::int FROM public.users) users,
       (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { evolutions: 0, assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 35, grants: 45 });
+    assert.deepEqual(baseline[0], { evolutions: 0, assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 36, grants: 46 });
     console.log('Verified disposable localhost:5432/saludback_test; migration ledger, exact permission baseline and empty fixtures confirmed.');
   } finally { await client.end(); }
   return value;
@@ -70,10 +71,10 @@ async function fixture({ withAssignment = false } = {}) {
   const admin = users[0], teacher = users[1], secondTeacher = users[2], student = users[3], targetStudentUser = users[4];
   const { rows: teachers } = await pool.query('INSERT INTO teachers(user_id,nombres,apellidos) VALUES ($1,$2,$3),($4,$5,$6) RETURNING id,user_id', [teacher.id,'Teacher','One',secondTeacher.id,'Teacher','Two']);
   const { rows: students } = await pool.query('INSERT INTO students(user_id,nombres,apellidos,codalumno) VALUES ($1,$2,$3,$4),($5,$6,$7,$8) RETURNING id', [student.id,'Student','Fixture',name('STU'),targetStudentUser.id,'Student','Target',name('STU')]);
-  const { rows: subjects } = await pool.query('INSERT INTO subjects(name) VALUES ($1) RETURNING id', [name('subject')]);
-  const { rows: groups } = await pool.query('INSERT INTO academic_groups(academic_year,curriculum_semester,name) VALUES (2098,1,$1) RETURNING id', [name('group')]);
+  const { rows: subjects } = await pool.query("INSERT INTO subjects(name,career_id) VALUES ($1,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [name('subject')]);
+  const { rows: groups } = await pool.query("INSERT INTO academic_groups(academic_year,curriculum_semester,name,career_id) VALUES (2098,1,$1,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [name('group')]);
   const subject = subjects[0].id, group = groups[0].id;
-  await pool.query('INSERT INTO subject_academic_groups(subject_id,academic_group_id) VALUES ($1,$2)', [subject,group]);
+  await pool.query("INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code='kinesiology'))", [subject,group]);
   for (const t of teachers) await pool.query('INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp())', [t.id,subject,group,admin.id]);
   const { rows: periods } = await pool.query('INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at) VALUES ($1,$2,$3,$4,clock_timestamp()) RETURNING id', [students[0].id,subject,group,admin.id]);
   const { rows: patients } = await pool.query(`INSERT INTO patients(documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion) VALUES ($1,'Patient','Fixture','2000-01-01',$2,'00000000','F','Fixture') RETURNING id`, [String(Math.floor(Math.random()*80000000)+10000000),`${name('patient')}@example.test`]);

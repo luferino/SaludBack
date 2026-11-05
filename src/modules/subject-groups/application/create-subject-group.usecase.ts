@@ -1,4 +1,4 @@
-import { BadRequestError } from '../../shared/domain/errors.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../../shared/domain/errors.js';
 import { SubjectGroup } from '../domain/subject-group.entity.js';
 import type { SubjectGroupRepositoryPort } from './subject-group.ports.js';
 
@@ -20,9 +20,17 @@ export class CreateSubjectGroup {
   async execute(input: CreateSubjectGroupInput): Promise<SubjectGroup> {
     const subjectId = validateUuid(input.subject_id, 'subject_id');
     const academicGroupId = validateUuid(input.academic_group_id, 'academic_group_id');
+    const careers = await this.repository.findCareerPair({ subjectId, academicGroupId });
+    if (careers.subjectCareerId === null || careers.academicGroupCareerId === null) {
+      throw new NotFoundError('subject or academic group was not found');
+    }
+    if (careers.subjectCareerId !== careers.academicGroupCareerId) {
+      throw new ConflictError('subject and academic group belong to different careers');
+    }
     return this.repository.create(new SubjectGroup({
       subjectId,
       academicGroupId,
+      careerId: careers.subjectCareerId,
       createdBy: input.createdBy ?? null,
     }));
   }

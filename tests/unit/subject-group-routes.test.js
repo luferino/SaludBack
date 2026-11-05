@@ -9,6 +9,7 @@ import { createSubjectGroupRouter } from '../../src/modules/subject-groups/infra
 
 const SUBJECT_ID = '10000000-0000-4000-8000-000000000001';
 const GROUP_ID = '20000000-0000-4000-8000-000000000002';
+const CAREER_ID = '11111111-1111-4111-8111-111111111111';
 
 async function withServer(repository, run, { nullableActor = false } = {}) {
   const app = express();
@@ -33,6 +34,9 @@ function fakeRepository() {
   const calls = { create: [], list: [] };
   return {
     calls,
+    async findCareerPair() {
+      return { subjectCareerId: CAREER_ID, academicGroupCareerId: CAREER_ID };
+    },
     async create(association) {
       calls.create.push(association);
       return new SubjectGroup({ ...association, createdAt: new Date('2026-02-03T04:05:06Z') });
@@ -95,6 +99,9 @@ test('GET requires read permission, forwards raw filters and pagination, and exp
 test('invalid association input, duplicate, missing references and unexpected failures map through the shared handler', async () => {
   const calls = [];
   const repository = {
+    async findCareerPair() {
+      return { subjectCareerId: CAREER_ID, academicGroupCareerId: CAREER_ID };
+    },
     async create(value) {
       calls.push(value);
       if (value.subjectId === GROUP_ID) throw new ConflictError('subject is already associated with academic group');
@@ -119,6 +126,26 @@ test('invalid association input, duplicate, missing references and unexpected fa
     assert.deepEqual((await unexpected.json()).error, { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' });
   });
   assert.equal(calls.length, 4);
+});
+
+test('a cross-career association is a 409 with the exact message and never persists', async () => {
+  const calls = [];
+  const repository = {
+    async findCareerPair() {
+      return { subjectCareerId: CAREER_ID, academicGroupCareerId: '22222222-2222-4222-8222-222222222222' };
+    },
+    async create(value) { calls.push(value); return value; },
+    async list() { return []; },
+  };
+  await withServer(repository, async (base) => {
+    const response = await fetch(`${base}/subject-groups`, {
+      method: 'POST', headers: jsonHeaders('subject-groups:write'),
+      body: JSON.stringify({ subject_id: SUBJECT_ID, academic_group_id: GROUP_ID }),
+    });
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: { code: 'CONFLICT', message: 'subject and academic group belong to different careers' } });
+  });
+  assert.equal(calls.length, 0);
 });
 
 test('missing authentication and invalid filters fail before repository calls', async () => {

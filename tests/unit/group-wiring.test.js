@@ -20,7 +20,8 @@ const [{ createApp }, { JwtTokenService }] = await Promise.all([
   import('../../src/modules/auth/infrastructure/services/jwt-token.service.ts'),
 ]);
 
-const groupRow = { id: 'group-1', academic_year: 2026, curriculum_semester: 7, name: 'Physics', created_by: 'actor-1', created_at: new Date('2026-03-04T05:06:07Z') };
+const CAREER_ID = '11111111-1111-4111-8111-111111111111';
+const groupRow = { id: 'group-1', academic_year: 2026, curriculum_semester: 7, name: 'Physics', career_id: CAREER_ID, created_by: 'actor-1', created_at: new Date('2026-03-04T05:06:07Z') };
 
 async function withApp(run, { grants = {}, failPermissionRead = false } = {}) {
   let fail = failPermissionRead;
@@ -32,7 +33,7 @@ async function withApp(run, { grants = {}, failPermissionRead = false } = {}) {
         if (fail) throw new Error('permission reader unavailable');
         return { rows: (grants[params[0]] ?? []).map((permission) => ({ permission })) };
       }
-      if (text.includes('INSERT INTO academic_groups')) return { rows: [{ ...groupRow, academic_year: params[0], curriculum_semester: params[1], name: params[2], created_by: params[3] }] };
+      if (text.includes('INSERT INTO academic_groups')) return { rows: [{ ...groupRow, academic_year: params[0], curriculum_semester: params[1], name: params[2], career_id: params[3], created_by: params[4] }] };
       if (text.includes('FROM academic_groups')) return { rows: [groupRow] };
       throw new Error(`Unexpected query: ${text}`);
     },
@@ -59,17 +60,19 @@ test('production wiring authorizes independent fresh grants and ignores stale to
   await withApp(async (base, service, queries) => {
     const reader = await token(service, 'reader', 'reader-1', ['groups:write', 'groups:read']);
     assert.equal((await fetch(`${base}/groups`, { headers: auth(reader) })).status, 200);
-    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(reader), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Denied' }) })).status, 403);
+    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(reader), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Denied', career_id: CAREER_ID }) })).status, 403);
     const writer = await token(service, 'writer', 'writer-1', ['groups:read']);
-    const created = await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(writer), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 7, name: 'Physics', created_by: 'spoof' }) });
+    const created = await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(writer), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 7, name: 'Physics', career_id: CAREER_ID, created_by: 'spoof' }) });
     assert.equal(created.status, 201);
     assert.equal((await created.json()).created_by, 'writer-1');
     assert.equal((await fetch(`${base}/groups`, { headers: auth(writer) })).status, 403);
     const delegate = await token(service, 'custom_non_admin', 'delegate-1', []);
-    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 2, name: 'Delegated' }) })).status, 403);
+    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 2, name: 'Delegated', career_id: CAREER_ID }) })).status, 403);
     grants.custom_non_admin = ['groups:write'];
-    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 2, name: 'Delegated' }) })).status, 201);
+    assert.equal((await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 2, name: 'Delegated', career_id: CAREER_ID }) })).status, 201);
     assert.equal(queries.filter(({ text }) => text.includes('FROM role_permissions')).length, 6);
+    const insert = queries.find(({ text }) => text.includes('INSERT INTO academic_groups'));
+    assert.deepEqual(insert.params, [2026, 7, 'Physics', CAREER_ID, 'writer-1']);
   }, { grants });
 });
 
@@ -77,7 +80,7 @@ test('a verified token without sub keeps nullable attribution and grants are che
   const grants = { admin: ['groups:write'] };
   await withApp(async (base, service) => {
     const adminWithoutSubject = await token(service, 'admin', undefined, ['groups:write']);
-    const response = await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(adminWithoutSubject), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Anonymous actor', created_by: 'spoofed' }) });
+    const response = await fetch(`${base}/groups`, { method: 'POST', headers: { ...auth(adminWithoutSubject), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Anonymous actor', career_id: CAREER_ID, created_by: 'spoofed' }) });
     assert.equal(response.status, 201);
     assert.equal((await response.json()).created_by, null);
   }, { grants });
@@ -90,7 +93,7 @@ test('admin claims cannot bypass missing grants and a same-token permission revo
     assert.equal((await fetch(`${base}/groups`, { headers: auth(admin) })).status, 403);
     const delegate = await token(service, 'delegate', 'delegate-1', []);
     grants.delegate = ['groups:write'];
-    const options = { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Allowed' }) };
+    const options = { method: 'POST', headers: { ...auth(delegate), 'content-type': 'application/json' }, body: JSON.stringify({ academic_year: 2026, curriculum_semester: 1, name: 'Allowed', career_id: CAREER_ID }) };
     assert.equal((await fetch(`${base}/groups`, options)).status, 201);
     grants.delegate = [];
     assert.equal((await fetch(`${base}/groups`, options)).status, 403);

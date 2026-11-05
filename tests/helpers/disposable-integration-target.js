@@ -27,6 +27,7 @@ const MIGRATIONS = [
   'create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql','create_kinesiology_evolutions.sql','seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql','seed_kinesiology_evolution_review_permissions.sql',
   'create_kinesiology_evolution_amendment_links.sql',
+  'create_careers.sql', 'seed_career_permissions.sql',
 ].map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`);
 
 function reject(message) {

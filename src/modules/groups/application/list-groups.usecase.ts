@@ -1,8 +1,10 @@
 import { BadRequestError } from '../../shared/domain/errors.js';
 import type { Group } from '../domain/group.entity.js';
+import { validateCareerId } from './create-group.usecase.js';
 import type { GroupRepositoryPort } from './group.ports.js';
 
 export interface ListGroupsInput {
+  career_id?: unknown;
   limit?: unknown;
   offset?: unknown;
 }
@@ -21,9 +23,10 @@ export class ListGroups {
   }
 
   async execute(input: ListGroupsInput = {}): Promise<ListGroupsResult> {
+    const careerId = input.career_id === undefined ? undefined : validateCareerId(input.career_id);
     const limit = parseBoundedInteger(input.limit, 50, 1, 100, 'limit');
     const offset = parseBoundedInteger(input.offset, 0, 0, 10000, 'offset');
-    const items = await this.repository.list({ limit, offset });
+    const items = await this.repository.list({ careerId, limit, offset });
     return { items, limit, offset };
   }
 }

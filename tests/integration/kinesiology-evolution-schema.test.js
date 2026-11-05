@@ -67,7 +67,7 @@ test('generated disposable target exposes the read-only A3 evolution schema', {
       { columns: ['origin_subject_id'], referenced_table: 'subjects', referenced_columns: ['id'] },
     ]);
     assert.ok(foreignKeys.every(({ definition }) => /ON DELETE RESTRICT$/.test(definition)));
-    assert.ok(constraints.rows.some(({ type, definition }) => type === 'c' && /CHECK \(\(status = ANY \(ARRAY\['draft'::text, 'submitted'::text, 'validated'::text\]\)\)\)/.test(definition)));
+    assert.ok(constraints.rows.some(({ type, definition }) => type === 'c' && /^CHECK \(\(?status = ANY \(ARRAY\['draft'::text, 'submitted'::text, 'validated'::text\]\)\)?\)$/.test(definition)));
   } finally {
     await pool.end();
   }

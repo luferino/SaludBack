@@ -1,0 +1,4 @@
+# Keep LF line endings in the repository and in every working copy,
+# regardless of the local core.autocrlf setting. Byte-exact tests
+# (for example the migration checksum test) depend on it.
+* text=auto eol=lf

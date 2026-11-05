@@ -48,7 +48,7 @@ test('all protected mounts reject missing tokens without SQL and global HTTP beh
     for (const [method, path] of [
       ['POST', '/auth/register'], ['GET', '/auth/me'], ['POST', '/patients'],
       ['GET', '/students'], ['GET', '/teachers'], ['GET', '/careers'], ['GET', '/subjects'], ['GET', '/groups'],
-      ['GET', '/subject-groups'], ['GET', '/student-habilitations'],
+      ['GET', '/oral-surgery-subjects'], ['GET', '/subject-groups'], ['GET', '/student-habilitations'],
       ['GET', '/patient-assignments'], ['GET', '/kinesiology-evaluations'], ['GET', '/teacher-habilitations'],
     ]) {
       const response = await fetch(base + path, { method });

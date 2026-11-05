@@ -89,6 +89,10 @@ const careerPermissionSeedSql = readFileSync(
   'utf8',
 );
 
+const oralSurgerySubjectPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/039_seed_oral_surgery_subject_permissions.sql'), 'utf8',
+);
+
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
     "SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed",
@@ -117,6 +121,7 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM teachers');
   await pool.query('DELETE FROM subject_academic_groups');
   await pool.query('DELETE FROM academic_groups');
+  await pool.query('DELETE FROM oral_surgery_subjects');
   await pool.query('DELETE FROM subjects');
   await pool.query('DELETE FROM clinical_records');
   await pool.query('DELETE FROM patients');
@@ -141,4 +146,5 @@ export async function cleanDb(pool) {
   await pool.query(kinesiologyEvolutionPermissionSeedSql);
   await pool.query(kinesiologyEvolutionReviewPermissionSeedSql);
   await pool.query(careerPermissionSeedSql);
+  await pool.query(oralSurgerySubjectPermissionSeedSql);
 }

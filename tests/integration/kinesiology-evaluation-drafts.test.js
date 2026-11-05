@@ -18,9 +18,10 @@ const MIGRATIONS = [
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
   '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql','026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql','031_create_kinesiology_evolutions.sql','032_seed_kinesiology_evolution_permissions.sql',
-   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql',
+   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql',
 ];
 const EXPECTED_PERMISSIONS = [
+  'oral-surgery-subjects:read', 'oral-surgery-subjects:write',
   'users:write','students:write','teachers:write','patients:write','profile:read','materias:read','turnos:read',
   'subjects:write','subjects:read','careers:read','groups:write','groups:read','subject-groups:write','subject-groups:read',
   'teacher-habilitations:write','teacher-habilitations:revoke','student-habilitations:write','student-habilitations:revoke',
@@ -30,6 +31,7 @@ const EXPECTED_PERMISSIONS = [
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
 ];
 const EXPECTED_GRANTS = [
+  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write',
   'estudiante:profile:read','estudiante:materias:read','estudiante:turnos:read','teacher:profile:read','teacher:materias:read','teacher:turnos:read',
   'admin:users:write','admin:students:write','admin:teachers:write','admin:patients:write','admin:profile:read','admin:materias:read','admin:turnos:read',
   'admin:subjects:write','admin:subjects:read','admin:careers:read','admin:groups:write','admin:groups:read','admin:subject-groups:write','admin:subject-groups:read',
@@ -103,14 +105,14 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–037 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–039 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
-    assert.equal(permissions.length, 36, 'exact 36-permission canonical baseline required');
+    assert.equal(permissions.length, 38, 'exact 38-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
     assert.ok(permissions.every(row => row.enforced === true || ['materias:read','turnos:read'].includes(row.permission)));
     assert.deepEqual(permissions.filter(row => CLINICAL_PERMISSIONS.includes(row.permission)), CLINICAL_PERMISSIONS.map(permission => ({ permission, enforced:true })).sort((a,b) => a.permission.localeCompare(b.permission)));
     const { rows: grants } = await client.query('SELECT role,permission FROM public.role_permissions ORDER BY role,permission');
-    assert.equal(grants.length, 46, 'exact 46-grant canonical baseline required');
+    assert.equal(grants.length, 48, 'exact 48-grant canonical baseline required');
     assert.deepEqual(grants.map(row=>`${row.role}:${row.permission}`),[...EXPECTED_GRANTS].sort(),'unknown or missing grants are unsafe');
     assert.deepEqual(grants.filter(row => row.permission.startsWith('kinesiology-evaluations:')).map(row => `${row.role}:${row.permission}`).sort(), [...CLINICAL_GRANTS].sort());
     assert.deepEqual(grants.filter(row => row.permission.startsWith('patient-assignments:')).map(row => `${row.role}:${row.permission}`).sort(), [
@@ -120,7 +122,7 @@ async function readonlyPreflight() {
       ['admin:teacher-habilitations:revoke','admin:teacher-habilitations:write']);
     const { rows: baseline } = await client.query(`SELECT (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { permissions:36, grants:46 });
+    assert.deepEqual(baseline[0], { permissions:38, grants:48 });
   } finally { await client.end(); }
   return value;
 }

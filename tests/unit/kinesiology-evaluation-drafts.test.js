@@ -21,10 +21,14 @@ const subject = '10000000-0000-4000-8000-000000000001';
 const group = '20000000-0000-4000-8000-000000000001';
 const otherSubject = '10000000-0000-4000-8000-000000000002';
 const otherGroup = '20000000-0000-4000-8000-000000000002';
+const odontologySubject = '10000000-0000-4000-8000-000000000101';
+const odontologyGroup = '20000000-0000-4000-8000-000000000101';
+const SAME_CAREER_JOIN = 'JOIN subjects os ON os.career_id = cs.career_id';
+const KINESIOLOGY_CONTEXT_FILTER = "subject_id IN (SELECT s.id FROM subjects s JOIN careers c ON c.id = s.career_id WHERE c.code = 'kinesiology')";
 const grants = ['kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit'];
 
 function fakePool() {
-  const state = { queries: [], records: [], evaluations: [], consents: [], submissions: [], submissionStudies: [], correctionRequests: [], validationReviews: [], amendments: [], releases: 0, commits: 0, rollbacks: 0, transactionSnapshot: null,
+  const state = { odontologyLinked: new Set(), queries: [], records: [], evaluations: [], consents: [], submissions: [], submissionStudies: [], correctionRequests: [], validationReviews: [], amendments: [], releases: 0, commits: 0, rollbacks: 0, transactionSnapshot: null,
     failAt: null, patients: [{ id: patient, documento: '12345678', nombres: 'Ana', apellidos: 'Lopez', fecha_nacimiento: '1990-05-10', email: 'ana@example.com', celular: '+5491100000000', sexo: 'F', direccion: 'Calle 1', created_by: actor, created_at: '2020-01-01T00:00:00Z' }],
     grants: { estudiante: [...grants], teacher: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review'], admin: ['kinesiology-evaluations:read', 'kinesiology-evaluations:write'] },
     profiles: new Set([actor, '30000000-0000-4000-8000-000000000002']), periods: new Set([actor, '30000000-0000-4000-8000-000000000002']), assignments: new Set([actor, '30000000-0000-4000-8000-000000000002']), teachers: new Set(), teacherContexts: new Map(), currentPeriodIds: new Map(), hintMutation: null, transactionLockOrder: [], teacherPeriodLockIds: [], crossTeacherContexts: new Map() };
@@ -77,10 +81,12 @@ function fakePool() {
     if (sql.includes('FROM students WHERE user_id')) return { rows: state.profiles.has(params[0]) ? [{ id: params[0] === actor ? student : `${student}-other` }] : [] };
     if (sql.includes('FROM student_academic_habilitations')) {
       const user = params[0] === student ? actor : params[0] === `${student}-other` ? '30000000-0000-4000-8000-000000000002' : undefined;
+      const odontologyContext = params[1] === odontologySubject && params[2] === odontologyGroup && state.odontologyLinked.has(user);
       const contextMatches = user === actor
-        ? params[1] === subject && params[2] === group
+        ? (params[1] === subject && params[2] === group) || odontologyContext
         : params[1] === otherSubject && params[2] === otherGroup;
-      return { rows: user && contextMatches && state.periods.has(user)
+      const kinesiologyOnly = sql.includes(KINESIOLOGY_CONTEXT_FILTER);
+      return { rows: user && contextMatches && state.periods.has(user) && !(kinesiologyOnly && odontologyContext)
         ? [{ id: state.currentPeriodIds.get(user) ?? (user === actor ? period : `${period}-other`), subject_id: params[1], academic_group_id: params[2], student_id: params[0] }]
         : [] };
     }
@@ -121,7 +127,8 @@ function fakePool() {
       const originStudent = row.author_id === user && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user);
       const originTeacher = state.teachers.has(user);
       const hasSnapshot = state.submissions.some(item => item.evaluation_id === row.id);
-      const crossStudent = hasSnapshot && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user);
+      const crossStudent = hasSnapshot && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user) &&
+        !(sql.includes(SAME_CAREER_JOIN) && state.odontologyLinked.has(user));
       const crossTeacher = hasSnapshot && (state.crossTeacherContexts.get(user) ?? new Set()).has(`${row.patient_id}|${row.origin_subject_id}|${row.origin_group_id}`);
       if (sql.includes('snapshot.clinical_content')) {
         assert.match(sql, /a\.subject_id = sp\.subject_id/);
@@ -210,7 +217,8 @@ function fakePool() {
       const evaluation = state.evaluations.find(row => row.id === params[0]);
       const user = params[1];
       const origin = evaluation && (evaluation.author_id === user && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user) || state.teachers.has(user));
-      const cross = evaluation && state.submissions.some(row => row.evaluation_id === evaluation.id) && user && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user);
+      const cross = evaluation && state.submissions.some(row => row.evaluation_id === evaluation.id) && user && state.profiles.has(user) && state.periods.has(user) && state.assignments.has(user) &&
+        !(sql.includes(SAME_CAREER_JOIN) && state.odontologyLinked.has(user));
       assert.match(sql, /latest\.ordinal DESC LIMIT 1/);
       const versions = state.submissions.filter(row => row.evaluation_id === params[0]);
       const allowed = origin ? versions : cross ? versions.slice(-1) : [];
@@ -438,6 +446,56 @@ test('submission history preserves private and missing 404 while an accessible d
     await denied(outsider, id);
     pool.state.periods.delete(actor);
     await denied(author, id);
+  });
+});
+
+test('an odontology-only student gets the stranger response for detail, list and history', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    await createSubmitted(pool, base, tokens, '30000000-0000-4000-8000-000000000003');
+    pool.state.odontologyLinked.add('30000000-0000-4000-8000-000000000002');
+    const odontologyToken = await bearer(tokens, '30000000-0000-4000-8000-000000000002');
+    const strangerToken = await bearer(tokens, '30000000-0000-4000-8000-000000000007');
+    const hidden = { status: 404, body: { error: { code: 'NOT_FOUND', message: 'evaluation was not found' } } };
+    const stranger = await call(base, strangerToken, 'GET', '/kinesiology-evaluations/9007199254740994');
+    assert.deepEqual({ status: stranger.status, body: await stranger.json() }, hidden);
+    const detail = await call(base, odontologyToken, 'GET', '/kinesiology-evaluations/9007199254740994');
+    assert.deepEqual({ status: detail.status, body: await detail.json() }, hidden);
+    const history = await call(base, odontologyToken, 'GET', '/kinesiology-evaluations/9007199254740994/submissions');
+    assert.deepEqual({ status: history.status, body: await history.json() }, hidden);
+    const listing = await call(base, odontologyToken, 'GET', `/kinesiology-evaluations?patient_id=${patient}`);
+    assert.deepEqual({ status: listing.status, body: await listing.json() }, { status: 200, body: { items: [] } });
+  });
+});
+
+test('an odontology-linked student cannot create a kinesiology evaluation in the odontology context', async () => {
+  const pool = fakePool();
+  pool.state.odontologyLinked.add(actor);
+  await withServer(pool, async (base, tokens) => {
+    const response = await call(base, await bearer(tokens), 'POST', '/kinesiology-evaluations', { patient_id: patient, subject_id: odontologySubject, academic_group_id: odontologyGroup, content: {} });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: { code: 'FORBIDDEN', message: 'an active student context is required' } });
+  });
+  assert.equal(pool.state.records.length, 0);
+  assert.equal(pool.state.evaluations.length, 0);
+  assert.equal(pool.state.commits, 0);
+});
+
+test('a kinesiology cross reader keeps the snapshot and every cross-context read carries the same-career predicate', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base, tokens) => {
+    await createSubmitted(pool, base, tokens, '30000000-0000-4000-8000-000000000003');
+    const crossStudent = await bearer(tokens, '30000000-0000-4000-8000-000000000002');
+    const detail = await call(base, crossStudent, 'GET', '/kinesiology-evaluations/9007199254740994');
+    assert.equal(detail.status, 200);
+    assert.equal((await detail.json()).status, 'submitted');
+    const listing = await call(base, crossStudent, 'GET', `/kinesiology-evaluations?patient_id=${patient}`);
+    assert.equal((await listing.json()).items.length, 1);
+    const history = await call(base, crossStudent, 'GET', '/kinesiology-evaluations/9007199254740994/submissions');
+    assert.equal(history.status, 200);
+    const reads = pool.state.queries.filter(query => query.sql.includes('FROM kinesiology_evaluation_submissions s'));
+    assert.equal(reads.length >= 3, true);
+    for (const query of reads) assert.equal(query.sql.includes(SAME_CAREER_JOIN), true, query.sql);
   });
 });
 

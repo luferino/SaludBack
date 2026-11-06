@@ -38,6 +38,10 @@ require the live source or live test tree to remain at the old revision.
 The ordinary unit suite, including composition and module wiring tests, exercises
 the current application.
 
+## Oral Surgery I
+
+See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student clinical drafts, permissions and delivery scope.
+
 ## Clinical module architecture
 
 `kinesiology-evaluations`, `kinesiology-evolutions` and `patient-assignments` follow the same inward dependency

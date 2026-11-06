@@ -39,6 +39,8 @@ const SUBJECT_IDS = [
   '10000000-0000-4000-8000-000000000003',
 ];
 const EXPECTED_PERMISSIONS = new Set([
+  'oral-surgery-drafts:read', 'oral-surgery-drafts:write',
+  'oral-surgery-subjects:read', 'oral-surgery-subjects:write',
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
   'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
@@ -48,6 +50,9 @@ const EXPECTED_PERMISSIONS = new Set([
   'careers:read',
 ]);
 const EXPECTED_GRANTS = new Set([
+  'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:read',
+  'estudiante:oral-surgery-drafts:read', 'estudiante:oral-surgery-drafts:write',
+  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write',
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
   'teacher:profile:read', 'teacher:materias:read', 'teacher:turnos:read',
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
@@ -169,7 +174,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–037 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–041 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -201,6 +206,10 @@ test('migrations 011–037 are present before cleanup and cleanup restores the c
    assert.ok(ledgerNamesBefore.has('035_create_kinesiology_evolution_amendment_links.sql'), 'migration 035 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('036_create_careers.sql'), 'migration 036 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('037_seed_career_permissions.sql'), 'migration 037 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('038_create_oral_surgery_subjects.sql'), 'migration 038 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('039_seed_oral_surgery_subject_permissions.sql'), 'migration 039 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('040_create_oral_surgery_drafts.sql'), 'migration 040 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('041_seed_oral_surgery_draft_permissions.sql'), 'migration 041 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -286,10 +295,10 @@ test('migrations 011–037 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 36);
+  assert.equal(permissions.length, 40);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 46);
+  assert.equal(grants.length, 52);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

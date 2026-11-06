@@ -72,7 +72,8 @@ async function seedLegacy(client) {
 }
 
 export async function rehearseCareerUpgrade(client) {
-  const files = (await readdir(migrations)).filter(file => file.endsWith('.sql')).sort();
+  // The upgrade under rehearsal is 036/037; later migrations are outside its scope.
+  const files = (await readdir(migrations)).filter(file => file.endsWith('.sql')).sort().slice(0, 37);
   assert.equal(files.length, 37, 'rehearsal is pinned to migrations 001–037');
   assert.equal(files[35], '036_create_careers.sql');
   assert.equal(files[36], '037_seed_career_permissions.sql');

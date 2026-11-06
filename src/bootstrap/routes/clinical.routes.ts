@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
+import { createOralSurgeryDraftRouter } from '../../modules/oral-surgery-drafts/index.js';
 import { createPatientAssignmentRouter } from '../../modules/patient-assignments/index.js';
 import { createPatientAvailabilityRouter } from '../../modules/patient-availabilities/index.js';
 import { createPatientAssignmentOptionsRouter } from '../../modules/patient-assignment-options/index.js';
@@ -9,6 +10,9 @@ import { authenticate } from '../../modules/auth/infrastructure/middleware/authe
 
 export function mountClinicalRoutes(app: Express, dependencies: AppDependencies['clinical']): void {
   const { assignmentRepository, availabilityRepository, assignmentOptionsRepository, evaluationRepository, evolutionRepository, tokenService, matrixReader } = dependencies;
+
+  app.use('/oral-surgery-drafts', authenticate(tokenService, matrixReader),
+    createOralSurgeryDraftRouter({ repository: dependencies.oralSurgeryDraftRepository }));
 
   app.use(
     '/patient-availabilities',

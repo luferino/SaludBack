@@ -9,6 +9,8 @@ import { ConsoleMailer } from '../modules/auth/infrastructure/services/console-m
 import { PgPatientRepository } from '../modules/patients/infrastructure/repositories/pg-patient.repository.js';
 import { PgStudentRepository } from '../modules/students/infrastructure/repositories/pg-student.repository.js';
 import { PgTeacherRepository } from '../modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
+import { PgOralSurgeryDraftRepository } from '../modules/oral-surgery-drafts/index.js';
+import { PgOralSurgerySubjectRepository } from '../modules/oral-surgery-subjects/index.js';
 import { PgCareerRepository } from '../modules/careers/infrastructure/repositories/pg-career.repository.js';
 import { PgSubjectRepository } from '../modules/subjects/infrastructure/repositories/pg-subject.repository.js';
 import { PgGroupRepository } from '../modules/groups/infrastructure/repositories/pg-group.repository.js';
@@ -31,6 +33,7 @@ export function createDependencies(pool: Pool) {
   const studentRepository = new PgStudentRepository(pool);
   const teacherRepository = new PgTeacherRepository(pool);
   const careerRepository = new PgCareerRepository(pool);
+  const oralSurgerySubjectRepository = new PgOralSurgerySubjectRepository(pool);
   const subjectRepository = new PgSubjectRepository(pool);
   const groupRepository = new PgGroupRepository(pool);
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
@@ -42,6 +45,7 @@ export function createDependencies(pool: Pool) {
   const patientAssignmentOptionsRepository = new PgPatientAssignmentOptionsRepository(pool);
   const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
   const kinesiologyEvolutionRepository = new PgKinesiologyEvolutionRepository(unitOfWork, pool);
+  const oralSurgeryDraftRepository = new PgOralSurgeryDraftRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -61,11 +65,12 @@ export function createDependencies(pool: Pool) {
       userRepository: repository, hasher, unitOfWork, tokenService, matrixReader,
     },
     academic: {
-      careerRepository, subjectRepository, groupRepository, subjectGroupRepository,
+      careerRepository, oralSurgerySubjectRepository, subjectRepository, groupRepository, subjectGroupRepository,
       studentHabilitationRepository, teacherHabilitationRepository,
       tokenService, matrixReader,
     },
     clinical: {
+      oralSurgeryDraftRepository,
       assignmentRepository: patientAssignmentRepository,
       availabilityRepository: patientAvailabilityRepository,
       assignmentOptionsRepository: patientAssignmentOptionsRepository,

@@ -24,7 +24,7 @@ const MIGRATIONS = [
   '024_create_kinesiology_correction_requests.sql', '025_create_kinesiology_validation_reviews.sql',
   '026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql', '031_create_kinesiology_evolutions.sql', '032_seed_kinesiology_evolution_permissions.sql',
-  '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql',
+  '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';
@@ -33,7 +33,7 @@ const REQUEST_TIMEOUT = 9000;
 const REQUIRED_TABLES = [
   'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
   'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolution_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
-  'subject_academic_groups', 'academic_groups', 'oral_surgery_drafts', 'oral_surgery_subjects', 'subjects', 'clinical_records', 'patients',
+  'subject_academic_groups', 'academic_groups', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'users', 'permissions', 'role_permissions', 'schema_migrations',
 ];
 

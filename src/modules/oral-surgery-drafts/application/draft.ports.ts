@@ -17,7 +17,18 @@ export interface ConsentHistory {
   draft_version: string; plan_revision: string; current_declaration_id: string | null;
   declarations: ConsentDeclaration[];
 }
+export interface SurgeryAuthorization {
+  id: string; draft_id: string; draft_version: string; consent_declaration_id: string;
+  reviewed_content: DraftContent; authorized_by: string; teacher_habilitation_id: string;
+  authorized_at: Date | string;
+}
+export interface AuthorizationHistory {
+  draft_version: string; current_authorization_id: string | null;
+  authorizations: SurgeryAuthorization[];
+}
 export interface DraftRepositoryPort {
+  authorizeSurgery(id: string, version: string, consentId: string, actor: DraftActor): Promise<SurgeryAuthorization>;
+  authorizationHistory(id: string, actor: DraftActor): Promise<AuthorizationHistory>;
   declareConsent(id: string, version: string, actor: DraftActor): Promise<ConsentDeclaration>;
   consentHistory(id: string, actor: DraftActor): Promise<ConsentHistory>;
   create(input: DraftInput, actor: DraftActor): Promise<DraftRow>;

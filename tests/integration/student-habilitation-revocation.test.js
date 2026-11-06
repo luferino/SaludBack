@@ -12,7 +12,7 @@ import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/
 
 const APP_NAME = 'student-habilitation-revocation-integration';
 const TIMEOUT = 5000;
-const MIGRATIONS = Array.from({ length: 42 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
+const MIGRATIONS = Array.from({ length: 44 }, (_, i) => `${String(i + 1).padStart(3, '0')}_${[
   'create_users.sql', 'create_patients.sql', 'add_email_and_reset_tokens.sql', 'multi_role_and_audit.sql',
   'user_id_unique_profiles.sql', 'create_permission_matrix.sql', 'seed_permission_matrix.sql',
   'create_clinical_records.sql', 'create_academic_contexts.sql', 'create_academic_habilitations.sql',
@@ -25,7 +25,7 @@ const MIGRATIONS = Array.from({ length: 42 }, (_, i) => `${String(i + 1).padStar
   'create_kinesiology_correction_requests.sql',
   'create_kinesiology_validation_reviews.sql', 'create_kinesiology_amendment_links.sql','seed_profile_read_permissions.sql','seed_habilitation_read_permissions.sql','create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql', 'create_kinesiology_evolutions.sql', 'seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql', 'seed_kinesiology_evolution_review_permissions.sql', 'create_kinesiology_evolution_amendment_links.sql',
-  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql',
+  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql','create_oral_surgery_authorizations.sql','seed_oral_surgery_authorization_permission.sql',
 ][i]}`);
 let pool, server, baseUrl, safeToClean = false;
 function normalize(value) { const ip = value?.replace(/^\[|\]$/g, '').split('/')[0].toLowerCase(); return ip?.startsWith('::ffff:') ? ip.slice(7) : ip; }
@@ -60,7 +60,7 @@ async function verifyTarget() {
       (SELECT count(*)::int FROM public.users) users,
       (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { evolutions: 0, assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 40, grants: 52 });
+    assert.deepEqual(baseline[0], { evolutions: 0, assignments: 0, student_periods: 0, teacher_periods: 0, patients: 0, users: 0, permissions: 41, grants: 53 });
     console.log('Verified disposable localhost:5432/saludback_test; migration ledger, exact permission baseline and empty fixtures confirmed.');
   } finally { await client.end(); }
   return value;

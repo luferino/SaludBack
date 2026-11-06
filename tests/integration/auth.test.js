@@ -319,7 +319,7 @@ test('POST /auth/login issues a teacher token with role, permissions and sub cla
 
   const decoded = jwt.decode(body.token);
   assert.equal(decoded.role, 'teacher');
-  assert.deepEqual(decoded.permissions, ['kinesiology-evaluations:read', 'kinesiology-evaluations:review', 'kinesiology-evaluations:verify-consent', 'kinesiology-evolutions:read', 'kinesiology-evolutions:review', 'materias:read', 'oral-surgery-drafts:read', 'patient-assignments:read', 'patient-assignments:write', 'patient-availabilities:read', 'profile:read', 'student-habilitations:read', 'student-habilitations:revoke', 'student-habilitations:write', 'students:read', 'turnos:read'], 'derived from seeded role_permissions');
+  assert.deepEqual(decoded.permissions, ['kinesiology-evaluations:read', 'kinesiology-evaluations:review', 'kinesiology-evaluations:verify-consent', 'kinesiology-evolutions:read', 'kinesiology-evolutions:review', 'materias:read', 'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'patient-assignments:read', 'patient-assignments:write', 'patient-availabilities:read', 'profile:read', 'student-habilitations:read', 'student-habilitations:revoke', 'student-habilitations:write', 'students:read', 'turnos:read'], 'derived from seeded role_permissions');
   assert.equal(decoded.sub, teacher.id, 'sub claim equals the authenticated user id (AUTH-002)');
 });
 

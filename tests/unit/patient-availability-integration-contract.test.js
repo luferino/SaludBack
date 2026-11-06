@@ -34,7 +34,7 @@ const permissionSeeds = ['007_seed_permission_matrix.sql', '011_seed_subject_per
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql',
   '030_seed_patient_availability_permissions.sql', '032_seed_kinesiology_evolution_permissions.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '037_seed_career_permissions.sql',
-  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql'];
+  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql'];
 const permissions = new Set(), grants = new Set();
 for (const seed of permissionSeeds) {
   const sql = readFileSync(`src/db/migrations/${seed}`, 'utf8');
@@ -51,6 +51,15 @@ test('clinical cleanup deletes separate evolution rows before their evaluation p
   assert.ok(permissionSeeds.includes('032_seed_kinesiology_evolution_permissions.sql'));
 });
 
+test('clinical cleanup final counts retain the same canonical permission/grant totals as its preflight', () => {
+  const source = readFileSync('tests/integration/kinesiology-evaluation-drafts.test.js', 'utf8');
+  const assertion = source.match(/assert\.deepEqual\(counts\[0\],(\{[^\n]+\})\);/);
+  assert.ok(assertion, 'explicit post-cleanup count assertion is required');
+  const counts = vm.runInNewContext('(' + assertion[1] + ')', Object.create(null), { timeout: 1000 });
+  assert.equal(counts.permissions, permissions.size);
+  assert.equal(counts.grants, grants.size);
+});
+
 for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evaluation-drafts']) {
   test(`${suite} preserves the exact canonical permission/grant preflight`, () => {
     const source = readFileSync(`tests/integration/${suite}.test.js`, 'utf8');
@@ -60,7 +69,7 @@ for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evalua
       const declared = vm.runInNewContext(declaration[1], Object.create(null), { timeout: 1000 });
       assert.deepEqual([...declared].sort(), [...expected].sort(), name);
     }
-    assert.equal(permissions.size, 40);
-    assert.equal(grants.size, 52);
+    assert.equal(permissions.size, 41);
+    assert.equal(grants.size, 53);
   });
 }

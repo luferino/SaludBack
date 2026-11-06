@@ -45,6 +45,22 @@ function page(value: unknown, name: string, fallback: number, max: number): numb
 
 export function createOralSurgeryDraftRouter({ repository }: { repository: DraftRepositoryPort }): Router {
   const router = Router();
+  router.post('/:id/authorizations', async (req, res) => {
+    await new PermissionGuard('oral-surgery-drafts:authorize').authorize(req);
+    const id = await defaultGetActor(req);
+    if (!isCanonicalUuid(id)) throw new UnauthorizedError('A verified UUID actor is required');
+    const role = (req as AuthenticatedRequest).auth!.role;
+    if (role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version', 'consent_declaration_id', 'paper_consent_verified']);
+    if (body.paper_consent_verified !== true) throw new BadRequestError('paper_consent_verified must be true to authorize surgery');
+    res.status(201).json(await repository.authorizeSurgery(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_version, 'expected_version'), decimal(body.consent_declaration_id, 'consent_declaration_id'), { id, role }));
+  });
+  router.get('/:id/authorizations', async (req, res) => {
+    const who = await actor(req, false);
+    res.json(await repository.authorizationHistory(decimal(req.params.id, 'draft id'), who));
+  });
   router.post('/:id/consent', async (req, res) => {
     const who = await actor(req, true);
     const body = object(req.body, 'body');

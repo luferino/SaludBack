@@ -119,9 +119,32 @@ Content-Type: application/json
 - Previous declarations remain in history. There is no update/delete route. Unknown or inaccessible drafts return the same 404 as draft reads.
 - Migration 042 adds the declaration history and monotonic plan revision. Existing draft responses and PATCH behavior are unchanged.
 
+## Instructor authorization
+
+An active teacher in the draft's original subject/group verifies the signed paper and authorizes the exact clinical version reviewed.
+
+```http
+POST /oral-surgery-drafts/1/authorizations
+Content-Type: application/json
+
+{"expected_version":"1","consent_declaration_id":"1","paper_consent_verified":true}
+```
+
+- Requires the separate `oral-surgery-drafts:authorize` permission and the `teacher` role. Migration 044 initially grants it only to teachers. Administrators do not authorize on their behalf, even with the permission.
+- Only the three shown fields are accepted. IDs/versions must be positive BIGINT decimal strings and `paper_consent_verified` must be literal `true`; malformed/extra fields return 400 before storage.
+- The specified consent must belong to this encounter and its current uninterrupted plan revision. Missing, foreign-encounter or obsolete consent returns 409 `current signed paper consent declaration is required`. A prior declaration for the same unchanged plan is still acceptable.
+- A stale clinical version returns 409 `draft version changed; reload before saving`. Unknown encounters or missing current origin-context teacher habilitation return 404 `oral surgery draft was not found`.
+- Returns 201 with `id`, `draft_id`, `draft_version`, `consent_declaration_id`, `reviewed_content`, `authorized_by`, `teacher_habilitation_id` and `authorized_at`. This immutable snapshot and its server-owned attribution preserve exactly what was authorized.
+- This action also records that the instructor verified the paper consent. It does not edit the clinical content, advance the draft version, or act as the patient's signature.
+- `GET /oral-surgery-drafts/:id/authorizations` uses the existing draft read permission/visibility. Returns `draft_version`, `current_authorization_id` (or null), and `authorizations` oldest first.
+- Every successful PATCH, even saving identical content, advances the draft version and requires a new authorization. Old authorizations and their reviewed snapshots remain in history; there is no update/delete route.
+- A changed treatment plan additionally requires a fresh student declaration. Unrelated edits need only renewed instructor authorization.
+- Reads require current access, but later habilitation revocation does not erase historical authorizations or retroactively change the recorded clinical version. The current ID means version applicability, not a guarantee of clinical completeness or consent-law compliance.
+- Migration 043 adds authorization history; migration 044 adds its enforced permission. The locks serialize instructor authorization with clinical edits and teacher revocation.
+
 ## Scope
 
-Medical evaluation, clinical examination, treatment-plan drafts and signed-paper consent declarations are included. Instructor surgical authorization is the next dependent unit. Operative reports, grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
+Medical evaluation, clinical examination, treatment-plan drafts, signed-paper consent declarations and version-bound instructor authorization are included. Operative reports, grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
 
 ## Verification
 

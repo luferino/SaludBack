@@ -45,6 +45,19 @@ function page(value: unknown, name: string, fallback: number, max: number): numb
 
 export function createOralSurgeryDraftRouter({ repository }: { repository: DraftRepositoryPort }): Router {
   const router = Router();
+  router.post('/:id/consent', async (req, res) => {
+    const who = await actor(req, true);
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version', 'paper_signed']);
+    if (body.paper_signed !== true) throw new BadRequestError('paper_signed must be true to attest signed paper consent');
+    const result = await repository.declareConsent(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_version, 'expected_version'), who);
+    res.status(201).json(result);
+  });
+  router.get('/:id/consent', async (req, res) => {
+    const who = await actor(req, false);
+    res.json(await repository.consentHistory(decimal(req.params.id, 'draft id'), who));
+  });
   router.post('/', async (req, res) => {
     const who = await actor(req, true);
     const body = object(req.body, 'body');

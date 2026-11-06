@@ -174,7 +174,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–041 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–042 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -210,6 +210,7 @@ test('migrations 011–041 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('039_seed_oral_surgery_subject_permissions.sql'), 'migration 039 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('040_create_oral_surgery_drafts.sql'), 'migration 040 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('041_seed_oral_surgery_draft_permissions.sql'), 'migration 041 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('042_create_oral_surgery_consent_declarations.sql'), 'migration 042 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",

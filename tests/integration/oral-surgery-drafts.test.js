@@ -148,3 +148,69 @@ test('Oral Surgery draft policies round-trip through the real public API on the 
     assert.deepEqual(restored.body.content, { medical_history: { hospitalized: null } });
     assert.equal((await list(admin)).body.items.length, 2);
   });
+
+test('S2/S3/S5: signed-paper declarations preserve history and require renewal after any treatment-plan change',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, outsider, author, otherStudent] = f.tokens;
+    await request('POST', '/oral-surgery-subjects', admin, { subject_id: f.origin.subject });
+    const created = await request('POST', '/oral-surgery-drafts', author, {
+      patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group,
+      content: { treatment_plan: { procedure: 'Plan A' } },
+    });
+    assert.equal(created.status, 201);
+    const draft = '/oral-surgery-drafts/' + created.body.id, url = draft + '/consent';
+    const history = token => request('GET', url, token);
+    const initial = await history(admin);
+    assert.deepEqual(initial, { status: 200, body: {
+      draft_version: '1', plan_revision: '1', current_declaration_id: null, declarations: [],
+    } });
+    for (const token of [teacher, admin]) {
+      const denied = await request('POST', url, token, { expected_version: '1', paper_signed: true });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(await history(admin), initial);
+    }
+    for (const token of [outsider, otherStudent]) {
+      assert.deepEqual(await history(token), hidden);
+    }
+    assert.deepEqual(await request('POST', url, otherStudent, { expected_version: '1', paper_signed: true }), hidden);
+    for (const body of [{ expected_version: '1', paper_signed: false },
+      { expected_version: '1', paper_signed: true, declared_by: f.admin.id }]) {
+      assert.equal((await request('POST', url, author, body)).status, 400);
+      assert.deepEqual(await history(admin), initial);
+    }
+    assert.deepEqual(await request('POST', url, author, { expected_version: '2', paper_signed: true }),
+      { status: 409, body: { error: { code: 'CONFLICT', message: 'draft version changed; reload before saving' } } });
+    assert.deepEqual(await history(admin), initial);
+    const declared = await request('POST', url, author, { expected_version: '1', paper_signed: true });
+    assert.equal(declared.status, 201);
+    assert.equal(declared.body.declared_by, f.student.id);
+    assert.equal(declared.body.draft_version, '1'); assert.equal(declared.body.plan_revision, '1');
+    assert.deepEqual(declared.body.treatment_plan, { procedure: 'Plan A' });
+    assert.ok(Number.isFinite(Date.parse(declared.body.declared_at)));
+    assert.deepEqual(await request('GET', draft, author), { status: 200, body: created.body });
+    const stored = await history(teacher);
+    assert.equal(stored.body.current_declaration_id, declared.body.id);
+    assert.deepEqual(stored.body.declarations, [declared.body]);
+    const save = (version, content) => request('PATCH', draft, author, { expected_version: version, content });
+    assert.equal((await save('1', { treatment_plan: { procedure: 'Plan A' }, medical_history: { hospitalized: false } })).status, 200);
+    assert.equal((await history(author)).body.current_declaration_id, declared.body.id);
+    assert.equal((await save('2', { treatment_plan: { procedure: 'Plan B' } })).status, 200);
+    let state = await history(author);
+    assert.equal(state.body.current_declaration_id, null); assert.equal(state.body.plan_revision, '2');
+    assert.deepEqual(state.body.declarations, [declared.body]);
+    assert.equal((await save('3', { treatment_plan: { procedure: 'Plan A' } })).status, 200);
+    state = await history(author);
+    assert.equal(state.body.current_declaration_id, null); assert.equal(state.body.plan_revision, '3');
+    assert.deepEqual(state.body.declarations, [declared.body]);
+    const renewed = await request('POST', url, author, { expected_version: '4', paper_signed: true });
+    assert.equal(renewed.status, 201); assert.notEqual(renewed.body.id, declared.body.id);
+    state = await history(author);
+    assert.equal(state.body.current_declaration_id, renewed.body.id);
+    assert.deepEqual(state.body.declarations, [declared.body, renewed.body]);
+    assert.equal((await request('POST', '/student-habilitations/' + f.periods[0].id + '/revoke', teacher, {})).status, 200);
+    const beforeDenied = await history(admin);
+    assert.deepEqual(await history(author), hidden);
+    assert.deepEqual(await request('POST', url, author, { expected_version: '4', paper_signed: true }), hidden);
+    assert.deepEqual(await history(admin), beforeDenied);
+  });

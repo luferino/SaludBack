@@ -117,6 +117,7 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM kinesiology_evolution_amendment_links');
   await pool.query('DELETE FROM kinesiology_evolutions');
   await pool.query('DELETE FROM kinesiology_evaluations');
+  await pool.query('DELETE FROM oral_surgery_consent_declarations');
   await pool.query('DELETE FROM oral_surgery_drafts');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');

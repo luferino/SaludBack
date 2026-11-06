@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { Queryable, UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
-import type { DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
+import type { ConsentDeclaration, ConsentHistory, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
 import type { DraftContent } from '../domain/content.js';
 
 const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_id,
@@ -95,6 +95,55 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
       [filter.patientId ?? null, actor.id, actor.role, filter.subjectId ?? null, filter.groupId ?? null, filter.limit, filter.offset],
     );
     return result.rows;
+  }
+
+  async declareConsent(id: string, version: string, actor: DraftActor): Promise<ConsentDeclaration> {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = (await db.query<DraftRow>(
+        `SELECT ${COLUMNS} FROM oral_surgery_drafts e WHERE e.id = $1 AND e.author_id = $2`, [id, actor.id],
+      )).rows[0];
+      if (!hint) throw new NotFoundError('oral surgery draft was not found');
+      try {
+        await this.authorizeWrite(db, { patientId: hint.patient_id, subjectId: hint.origin_subject_id, groupId: hint.origin_group_id }, actor);
+      } catch (error) {
+        if (error instanceof ForbiddenError || error instanceof NotFoundError) throw new NotFoundError('oral surgery draft was not found');
+        throw error;
+      }
+      const draft = (await db.query<{ version: string; plan_revision: string; content: DraftContent }>(
+        'SELECT version::text, plan_revision::text, content FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!draft || draft.version !== version) throw new ConflictError('draft version changed; reload before saving');
+      return (await db.query<ConsentDeclaration>(
+        `INSERT INTO oral_surgery_consent_declarations
+         (draft_id, draft_version, plan_revision, treatment_plan, declared_by)
+         VALUES ($1, $2, $3, $4::jsonb, $5)
+         RETURNING id::text, draft_id::text, draft_version::text, plan_revision::text,
+                   treatment_plan, declared_by, declared_at`,
+        [id, version, draft.plan_revision, JSON.stringify(draft.content.treatment_plan ?? null), actor.id],
+      )).rows[0];
+    });
+  }
+
+  async consentHistory(id: string, actor: DraftActor): Promise<ConsentHistory> {
+    // One statement keeps access, current plan and history in the same MVCC snapshot.
+    const result = await this.pool.query<ConsentHistory>(
+      `SELECT e.version::text AS draft_version, e.plan_revision::text,
+         (SELECT d.id::text FROM oral_surgery_consent_declarations d
+          WHERE d.draft_id = e.id AND d.plan_revision = e.plan_revision ORDER BY d.id DESC LIMIT 1) AS current_declaration_id,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'id', d.id::text, 'draft_id', d.draft_id::text, 'draft_version', d.draft_version::text,
+           'plan_revision', d.plan_revision::text, 'treatment_plan', d.treatment_plan,
+           'declared_by', d.declared_by, 'declared_at', d.declared_at) ORDER BY d.id)
+          FROM oral_surgery_consent_declarations d WHERE d.draft_id = e.id), '[]'::jsonb) AS declarations
+       FROM oral_surgery_drafts e WHERE e.id = $1 AND ${READ_ACCESS}`, [id, actor.id, actor.role],
+    );
+    if (!result.rows.length) throw new NotFoundError('oral surgery draft was not found');
+    const history = result.rows[0];
+    history.declarations = history.declarations.map(row => ({
+      ...row, declared_at: new Date(row.declared_at).toISOString(),
+    }));
+    return history;
   }
 
   async edit(id: string, version: string, content: DraftContent, actor: DraftActor): Promise<DraftRow> {

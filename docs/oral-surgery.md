@@ -99,9 +99,29 @@ Every section and field is optional, so incomplete drafts can be saved. Unknown 
 
 `cc_rr` stores the form's CC/RR mark as written; the API does not interpret it.
 
+## Signed paper consent
+
+The student author attests that signed paper consent exists. This is **not a patient electronic signature** and no document is uploaded.
+
+```http
+POST /oral-surgery-drafts/1/consent
+Content-Type: application/json
+
+{"expected_version":"1","paper_signed":true}
+```
+
+- Requires `oral-surgery-drafts:write`, the original student author, and the same current habilitation/assignment as editing. Teachers and administrators cannot declare for the student.
+- Only `expected_version` and `paper_signed` are accepted. The latter must be literal `true`; missing, false or other values return 400. ID/version validation is the same as PATCH.
+- Returns 201 with `id`, `draft_id`, `draft_version`, `plan_revision`, `treatment_plan`, `declared_by` and `declared_at`. Actor, timestamp and plan snapshot are server-owned.
+- A stale version returns 409 `draft version changed; reload before saving`, with no declaration created. Declaring does not edit the draft or increment its version.
+- `GET /oral-surgery-drafts/:id/consent` requires draft read permission and the same visibility as the draft. It returns `draft_version`, `plan_revision`, `current_declaration_id` (or null), and `declarations` ordered oldest first.
+- Unrelated clinical edits preserve the declaration's applicability. Any change to the stored `treatment_plan` section (including clearing it) requires a new declaration. Changing back to the previous plan does not reactivate old consent.
+- Previous declarations remain in history. There is no update/delete route. Unknown or inaccessible drafts return the same 404 as draft reads.
+- Migration 042 adds the declaration history and monotonic plan revision. Existing draft responses and PATCH behavior are unchanged.
+
 ## Scope
 
-This delivery is limited to medical evaluation, clinical examination and treatment-plan drafts. Consent, instructor surgical authorization, operative reports, grading and shared critical-antecedent aggregation are not included.
+Medical evaluation, clinical examination, treatment-plan drafts and signed-paper consent declarations are included. Instructor surgical authorization is the next dependent unit. Operative reports, grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
 
 ## Verification
 

@@ -9,6 +9,14 @@ function run(args) {
   });
 }
 
+test('career upgrade rehearsal stays pinned to 001–037 when later migrations exist', async () => {
+  const { rehearseCareerUpgrade } = await import('../helpers/career-upgrade-rehearsal.js');
+  const reached = new Error('reached first database statement');
+  const statements = [];
+  await assert.rejects(rehearseCareerUpgrade({ async query(sql) { statements.push(sql); throw reached; } }), error => error === reached);
+  assert.match(statements[0], /CREATE TABLE schema_migrations/);
+});
+
 test('career upgrade route requires explicit disposable opt-in before any database access', () => {
   const result = run(['--disposable', '--career-upgrade-rehearsal']);
   assert.equal(result.status, 2);

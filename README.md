@@ -40,7 +40,7 @@ the current application.
 
 ## Oral Surgery I
 
-See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, permissions and delivery scope.
+See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student clinical drafts, permissions and delivery scope.
 
 ## Clinical module architecture
 

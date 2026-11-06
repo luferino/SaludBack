@@ -1,5 +1,5 @@
 # Oral Surgery I clinical drafts
-Objective: clinical draft delivery. Status: T1 complete; T2 implemented and documented, under independent verification before its commit. Branch: feat/odontology-oral-surgery; base b4a452f64f6b5a42ce7aae99fa7f8fb4f745e240.
+Objective: clinical draft delivery. Status: T1 and T2 committed with live PostgreSQL proof; T2 native review disposition pending. Branch: feat/odontology-oral-surgery; base b4a452f64f6b5a42ce7aae99fa7f8fb4f745e240.
 Delivery: feature-branch-chain (no publishing); forecast 1,200–1,800 authored lines. Checks: database-free Node units and TypeScript; real PostgreSQL requires fresh authorization.
 
 ## Specs
@@ -15,7 +15,7 @@ Delivery: feature-branch-chain (no publishing); forecast 1,200–1,800 authored 
 ## Tasks
 
 - T1 [S3,S4,S7] done (native approved and acknowledged; live PostgreSQL proof remains explicitly assigned to T3); route inline (subject configuration is prerequisite to draft creation, not an independent parallel writer); commit 142efbd839362cc2ecd1cdc5935b697ee2c9224c. Full units565/565, independent verifierPASS39+15, parent spot39/39. Implement admin-only add/list subject links, Odontology boundary, tests/docs and the existing integration harness's exact migration/table/grant inventories and FK-safe cleanup adapters. Still incomplete until focused and full regression checks pass. Risk: item 2 (permission/career guards).
-- T2 [S1,S2,S3,S4,S5,S6,S7] in_progress (code+docs done; full units573/573; independent verification running; commit pending); route inline (depends on T1). Implement independent Oral Surgery clinical content and create/read/edit/list draft API, immutable provenance, shared history reuse, tests/docs. Risk: item 2 (clinical visibility), item 4 (atomic contextual writes).
+- T2 [S1,S2,S3,S4,S5,S6,S7] blocked (waiting for user disposition of unavailable native assessment, as for T1); route inline (depends on T1); commit f12aafef70a5381a49701538f11025b2c15634a0. Units 575/575, disposable PostgreSQL 176/176, career rehearsal OK, verifier PASS (blocker fixed and passed live). Implement independent Oral Surgery clinical content and create/read/edit/list draft API, immutable provenance, shared history reuse, tests/docs. Risk: item 2 (clinical visibility), item 4 (atomic contextual writes).
 - T3 [S1-S7] pending; route independent gentle-ai-verify after inline self-checks. Run final units/typecheck, verifier and candidate-scoped native review when due; obtain specific decision for missing PostgreSQL proof. Commit tracking evidence. Risk: item 2 (clinical access), item 4 (transactional behavior).
 
 ## Log
@@ -34,6 +34,8 @@ Delivery: feature-branch-chain (no publishing); forecast 1,200–1,800 authored 
 - L12: Late completion after user pause: job-2 exited 1 in 2m03s; full rerun 565 tests, 563 passed, 2 failed. Log .git/oral-surgery-t1-unit-rerun.log. Failures: tests/unit/disposable-integration-target.test.js:182 still matches old ledger message 001-037; tests/unit/teacher-habilitation-revocation.test.js:113–118 source-baseline assertion failed after candidate inventory changes. These remain UNFIXED; no extra tests, source fixes, review or commit after user stop. Resume by inspecting these exact assertions against current intended inventories; do not mark the complete suite green based on 38/38 focused evidence.
 
 - L13: User resumed: «hola, retomemos lo pendiente» and authorized the four exact installed instruction reads with «si». Git reconciled on feature branch at original base, all candidate changes preserved. Full regression remains 563/565; reproduce the two remaining source-inventory assertions before correcting. No PostgreSQL or publishing authorization added.
+
+- L25: Full units 575/575 (0 skipped). Committed T2 as f12aafef70a5381a49701538f11025b2c15634a0 on top of T1 142efbd: 35 files, +898/-69 excluding tracker. Slice boundaries for the feature-branch chain: slice A = T1 (b4a452f..142efbd), slice B = T2 (142efbd..f12aafe); the ~930-line slice B overage is reported, not split (see L20). Verifier blocker (Set.has in subjects.test.js) closed by observed evidence: split checks executed and passed in disposable run 3. Native ASSESS over 142efbd..f12aafe again unassessable (provider requires an untracked declaration for odd/handoffs/); no reviewDue returned. Asking the user for the T2 native review disposition, as for T1.
 
 - L24: Disposable run 3 (salud_e2e_fae4212f0d769bd9): 176/176 pass, 0 skipped, cleaned. Career upgrade rehearsal (salud_e2e_094efee1725e203f): CAREER_UPGRADE_OK, legacy 35 -> 37 migrations, 28 tables preserved, cleaned. Live PostgreSQL proof for T1 and T2 is now observed; waiting only for the full unit run before the T2 commit.
 

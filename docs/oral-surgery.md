@@ -24,6 +24,20 @@ Authorization: Bearer <admin-token>
 - There is no remove, replace or automatic-enable operation in this delivery.
 - Migration 038 adds the association and career constraints; migration 039 seeds admin-only permission grants. No existing subject is enabled automatically.
 
+## Discover own enabled contexts
+
+Authenticated students and teachers can discover the subject/group pairs currently enabled for Oral Surgery I:
+
+```http
+GET /oral-surgery-subjects/mine
+Authorization: Bearer <student-or-teacher-token>
+```
+
+- Requires `oral-surgery-drafts:read`, a verified UUID actor, and role `estudiante` or `teacher`. Administrators are not allowed, even when they hold the permission.
+- Returns exactly `{"items":[{"subject_id":"…","academic_group_id":"…"}]}` with unique pairs ordered by subject and group ID. Only the authenticated role's own non-revoked habilitations intersecting enabled Oral Surgery subjects are returned.
+- Query parameters are rejected; this discovery endpoint has no filters or pagination. Successful responses use `Cache-Control: no-store`.
+- This enables form-context discovery only. It does not grant visibility to patients or clinical records; draft access rules remain unchanged.
+
 ## Clinical drafts
 
 Each draft is one clinical encounter. Every deliberate `POST` creates a new encounter; an existing draft is resumed by its ID.

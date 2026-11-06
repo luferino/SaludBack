@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
+import { createCareerRouter } from '../../modules/careers/infrastructure/routes/career.routes.js';
 import { createSubjectRouter } from '../../modules/subjects/infrastructure/routes/subject.routes.js';
 import { createGroupRouter } from '../../modules/groups/infrastructure/routes/group.routes.js';
 import { createSubjectGroupRouter } from '../../modules/subject-groups/infrastructure/routes/subject-group.routes.js';
@@ -9,7 +10,16 @@ import { authenticate } from '../../modules/auth/infrastructure/middleware/authe
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 
 export function mountAcademicRoutes(app: Express, dependencies: AppDependencies['academic']): void {
-  const { subjectRepository, groupRepository, subjectGroupRepository, studentHabilitationRepository, tokenService, matrixReader } = dependencies;
+  const { careerRepository, subjectRepository, groupRepository, subjectGroupRepository, studentHabilitationRepository, tokenService, matrixReader } = dependencies;
+
+  app.use(
+    '/careers',
+    authenticate(tokenService, matrixReader),
+    createCareerRouter({
+      repository: careerRepository,
+      listGuard: new PermissionGuard('careers:read'),
+    }),
+  );
 
   app.use(
     '/subjects',

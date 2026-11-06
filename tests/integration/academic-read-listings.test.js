@@ -28,7 +28,7 @@ async function isolatedApp(run) {
       '001_create_users.sql', '002_create_patients.sql', '003_add_email_and_reset_tokens.sql',
       '004_multi_role_and_audit.sql', '005_user_id_unique_profiles.sql', '006_create_permission_matrix.sql',
       '009_create_academic_contexts.sql', '010_create_academic_habilitations.sql',
-      '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql',
+      '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '036_create_careers.sql',
     ]) {
       await client.query(await readFile(new URL(`../../src/db/migrations/${name}`, import.meta.url), 'utf8'));
     }
@@ -41,10 +41,10 @@ async function isolatedApp(run) {
     for (const [id, user, code] of [[STUDENT, ID(4), 'A1'], [UNASSIGNED, ID(5), 'A2']]) {
       await client.query('INSERT INTO students (id,user_id,nombres,apellidos,codalumno,email,celular) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, user, 'Ana', 'Same', code, 'private@example.invalid', 'private']);
     }
-    for (const id of [SUBJECT, OTHER_SUBJECT]) await client.query('INSERT INTO subjects (id,name) VALUES ($1,$2)', [id, id]);
-    for (const id of [GROUP, OTHER_GROUP]) await client.query('INSERT INTO academic_groups (id,academic_year,curriculum_semester,name) VALUES ($1,2026,1,$2)', [id, id]);
+    for (const id of [SUBJECT, OTHER_SUBJECT]) await client.query("INSERT INTO subjects (id,name,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code = 'kinesiology'))", [id, id]);
+    for (const id of [GROUP, OTHER_GROUP]) await client.query("INSERT INTO academic_groups (id,academic_year,curriculum_semester,name,career_id) VALUES ($1,2026,1,$2,(SELECT id FROM careers WHERE code = 'kinesiology'))", [id, id]);
     for (const [subject, group] of [[SUBJECT, GROUP], [OTHER_SUBJECT, OTHER_GROUP]]) {
-      await client.query('INSERT INTO subject_academic_groups (subject_id,academic_group_id) VALUES ($1,$2)', [subject, group]);
+      await client.query("INSERT INTO subject_academic_groups (subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code = 'kinesiology'))", [subject, group]);
     }
     await client.query(`INSERT INTO teacher_academic_habilitations (id,teacher_id,subject_id,academic_group_id,activated_by,activated_at)
       VALUES ($1,$2,$3,$4,$5,'2026-01-01'),($6,$7,$8,$9,$5,'2026-01-01')`,

@@ -46,18 +46,24 @@ function originRead(actor: string): string {
   )`;
 }
 
+// Cross-context reads stay inside the origin career: the context subject must share the record's career.
+function sameCareerAsOrigin(contextSubject: string): string {
+  return `EXISTS (SELECT 1 FROM subjects cs JOIN subjects os ON os.career_id = cs.career_id WHERE cs.id = ${contextSubject} AND os.id = e.origin_subject_id)`;
+}
+
 function crossContextRead(actor: string): string {
   return `(EXISTS (
     SELECT 1 FROM students s JOIN student_academic_habilitations sp ON sp.student_id = s.id
     JOIN patient_assignments a ON a.student_habilitation_id = sp.id
     WHERE s.user_id = ${actor} AND a.patient_id = e.patient_id
       AND a.subject_id = sp.subject_id AND sp.revoked_at IS NULL AND a.ended_at IS NULL
+      AND ${sameCareerAsOrigin('sp.subject_id')}
   ) OR EXISTS (
     SELECT 1 FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
     JOIN patient_assignments a ON a.patient_id = e.patient_id AND a.subject_id = th.subject_id AND a.ended_at IS NULL
     JOIN student_academic_habilitations sp ON sp.id = a.student_habilitation_id
       AND sp.subject_id = th.subject_id AND sp.academic_group_id = th.academic_group_id AND sp.revoked_at IS NULL
-    WHERE t.user_id = ${actor} AND th.revoked_at IS NULL
+    WHERE t.user_id = ${actor} AND th.revoked_at IS NULL AND ${sameCareerAsOrigin('th.subject_id')}
   ))`;
 }
 const inaccessible = () => new NotFoundError('evolution was not found');
@@ -71,6 +77,7 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
       if (!student.rows.length) throw new ForbiddenError('an active student context is required');
       const periods = await db.query<{ id: string }>(`SELECT id FROM student_academic_habilitations
         WHERE student_id = $1 AND subject_id = $2 AND academic_group_id = $3 AND revoked_at IS NULL
+          AND subject_id IN (SELECT s.id FROM subjects s JOIN careers c ON c.id = s.career_id WHERE c.code = 'kinesiology')
         ORDER BY id FOR UPDATE`, [student.rows[0].id, input.subjectId, input.groupId]);
       if (!periods.rows.length) throw new ForbiddenError('an active student context is required');
       const patient = await db.query<{ id: string }>('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [input.patientId]);
@@ -88,7 +95,8 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
            FROM kinesiology_evaluations e WHERE e.id = $1 AND e.patient_id = $2 AND e.status = 'validated'
              AND (EXISTS (SELECT 1 FROM students s JOIN student_academic_habilitations sp ON sp.student_id = s.id
                JOIN patient_assignments a ON a.student_habilitation_id = sp.id WHERE s.user_id = $3 AND a.patient_id = e.patient_id
-                 AND a.subject_id = sp.subject_id AND sp.revoked_at IS NULL AND a.ended_at IS NULL)
+                 AND a.subject_id = sp.subject_id AND sp.revoked_at IS NULL AND a.ended_at IS NULL
+                 AND EXISTS (SELECT 1 FROM subjects cs JOIN subjects os ON os.career_id = cs.career_id WHERE cs.id = sp.subject_id AND os.id = e.origin_subject_id))
                OR EXISTS (SELECT 1 FROM teachers t JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
                  WHERE t.user_id = $3 AND th.subject_id = e.origin_subject_id AND th.academic_group_id = e.origin_group_id AND th.revoked_at IS NULL))
            FOR UPDATE`, [input.evaluationId, input.patientId, input.actorId]);

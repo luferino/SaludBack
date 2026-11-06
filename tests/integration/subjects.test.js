@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { verifyDisposableIntegrationTarget } from '../helpers/disposable-integration-target.js';
+import { kinesiologyCareerId } from './helpers/careers.js';
 
 // This suite performs destructive cleanup against its configured database.
 // It requires an explicit isolation opt-in and dedicated credentials; it never
@@ -44,13 +45,14 @@ const EXPECTED_PERMISSIONS = new Set([
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
+  'careers:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
   'teacher:profile:read', 'teacher:materias:read', 'teacher:turnos:read',
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
   'admin:patients:write', 'admin:profile:read', 'admin:materias:read', 'admin:turnos:read',
-  'admin:subjects:write', 'admin:subjects:read', 'admin:groups:write', 'admin:groups:read',
+  'admin:subjects:write', 'admin:subjects:read', 'admin:careers:read', 'admin:groups:write', 'admin:groups:read',
   'admin:subject-groups:write', 'admin:subject-groups:read', 'admin:teacher-habilitations:write', 'admin:teacher-habilitations:revoke', 'teacher:student-habilitations:write', 'teacher:student-habilitations:revoke',
   'teacher:patient-assignments:write', 'teacher:patient-assignments:read', 'estudiante:patient-assignments:read-own',
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
@@ -59,6 +61,7 @@ const EXPECTED_GRANTS = new Set([
 ]);
 
 let pool;
+let KINESIOLOGY_CAREER_ID;
 let server;
 let baseUrl;
 let cleanUpAuthorized = false;
@@ -130,6 +133,7 @@ before(async () => {
   ({ cleanDb } = await import('./helpers/clean-db.js'));
   ({ JwtTokenService } = await import('../../src/modules/auth/infrastructure/services/jwt-token.service.ts'));
   pool = new pg.Pool({ connectionString: config.databaseUrl });
+  KINESIOLOGY_CAREER_ID = await kinesiologyCareerId(pool);
 });
 
 after(async () => {
@@ -165,7 +169,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–035 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–037 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -195,6 +199,8 @@ test('migrations 011–035 are present before cleanup and cleanup restores the c
    assert.ok(ledgerNamesBefore.has('033_create_kinesiology_evolution_reviews.sql'), 'migration 033 must already be applied; this suite never migrates');
    assert.ok(ledgerNamesBefore.has('034_seed_kinesiology_evolution_review_permissions.sql'), 'migration 034 must already be applied; this suite never migrates');
    assert.ok(ledgerNamesBefore.has('035_create_kinesiology_evolution_amendment_links.sql'), 'migration 035 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('036_create_careers.sql'), 'migration 036 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('037_seed_career_permissions.sql'), 'migration 037 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -280,10 +286,10 @@ test('migrations 011–035 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 35);
+  assert.equal(permissions.length, 36);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 45);
+  assert.equal(grants.length, 46);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 
@@ -302,15 +308,15 @@ test('POST trims names, allows duplicates, persists verified actor and returns o
   const token = await signedToken({ role: 'admin', sub: ADMIN_ID, permissions: ['subjects:write'] });
   const first = await request('POST', '/subjects', {
     token,
-    body: { name: '  Biology  ', created_by: ACTOR_ID, actor: ACTOR_ID, updated_by: ACTOR_ID },
+    body: { career_id: KINESIOLOGY_CAREER_ID, name: '  Biology  ', created_by: ACTOR_ID, actor: ACTOR_ID, updated_by: ACTOR_ID },
   });
-  const second = await request('POST', '/subjects', { token, body: { name: 'Biology' } });
+  const second = await request('POST', '/subjects', { token, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Biology' } });
   assert.equal(first.status, 201);
   assert.equal(second.status, 201);
   assert.equal(first.body.name, 'Biology');
   assert.notEqual(first.body.id, second.body.id);
   for (const result of [first.body, second.body]) {
-    assert.deepEqual(Object.keys(result).sort(), ['created_at', 'created_by', 'id', 'name']);
+    assert.deepEqual(Object.keys(result).sort(), ['career_id', 'created_at', 'created_by', 'id', 'name']);
     assert.match(result.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     assert.equal(result.created_by, ADMIN_ID);
     assert.ok(Number.isFinite(Date.parse(result.created_at)));
@@ -324,7 +330,7 @@ test('a verified token without sub persists NULL attribution despite client acto
   const token = await signedToken({ role: 'admin', permissions: ['subjects:write'] });
   const result = await request('POST', '/subjects', {
     token,
-    body: { name: 'Nullable actor', created_by: ADMIN_ID, actor: ADMIN_ID },
+    body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Nullable actor', created_by: ADMIN_ID, actor: ADMIN_ID },
   });
   assert.equal(result.status, 201);
   assert.equal(result.body.created_by, null);
@@ -340,7 +346,7 @@ test('GET uses the default envelope, stable name/UUID ordering, bounded paginati
     [SUBJECT_IDS[1], 'Beta'],
   ];
   for (const [id, name] of seeds) {
-    await pool.query('INSERT INTO subjects (id, name, created_by) VALUES ($1, $2, $3)', [id, name, ADMIN_ID]);
+    await pool.query('INSERT INTO subjects (id, name, career_id, created_by) VALUES ($1, $2, $3, $4)', [id, name, KINESIOLOGY_CAREER_ID, ADMIN_ID]);
   }
   const defaultPage = await request('GET', '/subjects', { token });
   assert.equal(defaultPage.status, 200);
@@ -349,7 +355,7 @@ test('GET uses the default envelope, stable name/UUID ordering, bounded paginati
   const seededOrder = [SUBJECT_IDS[0], SUBJECT_IDS[2], SUBJECT_IDS[1]];
   assert.deepEqual(defaultPage.body.items.slice(0, 3).map(({ id }) => id), seededOrder);
   for (const item of defaultPage.body.items) {
-    assert.deepEqual(Object.keys(item).sort(), ['created_at', 'created_by', 'id', 'name']);
+    assert.deepEqual(Object.keys(item).sort(), ['career_id', 'created_at', 'created_by', 'id', 'name']);
   }
   const page = await request('GET', '/subjects?limit=1&offset=1', { token });
   assert.deepEqual(page.body, { items: [defaultPage.body.items[1]], limit: 1, offset: 1 });
@@ -366,7 +372,7 @@ test('malformed names and pagination, repeated query values, and invalid or miss
   const beforeCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM subjects')).rows[0].count);
   const initialCount = await beforeCount();
   for (const name of [null, '', '   ', 17, {}, []]) {
-    const response = await request('POST', '/subjects', { token: writeToken, body: { name } });
+    const response = await request('POST', '/subjects', { token: writeToken, body: { career_id: KINESIOLOGY_CAREER_ID, name } });
     assert.equal(response.status, 400);
   }
   for (const query of [
@@ -376,9 +382,9 @@ test('malformed names and pagination, repeated query values, and invalid or miss
     const response = await request('GET', `/subjects${query}`, { token: readToken });
     assert.equal(response.status, 400, query);
   }
-  assert.equal((await request('POST', '/subjects', { body: { name: 'No auth' } })).status, 401);
+  assert.equal((await request('POST', '/subjects', { body: { career_id: KINESIOLOGY_CAREER_ID, name: 'No auth' } })).status, 401);
   assert.equal((await request('GET', '/subjects', { token: 'not-a-valid-jwt' })).status, 401);
-  assert.equal((await request('POST', '/subjects', { token: 'not-a-valid-jwt', body: { name: 'No auth' } })).status, 401);
+  assert.equal((await request('POST', '/subjects', { token: 'not-a-valid-jwt', body: { career_id: KINESIOLOGY_CAREER_ID, name: 'No auth' } })).status, 401);
   assert.equal(await beforeCount(), initialCount);
 });
 
@@ -396,10 +402,10 @@ test('read and write grants are independent, delegated grants work, legacy claim
   const writer = await signedToken({ role: writerRole, sub: ACTOR_ID, permissions: ['subjects:read', 'subjects:write'] });
   const delegated = await signedToken({ role: delegatedRole, sub: delegatedId, permissions: [] });
   assert.equal((await request('GET', '/subjects', { token: reader })).status, 200);
-  assert.equal((await request('POST', '/subjects', { token: reader, body: { name: 'Reader denied write' } })).status, 403);
-  assert.equal((await request('POST', '/subjects', { token: writer, body: { name: 'Writer allowed' } })).status, 201);
+  assert.equal((await request('POST', '/subjects', { token: reader, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Reader denied write' } })).status, 403);
+  assert.equal((await request('POST', '/subjects', { token: writer, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Writer allowed' } })).status, 201);
   assert.equal((await request('GET', '/subjects', { token: writer })).status, 403);
-  assert.equal((await request('POST', '/subjects', { token: delegated, body: { name: 'Delegated' } })).status, 201);
+  assert.equal((await request('POST', '/subjects', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Delegated' } })).status, 201);
 
   const legacyOnly = await signedToken({ role: 'legacy_subject_role', sub: ACTOR_ID, permissions: ['materias:read'] });
   assert.equal((await request('GET', '/subjects', { token: legacyOnly })).status, 403);
@@ -407,10 +413,10 @@ test('read and write grants are independent, delegated grants work, legacy claim
   const admin = await signedToken({ role: 'admin', sub: ADMIN_ID, permissions: ['subjects:read', 'subjects:write'] });
   await setRolePermissions('admin', []);
   assert.equal((await request('GET', '/subjects', { token: admin })).status, 403);
-  assert.equal((await request('POST', '/subjects', { token: admin, body: { name: 'Admin denied' } })).status, 403);
+  assert.equal((await request('POST', '/subjects', { token: admin, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Admin denied' } })).status, 403);
 
   await setRolePermissions(delegatedRole, ['subjects:write']);
-  assert.equal((await request('POST', '/subjects', { token: delegated, body: { name: 'Before revoke' } })).status, 201);
+  assert.equal((await request('POST', '/subjects', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'Before revoke' } })).status, 201);
   await setRolePermissions(delegatedRole, []);
-  assert.equal((await request('POST', '/subjects', { token: delegated, body: { name: 'After revoke' } })).status, 403);
+  assert.equal((await request('POST', '/subjects', { token: delegated, body: { career_id: KINESIOLOGY_CAREER_ID, name: 'After revoke' } })).status, 403);
 });

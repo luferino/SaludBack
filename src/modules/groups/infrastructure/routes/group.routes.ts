@@ -29,6 +29,7 @@ export function createGroupRouter({
       academic_year: req.body?.academic_year,
       curriculum_semester: req.body?.curriculum_semester,
       name: req.body?.name,
+      career_id: req.body?.career_id,
       createdBy: actor,
     });
     res.status(201).json(group.toJSON());
@@ -37,6 +38,7 @@ export function createGroupRouter({
   router.get('/', async (req: Request, res: Response) => {
     await listGuard.authorize(req);
     const result = await listGroups.execute({
+      career_id: req.query.career_id,
       limit: req.query.limit,
       offset: req.query.offset,
     });

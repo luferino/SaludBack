@@ -42,13 +42,13 @@ async function fixture() {
   const students = (await pool.query(`INSERT INTO students(user_id,nombres,apellidos,codalumno) VALUES
     ($1,'Origin','Student',$2),($3,'Other','Student',$4) RETURNING id,user_id`,
   [student.id, name('STU'), otherStudent.id, name('STU')])).rows;
-  const subjects = (await pool.query('INSERT INTO subjects(name) VALUES ($1),($2) RETURNING id', [name('subject'), name('subject')])).rows;
-  const groups = (await pool.query(`INSERT INTO academic_groups(academic_year,curriculum_semester,name)
-    VALUES (2098,1,$1),(2098,1,$2) RETURNING id`, [name('group'), name('group')])).rows;
+  const subjects = (await pool.query("INSERT INTO subjects(name,career_id) VALUES ($1,(SELECT id FROM careers WHERE code='kinesiology')),($2,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [name('subject'), name('subject')])).rows;
+  const groups = (await pool.query(`INSERT INTO academic_groups(academic_year,curriculum_semester,name,career_id)
+    VALUES (2098,1,$1,(SELECT id FROM careers WHERE code='kinesiology')),(2098,1,$2,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id`, [name('group'), name('group')])).rows;
   const origin = { subject: subjects[0].id, group: groups[0].id };
   const other = { subject: subjects[1].id, group: groups[1].id };
   for (const context of [origin, other]) {
-    await pool.query('INSERT INTO subject_academic_groups(subject_id,academic_group_id) VALUES ($1,$2)', [context.subject, context.group]);
+    await pool.query("INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code='kinesiology'))", [context.subject, context.group]);
   }
   await pool.query(`INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at)
     VALUES ($1,$2,$3,$4,clock_timestamp()),($5,$6,$7,$4,clock_timestamp())`,
@@ -202,7 +202,7 @@ before(async () => {
       max: 12, connectionTimeoutMillis: timeout, statement_timeout: timeout, query_timeout: timeout + 1000,
       lock_timeout: timeout, idle_in_transaction_session_timeout: timeout, options });
     const { rows } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.equal(rows.length, 35, 'all migrations through 035 must be present');
+    assert.equal(rows.length, 37, 'all migrations through 037 must be present');
     assert.equal(target.databaseName, new URL(process.env.DATABASE_URL).pathname.slice(1));
     cleanupAuthorized = true;
     await cleanDb(pool);

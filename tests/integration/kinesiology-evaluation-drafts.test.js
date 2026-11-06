@@ -18,11 +18,11 @@ const MIGRATIONS = [
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
   '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql','026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql','031_create_kinesiology_evolutions.sql','032_seed_kinesiology_evolution_permissions.sql',
-   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql',
+   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'users:write','students:write','teachers:write','patients:write','profile:read','materias:read','turnos:read',
-  'subjects:write','subjects:read','groups:write','groups:read','subject-groups:write','subject-groups:read',
+  'subjects:write','subjects:read','careers:read','groups:write','groups:read','subject-groups:write','subject-groups:read',
   'teacher-habilitations:write','teacher-habilitations:revoke','student-habilitations:write','student-habilitations:revoke',
   'patient-assignments:write','patient-assignments:read','patient-assignments:read-own',
   'kinesiology-evaluations:read','kinesiology-evaluations:write','kinesiology-evaluations:submit',
@@ -32,7 +32,7 @@ const EXPECTED_PERMISSIONS = [
 const EXPECTED_GRANTS = [
   'estudiante:profile:read','estudiante:materias:read','estudiante:turnos:read','teacher:profile:read','teacher:materias:read','teacher:turnos:read',
   'admin:users:write','admin:students:write','admin:teachers:write','admin:patients:write','admin:profile:read','admin:materias:read','admin:turnos:read',
-  'admin:subjects:write','admin:subjects:read','admin:groups:write','admin:groups:read','admin:subject-groups:write','admin:subject-groups:read',
+  'admin:subjects:write','admin:subjects:read','admin:careers:read','admin:groups:write','admin:groups:read','admin:subject-groups:write','admin:subject-groups:read',
   'admin:teacher-habilitations:write','admin:teacher-habilitations:revoke','teacher:student-habilitations:write','teacher:student-habilitations:revoke',
   'teacher:patient-assignments:write','teacher:patient-assignments:read','estudiante:patient-assignments:read-own',
   'teacher:kinesiology-evaluations:read','estudiante:kinesiology-evaluations:read','estudiante:kinesiology-evaluations:write',
@@ -103,14 +103,14 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–035 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–037 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
-    assert.equal(permissions.length, 35, 'exact 35-permission canonical baseline required');
+    assert.equal(permissions.length, 36, 'exact 36-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
     assert.ok(permissions.every(row => row.enforced === true || ['materias:read','turnos:read'].includes(row.permission)));
     assert.deepEqual(permissions.filter(row => CLINICAL_PERMISSIONS.includes(row.permission)), CLINICAL_PERMISSIONS.map(permission => ({ permission, enforced:true })).sort((a,b) => a.permission.localeCompare(b.permission)));
     const { rows: grants } = await client.query('SELECT role,permission FROM public.role_permissions ORDER BY role,permission');
-    assert.equal(grants.length, 45, 'exact 45-grant canonical baseline required');
+    assert.equal(grants.length, 46, 'exact 46-grant canonical baseline required');
     assert.deepEqual(grants.map(row=>`${row.role}:${row.permission}`),[...EXPECTED_GRANTS].sort(),'unknown or missing grants are unsafe');
     assert.deepEqual(grants.filter(row => row.permission.startsWith('kinesiology-evaluations:')).map(row => `${row.role}:${row.permission}`).sort(), [...CLINICAL_GRANTS].sort());
     assert.deepEqual(grants.filter(row => row.permission.startsWith('patient-assignments:')).map(row => `${row.role}:${row.permission}`).sort(), [
@@ -120,7 +120,7 @@ async function readonlyPreflight() {
       ['admin:teacher-habilitations:revoke','admin:teacher-habilitations:write']);
     const { rows: baseline } = await client.query(`SELECT (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { permissions:35, grants:45 });
+    assert.deepEqual(baseline[0], { permissions:36, grants:46 });
   } finally { await client.end(); }
   return value;
 }
@@ -134,10 +134,10 @@ async function fixture() {
     [teacher.id,'Teacher','Origin',otherTeacher.id,'Teacher','Other']);
   const { rows: studentProfiles } = await pool.query('INSERT INTO students(user_id,nombres,apellidos,codalumno) VALUES ($1,$2,$3,$4),($5,$6,$7,$8) RETURNING id,user_id',
     [student.id,'Student','Origin',name('STU'),otherStudent.id,'Student','Other',name('STU')]);
-  const { rows: subjects } = await pool.query('INSERT INTO subjects(name) VALUES ($1),($2) RETURNING id', [name('subject'),name('subject')]);
-  const { rows: groups } = await pool.query('INSERT INTO academic_groups(academic_year,curriculum_semester,name) VALUES (2098,1,$1), (2098,1,$2) RETURNING id', [name('group'),name('group')]);
+  const { rows: subjects } = await pool.query("INSERT INTO subjects(name,career_id) VALUES ($1,(SELECT id FROM careers WHERE code='kinesiology')),($2,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [name('subject'),name('subject')]);
+  const { rows: groups } = await pool.query("INSERT INTO academic_groups(academic_year,curriculum_semester,name,career_id) VALUES (2098,1,$1,(SELECT id FROM careers WHERE code='kinesiology')), (2098,1,$2,(SELECT id FROM careers WHERE code='kinesiology')) RETURNING id", [name('group'),name('group')]);
   const origin = { subject:subjects[0].id, group:groups[0].id }, other = { subject:subjects[1].id, group:groups[1].id };
-  for (const ctx of [origin,other]) await pool.query('INSERT INTO subject_academic_groups(subject_id,academic_group_id) VALUES ($1,$2)', [ctx.subject,ctx.group]);
+  for (const ctx of [origin,other]) await pool.query("INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) VALUES ($1,$2,(SELECT id FROM careers WHERE code='kinesiology'))", [ctx.subject,ctx.group]);
   await pool.query(`INSERT INTO teacher_academic_habilitations(teacher_id,subject_id,academic_group_id,activated_by,activated_at)
     VALUES ($1,$2,$3,$4,clock_timestamp()),($5,$6,$7,$4,clock_timestamp())`, [teacherProfiles[0].id,origin.subject,origin.group,admin.id,teacherProfiles[1].id,other.subject,other.group]);
   const { rows: periods } = await pool.query(`INSERT INTO student_academic_habilitations(student_id,subject_id,academic_group_id,activated_by,activated_at)
@@ -1021,5 +1021,5 @@ test('cleanDb clears clinical child rows and leaves all twenty-five fixture tabl
     (SELECT count(*)::int FROM teachers) teachers,(SELECT count(*)::int FROM subject_academic_groups) subject_groups,
     (SELECT count(*)::int FROM academic_groups) groups,(SELECT count(*)::int FROM subjects) subjects,
     (SELECT count(*)::int FROM password_reset_tokens) reset_tokens,(SELECT count(*)::int FROM permissions) permissions,(SELECT count(*)::int FROM role_permissions) grants`);
-  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,evolutions:0,evolution_submissions:0,evolution_validation_reviews:0,evolution_correction_requests:0,evolution_amendment_links:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,amendment_links:0,consents:0,assignments:0,availabilities:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,reset_tokens:0,permissions:35,grants:45});
+  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,evolutions:0,evolution_submissions:0,evolution_validation_reviews:0,evolution_correction_requests:0,evolution_amendment_links:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,amendment_links:0,consents:0,assignments:0,availabilities:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,reset_tokens:0,permissions:36,grants:46});
 });

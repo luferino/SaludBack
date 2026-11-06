@@ -3,9 +3,15 @@ import { evolutionActor, evolutionPatient, evolutionSubject, evolutionGroup, evo
 const teacherActor = '30000000-0000-4000-8000-000000000002';
 const profileId = actor => actor === evolutionActor ? '31000000-0000-4000-8000-000000000001' : '31000000-0000-4000-8000-000000000004';
 const defaultPeriod = '60000000-0000-4000-8000-000000000001';
+export const odontologySubject = '10000000-0000-4000-8000-000000000101';
+export const odontologyGroup = '20000000-0000-4000-8000-000000000101';
+// Migration 036 backfills every pre-existing subject to kinesiology, so unmapped subjects count as kinesiology.
+export const SAME_CAREER_JOIN = 'JOIN subjects os ON os.career_id = cs.career_id';
+export const KINESIOLOGY_CONTEXT_FILTER = "subject_id IN (SELECT s.id FROM subjects s JOIN careers c ON c.id = s.career_id WHERE c.code = 'kinesiology')";
 
 export function evolutionSyntheticPool() {
   const state = {
+    subjectCareers: new Map([[odontologySubject, 'odontology']]),
     queries: [], evolutions: [], submissions: [], corrections: [], reviews: [], amendmentLinks: [], commits: 0, rollbacks: 0, releases: 0,
     grantsByRole: { estudiante: evolutionGrants, teacher: ['kinesiology-evolutions:read', 'kinesiology-evolutions:review'], admin: [] },
     profiles: new Map([[evolutionActor, profileId(evolutionActor)]]),
@@ -20,6 +26,8 @@ export function evolutionSyntheticPool() {
       status: 'validated', origin_subject_id: '10000000-0000-4000-8000-000000000009', origin_group_id: '20000000-0000-4000-8000-000000000009' },
   };
   const actorForProfile = id => [...state.profiles].find(([, profile]) => profile === id)?.[0];
+  const careerOf = subject => state.subjectCareers.get(subject) ?? 'kinesiology';
+  const sameCareer = (subject, row) => careerOf(subject) === careerOf(row.origin_subject_id);
   const periodsFor = (studentId, subject, group) => state.periods.filter(period => period.studentId === studentId &&
     period.subject === subject && period.group === group && !period.revoked);
   const assignmentsForStudent = (patient, actor, subject, group) => state.assignments.filter(assignment => {
@@ -28,10 +36,10 @@ export function evolutionSyntheticPool() {
       period.studentId === state.profiles.get(actor) && period.subject === subject && period.group === group &&
       assignment.subject === period.subject;
   });
-  const currentPatientAssignment = actor => state.assignments.some(assignment => {
+  const currentPatientAssignment = (actor, scoped = false) => state.assignments.some(assignment => {
     const period = state.periods.find(item => item.id === assignment.period);
     return period && !period.revoked && !assignment.ended && assignment.patient === state.evaluation?.patient_id &&
-      state.profiles.get(actor) === period.studentId && assignment.subject === period.subject;
+      state.profiles.get(actor) === period.studentId && assignment.subject === period.subject && (!scoped || sameCareer(assignment.subject, state.evaluation));
   });
   const teacherHasContext = (actor, subject, group) => {
     const teacherId = state.teachers.get(actor);
@@ -47,16 +55,16 @@ export function evolutionSyntheticPool() {
     });
     return ownAssignment || teacherHasContext(actor, row.origin_subject_id, row.origin_group_id);
   };
-  const currentCareReadable = (row, actor) => {
+  const currentCareReadable = (row, actor, scoped = false) => {
     if (!state.submissions.some(item => item.evolution_id === row.id)) return false;
     const profile = state.profiles.get(actor);
     const studentCare = !!profile && state.assignments.some(assignment => {
       const period = state.periods.find(item => item.id === assignment.period);
       return assignment.patient === row.patient_id && !assignment.ended && period && !period.revoked &&
-        period.studentId === profile && assignment.subject === period.subject;
+        period.studentId === profile && assignment.subject === period.subject && (!scoped || sameCareer(period.subject, row));
     });
     const teacherId = state.teachers.get(actor);
-    const teacherCare = !!teacherId && state.teacherPeriods.filter(period => period.teacherId === teacherId && !period.revoked).some(period =>
+    const teacherCare = !!teacherId && state.teacherPeriods.filter(period => period.teacherId === teacherId && !period.revoked).some(period => (!scoped || sameCareer(period.subject, row)) &&
       state.assignments.some(assignment => {
         const studentPeriod = state.periods.find(item => item.id === assignment.period);
         return assignment.patient === row.patient_id && !assignment.ended && studentPeriod && !studentPeriod.revoked &&
@@ -64,9 +72,9 @@ export function evolutionSyntheticPool() {
       }));
     return studentCare || teacherCare;
   };
-  const canRead = (row, actor) => privateReadable(row, actor) || currentCareReadable(row, actor);
-  const projected = (row, actor) => {
-    if (!privateReadable(row, actor) && currentCareReadable(row, actor)) {
+  const canRead = (row, actor, scoped = false) => privateReadable(row, actor) || currentCareReadable(row, actor, scoped);
+  const projected = (row, actor, scoped = false) => {
+    if (!privateReadable(row, actor) && currentCareReadable(row, actor, scoped)) {
       const latest = state.submissions.filter(item => item.evolution_id === row.id).at(-1);
       if (!latest) return null;
       const review = state.reviews.find(item => item.evolution_id === row.id && item.submission_id === latest.id);
@@ -128,7 +136,8 @@ export function evolutionSyntheticPool() {
       assertFragment(sql, 'subject_id = $2');
       assertFragment(sql, 'academic_group_id = $3');
       assertFragment(sql, 'revoked_at IS NULL');
-      return { rows: periodsFor(params[0], params[1], params[2]).map(period => ({ id: period.id })) };
+      const kinesiologyOnly = sql.includes(KINESIOLOGY_CONTEXT_FILTER);
+      return { rows: periodsFor(params[0], params[1], params[2]).filter(period => !kinesiologyOnly || careerOf(period.subject) === 'kinesiology').map(period => ({ id: period.id })) };
     }
     if (sql.includes('FROM patients')) return { rows: params[0] === evolutionPatient ? [{ id: params[0] }] : [] };
     const normalizedSql = sql.replace(/\s+/g, ' ');
@@ -171,7 +180,7 @@ export function evolutionSyntheticPool() {
       assertFragment(sql, 'th.subject_id = e.origin_subject_id');
       assertFragment(sql, 'th.academic_group_id = e.origin_group_id');
       assertFragment(sql, 'th.revoked_at IS NULL');
-      const readable = currentPatientAssignment(params[2]) || teacherHasContext(params[2], e?.origin_subject_id, e?.origin_group_id);
+      const readable = currentPatientAssignment(params[2], sql.includes(SAME_CAREER_JOIN)) || teacherHasContext(params[2], e?.origin_subject_id, e?.origin_group_id);
       return { rows: e && e.id === params[0] && e.patient_id === params[1] && e.status === 'validated' && readable ? [{ ...e }] : [] };
     }
     if (sql.includes('FROM clinical_records')) {
@@ -266,7 +275,7 @@ export function evolutionSyntheticPool() {
     if (sql.includes('JOIN kinesiology_evolution_submissions s ON s.evolution_id = e.id')) {
       assertOriginSql(sql);
       const row = state.evolutions.find(item => item.id === params[0]);
-      if (!row || !canRead(row, params[1])) return { rows: [] };
+      if (!row || !canRead(row, params[1], sql.includes(SAME_CAREER_JOIN))) return { rows: [] };
       const history = state.submissions.filter(item => item.evolution_id === row.id);
       const visible = privateReadable(row, params[1]) ? history : history.slice(-1);
       if (!visible.length) return { rows: [{ visible_evolution_id: row.id, amendment_of_evolution_id: null,
@@ -301,8 +310,9 @@ export function evolutionSyntheticPool() {
         if (subjectParam) rows = rows.filter(row => row.origin_subject_id === params[Number(subjectParam) - 1]);
         if (groupParam) rows = rows.filter(row => row.origin_group_id === params[Number(groupParam) - 1]);
       }
-      rows = rows.filter(row => canRead(row, params[1]));
-      return { rows: rows.map(row => projected(row, params[1])).filter(Boolean) };
+      const scoped = sql.includes(SAME_CAREER_JOIN);
+      rows = rows.filter(row => canRead(row, params[1], scoped));
+      return { rows: rows.map(row => projected(row, params[1], scoped)).filter(Boolean) };
     }
     if (sql.includes('FROM kinesiology_evolutions WHERE id = $1')) {
       let row = state.evolutions.find(item => item.id === params[0]);

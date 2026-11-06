@@ -9,6 +9,7 @@ import { ConsoleMailer } from '../modules/auth/infrastructure/services/console-m
 import { PgPatientRepository } from '../modules/patients/infrastructure/repositories/pg-patient.repository.js';
 import { PgStudentRepository } from '../modules/students/infrastructure/repositories/pg-student.repository.js';
 import { PgTeacherRepository } from '../modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
+import { PgCareerRepository } from '../modules/careers/infrastructure/repositories/pg-career.repository.js';
 import { PgSubjectRepository } from '../modules/subjects/infrastructure/repositories/pg-subject.repository.js';
 import { PgGroupRepository } from '../modules/groups/infrastructure/repositories/pg-group.repository.js';
 import { PgSubjectGroupRepository } from '../modules/subject-groups/infrastructure/repositories/pg-subject-group.repository.js';
@@ -29,6 +30,7 @@ export function createDependencies(pool: Pool) {
   const patientRepository = new PgPatientRepository(pool);
   const studentRepository = new PgStudentRepository(pool);
   const teacherRepository = new PgTeacherRepository(pool);
+  const careerRepository = new PgCareerRepository(pool);
   const subjectRepository = new PgSubjectRepository(pool);
   const groupRepository = new PgGroupRepository(pool);
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
@@ -59,7 +61,7 @@ export function createDependencies(pool: Pool) {
       userRepository: repository, hasher, unitOfWork, tokenService, matrixReader,
     },
     academic: {
-      subjectRepository, groupRepository, subjectGroupRepository,
+      careerRepository, subjectRepository, groupRepository, subjectGroupRepository,
       studentHabilitationRepository, teacherHabilitationRepository,
       tokenService, matrixReader,
     },

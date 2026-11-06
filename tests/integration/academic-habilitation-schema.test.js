@@ -33,14 +33,14 @@ async function createProfile(kind, username) {
 }
 
 async function createSubject(name) {
-  const { rows } = await pool.query('INSERT INTO subjects (name) VALUES ($1) RETURNING id', [name]);
+  const { rows } = await pool.query("INSERT INTO subjects (name, career_id) VALUES ($1, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id", [name]);
   return rows[0].id;
 }
 
 async function createGroup(name) {
   const { rows } = await pool.query(
-    `INSERT INTO academic_groups (academic_year, curriculum_semester, name)
-     VALUES (2026, 5, $1) RETURNING id`,
+    `INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id)
+     VALUES (2026, 5, $1, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id`,
     [name],
   );
   return rows[0].id;
@@ -50,7 +50,7 @@ async function createContext(name) {
   const subjectId = await createSubject(`${name} subject`);
   const groupId = await createGroup(`${name} group`);
   await pool.query(
-    'INSERT INTO subject_academic_groups (subject_id, academic_group_id) VALUES ($1, $2)',
+    `INSERT INTO subject_academic_groups (subject_id, academic_group_id, career_id) VALUES ($1, $2, (SELECT id FROM careers WHERE code = 'kinesiology'))`,
     [subjectId, groupId],
   );
   return { subjectId, groupId };

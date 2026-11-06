@@ -119,10 +119,11 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
 | `GET` | `/teachers` | minimal paginated teacher selector — Bearer token + `teachers:read` |
 | `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
-| `POST` | `/subjects` | create subject — Bearer token + `subjects:write` |
-| `GET` | `/subjects` | list subjects — Bearer token + `subjects:read` |
-| `POST` | `/groups` | create academic group — Bearer token + `groups:write` |
-| `GET` | `/groups` | list academic groups — Bearer token + `groups:read` |
+| `GET` | `/careers` | list careers (`id`, `code`, `name`) — Bearer token + `careers:read` |
+| `POST` | `/subjects` | create subject in a career (`career_id` required) — Bearer token + `subjects:write` |
+| `GET` | `/subjects` | list subjects, optional `career_id` filter — Bearer token + `subjects:read` |
+| `POST` | `/groups` | create academic group in a career (`career_id` required) — Bearer token + `groups:write` |
+| `GET` | `/groups` | list academic groups, optional `career_id` filter — Bearer token + `groups:read` |
 | `POST` | `/subject-groups` | associate a subject and academic group — Bearer token + `subject-groups:write` |
 | `GET` | `/subject-groups` | list subject/group associations — Bearer token + `subject-groups:read` |
 | `GET` | `/teacher-habilitations` | paginated teacher periods — Bearer token + `teacher-habilitations:read` |
@@ -141,23 +142,23 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/patient-assignments` | assign an available patient to an active student period — `patient-assignments:write` + active teacher context |
 | `GET` | `/patient-assignments` | list assignments in active teacher contexts — `patient-assignments:read` |
 | `GET` | `/patient-assignments/mine` | list own assignments — `patient-assignments:read-own` |
-| `POST` | `/kinesiology-evolutions` | create an independently stored session-evolution draft linked to a validated evaluation — `kinesiology-evolutions:write` + current student context/assignment |
+| `POST` | `/kinesiology-evolutions` | create an independently stored session-evolution draft linked to a validated evaluation, in the kinesiology career — `kinesiology-evolutions:write` + current student context/assignment |
 | `POST` | `/kinesiology-evolutions/:id/amendments` | create a separately authored draft from the original's latest validated snapshot — `kinesiology-evolutions:write` + current student context/assignment |
 | `PATCH` | `/kinesiology-evolutions/:id` | edit an accessible own evolution draft — `kinesiology-evolutions:write` |
 | `GET` | `/kinesiology-evolutions/:id` | read an evolution in live author/origin-teacher context — `kinesiology-evolutions:read` |
-| `GET` | `/kinesiology-evolutions?patient_id=<uuid>` | list visible evolution records for a patient — `kinesiology-evolutions:read` |
+| `GET` | `/kinesiology-evolutions?patient_id=<uuid>` | list visible evolution records for a patient; cross-context readers only within the same career — `kinesiology-evolutions:read` |
 | `POST` | `/kinesiology-evolutions/:id/submissions` | submit a complete own draft — `kinesiology-evolutions:submit` + current student assignment |
 | `GET` | `/kinesiology-evolutions/:id/submissions` | read origin-context submission history — `kinesiology-evolutions:read` |
 | `POST` | `/kinesiology-evolutions/:id/corrections` | return latest submission with a reason — `kinesiology-evolutions:review` + active origin teacher context |
 | `GET` | `/kinesiology-evolutions/:id/corrections` | read origin-context correction history — `kinesiology-evolutions:read` |
 | `POST` | `/kinesiology-evolutions/:id/validations` | validate latest submitted snapshot — `kinesiology-evolutions:review` + active origin teacher context |
-| `POST` | `/kinesiology-evaluations` | create an initial-evaluation draft — `kinesiology-evaluations:write` + current own assignment |
+| `POST` | `/kinesiology-evaluations` | create an initial-evaluation draft in the kinesiology career — `kinesiology-evaluations:write` + current own assignment |
 | `PATCH` | `/kinesiology-evaluations/:id` | edit own accessible draft — `kinesiology-evaluations:write` |
-| `GET` | `/kinesiology-evaluations/:id` | read a draft in live author/origin-teacher context, or a submitted snapshot with current patient-care access — `kinesiology-evaluations:read` |
+| `GET` | `/kinesiology-evaluations/:id` | read a draft in live author/origin-teacher context, or a submitted snapshot with current patient-care access in the same career — `kinesiology-evaluations:read` |
 | `GET` | `/kinesiology-evaluations/:id/consent` | read the latest paper-consent attestation only in live author/origin-teacher context — `kinesiology-evaluations:read` |
 | `POST` | `/kinesiology-evaluations/:id/consent` | origin teacher records paper date and verifies in one operation — `kinesiology-evaluations:verify-consent` |
-| `GET` | `/kinesiology-evaluations?patient_id=<uuid>` | list drafts in live author/origin-teacher context and submitted snapshots with current patient-care access — `kinesiology-evaluations:read` |
-| `GET` | `/kinesiology-evaluations/:id/submissions` | read submission history in live origin context, or only the latest snapshot with current patient-care access — `kinesiology-evaluations:read` |
+| `GET` | `/kinesiology-evaluations?patient_id=<uuid>` | list drafts in live author/origin-teacher context and submitted snapshots with current patient-care access in the same career — `kinesiology-evaluations:read` |
+| `GET` | `/kinesiology-evaluations/:id/submissions` | read submission history in live origin context, or only the latest snapshot with current patient-care access in the same career — `kinesiology-evaluations:read` |
 | `POST` | `/kinesiology-evaluations/:id/submissions` | freeze and submit the current own draft — `kinesiology-evaluations:submit` + current own assignment |
 | `POST` | `/kinesiology-evaluations/:id/corrections` | origin teacher requests corrections to the latest submitted version — `kinesiology-evaluations:review` |
 | `POST` | `/kinesiology-evaluations/:id/validations` | origin teacher validates the latest submitted version — `kinesiology-evaluations:review` |
@@ -308,17 +309,17 @@ Creation locks/revalidates the teacher context, exact active student period, the
 
 ### Clinical session evolutions (T1–T3)
 
-Evolution records are separate editable drafts, not changes to their validated parent evaluation. `POST /kinesiology-evolutions` accepts `{ patient_id, evaluation_id, subject_id, academic_group_id, content }`; `content` may contain optional `session_date`, `current_status`, `objectives`, and `planned_treatment` strings or nulls. Drafts may be incomplete. The session date must be a real civil `YYYY-MM-DD` date when supplied. The author and active student period are derived from the verified actor and current matching context; caller-supplied author/audit fields and unknown content keys are rejected. The evaluation must be validated, readable under current clinical access, and belong to the same patient clinical record. Reassignment does not require the new author to have authored the parent or to belong to its original student period. Each write checks active current context and assignment transactionally; the same date may be used for multiple sessions.
+Evolution records are separate editable drafts, not changes to their validated parent evaluation. `POST /kinesiology-evolutions` accepts `{ patient_id, evaluation_id, subject_id, academic_group_id, content }`; `content` may contain optional `session_date`, `current_status`, `objectives`, and `planned_treatment` strings or nulls. Drafts may be incomplete. The session date must be a real civil `YYYY-MM-DD` date when supplied. The author and active student period are derived from the verified actor and current matching context; caller-supplied author/audit fields and unknown content keys are rejected. The evaluation must be validated, readable under current clinical access, and belong to the same patient clinical record. Reassignment does not require the new author to have authored the parent or to belong to its original student period. Each write checks active current context and assignment transactionally; the same date may be used for multiple sessions. The context subject must belong to the `kinesiology` career; a context in another career is rejected with `403 an active student context is required`, the same response as a missing context.
 
 `PATCH /kinesiology-evolutions/:id` edits only the author's own accessible draft and is locked after submission until a teacher requests correction. `POST /:id/submissions` accepts exactly `{}` and requires all four nonblank clinical values plus a real civil session date. It freezes an immutable ordinal snapshot with server-owned author/time. `POST /:id/corrections` accepts `{ submission_id, reason }`; the origin teacher needs the fresh review grant and current origin habilitation, and the target must be the latest snapshot. The correction restores that snapshot to the draft without changing history. `POST /:id/validations` accepts `{ submission_id }` and freezes the latest version with reviewer/time provenance.
 
-Origin readers see the working draft, all snapshots, and correction reasons. Other students and teachers see only the latest submitted snapshot when current patient-care access is active; they do not see drafts, older versions, or correction reasons. These reads project the snapshot content and submitted timestamp, including while the origin draft is being corrected. Cross-context access does not grant edit/review access. A validated evolution is never overwritten: `POST /kinesiology-evolutions/:id/amendments` accepts exactly `{}` and creates a new draft from the original's latest validated snapshot. The current student must have an active matching origin-context period and current assignment; the original author need not remain active. The new author may edit and submit through this same workflow, while the original content and history remain intact. Responses identify the parent with `amendment_of_evolution_id`; cross-context readers still see only submitted snapshots and never an unsubmitted amendment. BIGINT identifiers are decimal strings. Migrations 031–034 create draft/review storage and seed grants; source-only migration 035 adds restrictive, context-matched amendment links. Snapshot immutability is enforced by the application workflow, not a database trigger.
+Origin readers see the working draft, all snapshots, and correction reasons. Other students and teachers see only the latest submitted snapshot when current patient-care access is active; they do not see drafts, older versions, or correction reasons. These reads project the snapshot content and submitted timestamp, including while the origin draft is being corrected. Cross-context access does not grant edit/review access. A validated evolution is never overwritten: `POST /kinesiology-evolutions/:id/amendments` accepts exactly `{}` and creates a new draft from the original's latest validated snapshot. The current student must have an active matching origin-context period and current assignment; the original author need not remain active. The new author may edit and submit through this same workflow, while the original content and history remain intact. Responses identify the parent with `amendment_of_evolution_id`; cross-context readers still see only submitted snapshots and never an unsubmitted amendment. Cross-context reads (detail, list, history) are limited to the same career: the reader's context subject must belong to the same career as the evolution's origin subject. A reader whose only link is another career gets the same `404` (or empty list) as a stranger. BIGINT identifiers are decimal strings. Migrations 031–034 create draft/review storage and seed grants; source-only migration 035 adds restrictive, context-matched amendment links. Snapshot immutability is enforced by the application workflow, not a database trigger.
 
 ### Initial kinesiology evaluation drafts (T1)
 
-Drafts use `/kinesiology-evaluations`. `POST` accepts `{ "patient_id": "<UUID>", "subject_id": "<UUID>", "academic_group_id": "<UUID>", "content": { ... } }`; the active period/assignment, author and audit fields are derived from the verified student and current database context. Identity and audit fields are never accepted from the body. `content` is an object with optional strings/nulls `admission_date`, `admission_status`, `illness_history`, `medical_diagnosis`, `kinesiology_diagnosis`, `objectives`, `proposed_treatment`, `occupation`, and `referring_physician`; optional `antecedents` maps the form labels `hta`, `dbt`, `diu`, `sedentary_lifestyle`, and `pacemaker` to true/false/null (unknown remains null), plus optional `other`; `studies` is an optional array of `{ "type", "description", "date"? }`. Drafts may be empty or incomplete. Identity is read from the current patient record; only the author with current origin membership and assignment can edit. Invalid/missing actors return `401`; missing write permission and visible-but-noneditable origin-context teacher PATCHes return `403`. A foreign draft that is not visible in the actor's live origin context returns the same `404` as an unknown draft, without disclosing its existence. Origin-context teachers can read but not rewrite. Create, detail, and list responses expose the current patient as `patient` with only `id`, `documento`, `nombres`, `apellidos`, `fecha_nacimiento`, `email`, `celular`, `sexo`, and `direccion` (never patient audit fields). `age` is calculated at `content.admission_date`, and is `null` while admission is pending. Reads require a patient filter; administrative patient creation and reads do not create clinical history. The first draft atomically creates or reuses `clinical_records` under the patient lock. BIGINT identifiers are decimal strings. Paper consent is a separate endpoint and does not change draft JSON: `GET /kinesiology-evaluations/:id/consent` returns `{ "evaluation_id", "status": "pending" | "verified", "evidence" }` for actors already allowed to read the draft; pending evidence is `null`. The origin-context teacher with the fresh `kinesiology-evaluations:verify-consent` grant uses `POST` on the same path with exactly `{ "paper_signature_date": "YYYY-MM-DD" }`. A successful verification returns `201`. Missing operation permission returns `403`; with that permission but no active origin-teacher context, the endpoint returns the same `404` and `evaluation was not found` as a nonexistent evaluation, including after context revocation. The paper date and verification are recorded together; verifier identity comes from the authenticated UUID actor and verification time from the database clock. Each successful call appends immutable evidence with a lossless BIGINT ID, date, verifier, teacher-context period and server time; it does not rewrite draft content or audit facts. A later verification is another evidence row, not an overwrite. This attests to a signed paper document; it is not a digital signature or treatment authorization.
+Drafts use `/kinesiology-evaluations`. `POST` accepts `{ "patient_id": "<UUID>", "subject_id": "<UUID>", "academic_group_id": "<UUID>", "content": { ... } }`; the active period/assignment, author and audit fields are derived from the verified student and current database context. The context subject must belong to the `kinesiology` career; a context in another career is rejected with `403 an active student context is required`, the same response as a missing context. Identity and audit fields are never accepted from the body. `content` is an object with optional strings/nulls `admission_date`, `admission_status`, `illness_history`, `medical_diagnosis`, `kinesiology_diagnosis`, `objectives`, `proposed_treatment`, `occupation`, and `referring_physician`; optional `antecedents` maps the form labels `hta`, `dbt`, `diu`, `sedentary_lifestyle`, and `pacemaker` to true/false/null (unknown remains null), plus optional `other`; `studies` is an optional array of `{ "type", "description", "date"? }`. Drafts may be empty or incomplete. Identity is read from the current patient record; only the author with current origin membership and assignment can edit. Invalid/missing actors return `401`; missing write permission and visible-but-noneditable origin-context teacher PATCHes return `403`. A foreign draft that is not visible in the actor's live origin context returns the same `404` as an unknown draft, without disclosing its existence. Origin-context teachers can read but not rewrite. Create, detail, and list responses expose the current patient as `patient` with only `id`, `documento`, `nombres`, `apellidos`, `fecha_nacimiento`, `email`, `celular`, `sexo`, and `direccion` (never patient audit fields). `age` is calculated at `content.admission_date`, and is `null` while admission is pending. Reads require a patient filter; administrative patient creation and reads do not create clinical history. The first draft atomically creates or reuses `clinical_records` under the patient lock. BIGINT identifiers are decimal strings. Paper consent is a separate endpoint and does not change draft JSON: `GET /kinesiology-evaluations/:id/consent` returns `{ "evaluation_id", "status": "pending" | "verified", "evidence" }` for actors already allowed to read the draft; pending evidence is `null`. The origin-context teacher with the fresh `kinesiology-evaluations:verify-consent` grant uses `POST` on the same path with exactly `{ "paper_signature_date": "YYYY-MM-DD" }`. A successful verification returns `201`. Missing operation permission returns `403`; with that permission but no active origin-teacher context, the endpoint returns the same `404` and `evaluation was not found` as a nonexistent evaluation, including after context revocation. The paper date and verification are recorded together; verifier identity comes from the authenticated UUID actor and verification time from the database clock. Each successful call appends immutable evidence with a lossless BIGINT ID, date, verifier, teacher-context period and server time; it does not rewrite draft content or audit facts. A later verification is another evidence row, not an overwrite. This attests to a signed paper document; it is not a digital signature or treatment authorization.
 
-`POST /kinesiology-evaluations/:id/submissions` accepts exactly `{}` and requires the fresh `kinesiology-evaluations:submit` grant plus the draft author's current student profile, origin membership and own active patient assignment. Submission requires a valid `admission_date` and nonblank `illness_history`, `admission_status`, `objectives`, and `proposed_treatment`; diagnoses, occupation, referring physician, and studies remain optional. The latest verified teacher paper-consent evidence is required. Success returns `201` with a lossless BIGINT `id`, `evaluation_id`, decimal-string `ordinal`, server-owned `submitted_by`/`submitted_at`, `status: "pending_validation"`, and frozen `clinical_content`, `studies`, safe patient `patient` snapshot, `age_at_admission`, and verified `consent` evidence. The evaluation detail changes to `status: "submitted"` and `validation_status: "pending_validation"`; PATCH and repeat submission return `409`. Invalid content/body returns `400`, missing submit permission `403`, and private/unavailable evaluation `404`. `GET /kinesiology-evaluations/:id/submissions` returns `{ "evaluation_id", "items" }` in the live author/origin-teacher context. Other students can read a submitted snapshot only with their own linked profile, active membership, and current patient assignment; teachers need an active habilitation in a subject/group with that patient's active assignment and active student period in the same exact context. Cross-context detail/list/history show only the latest immutable submission, including its frozen clinical content, studies, demographics, age and consent evidence, pending-validation label, and server submission provenance. They never show a working correction or current patient/attestation data. Drafts without a submission remain private. Cross-context access does not enable edits, review, or consent reads; `GET /:id/consent` remains origin-only. Revoking current care access removes cross-context visibility but does not erase submissions. Origin readers retain their existing draft and full-history behavior. Reads do not create clinical history. Teacher correction requests and validation are described below.
+`POST /kinesiology-evaluations/:id/submissions` accepts exactly `{}` and requires the fresh `kinesiology-evaluations:submit` grant plus the draft author's current student profile, origin membership and own active patient assignment. Submission requires a valid `admission_date` and nonblank `illness_history`, `admission_status`, `objectives`, and `proposed_treatment`; diagnoses, occupation, referring physician, and studies remain optional. The latest verified teacher paper-consent evidence is required. Success returns `201` with a lossless BIGINT `id`, `evaluation_id`, decimal-string `ordinal`, server-owned `submitted_by`/`submitted_at`, `status: "pending_validation"`, and frozen `clinical_content`, `studies`, safe patient `patient` snapshot, `age_at_admission`, and verified `consent` evidence. The evaluation detail changes to `status: "submitted"` and `validation_status: "pending_validation"`; PATCH and repeat submission return `409`. Invalid content/body returns `400`, missing submit permission `403`, and private/unavailable evaluation `404`. `GET /kinesiology-evaluations/:id/submissions` returns `{ "evaluation_id", "items" }` in the live author/origin-teacher context. Other students can read a submitted snapshot only with their own linked profile, active membership, and current patient assignment; teachers need an active habilitation in a subject/group with that patient's active assignment and active student period in the same exact context. Cross-context detail/list/history show only the latest immutable submission, including its frozen clinical content, studies, demographics, age and consent evidence, pending-validation label, and server submission provenance. They never show a working correction or current patient/attestation data. Drafts without a submission remain private. Cross-context access does not enable edits, review, or consent reads; `GET /:id/consent` remains origin-only. Revoking current care access removes cross-context visibility but does not erase submissions. Cross-context access is limited to the same career: the reader's context subject must belong to the same career as the evaluation's origin subject. A reader whose only link is another career gets the same `404` (or empty list) as a stranger. Origin readers retain their existing draft and full-history behavior. Reads do not create clinical history. Teacher correction requests and validation are described below.
 
 Submission-history reads preserve `404` with `evaluation was not found` for missing or inaccessible evaluations. An accessible origin-context draft with no submissions returns `200` with an empty `items` array. Missing fresh read permission returns `403` before clinical context lookup, including for administrators.
 
@@ -475,18 +476,32 @@ Clinical entity only — no account is created. Requires a Bearer token and
 curl.exe -X POST http://localhost:3000/patients -H "Content-Type: application/json" -H "Authorization: Bearer <admin-token>" -d '{"documento":"12345678","nombres":"Ana","apellidos":"Lopez","fecha_nacimiento":"1990-05-10","email":"ana@example.com","celular":"+5491100000000","sexo":"F","direccion":"Av. Siempre Viva 123"}'
 ```
 
+### GET /careers
+
+Lists the careers in the catalog. Requires a Bearer token whose database role
+has `careers:read`; this grant is independent from `subjects:read` and is
+initially held only by admin (migration `037`).
+
+- `200` → `{ "items": [{ "id", "code", "name" }] }`, ordered by `name ASC`, then
+  `id ASC`. Migration `036` seeds exactly two careers: `kinesiology` (Kinesiología)
+  and `odontology` (Odontología).
+- No pagination, filters, or write endpoints.
+- `401` — missing/invalid token; `403` — missing `careers:read` grant.
+
 ### POST /subjects
 
-Creates a subject catalog entry. Requires a Bearer token whose database role
+Creates a subject catalog entry in one career. Requires a Bearer token whose database role
 has `subjects:write`; client-supplied actor fields are ignored. Subject names
 are trimmed nonblank strings, and duplicate names are allowed.
 
-- Body: `{ "name" }` — required string; whitespace-only values are rejected
-- `201` → `{ "id", "name", "created_by", "created_at" }`; `id` is a UUID,
+- Body: `{ "name", "career_id" }` — `name` is a required string; whitespace-only
+  values are rejected. `career_id` is required and must be a canonical UUID of an
+  existing career.
+- `201` → `{ "id", "name", "career_id", "created_by", "created_at" }`; `id` is a UUID,
   `created_by` is the verified token subject or `null`, and `created_at` is an
   ISO timestamp
-- `400` — invalid name; `401` — missing/invalid token;
-  `403` — missing `subjects:write` grant
+- `400` — invalid name, or `career_id must be a UUID`; `401` — missing/invalid token;
+  `403` — missing `subjects:write` grant; `404` — `career was not found`
 
 ### GET /subjects
 
@@ -497,7 +512,9 @@ is independent from the write grant.
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.
 - `200` → `{ "items", "limit", "offset" }`; items are ordered by `name ASC`,
-  then `id ASC`. There are no totals or filters.
+  then `id ASC`. There are no totals. Optional `career_id` (canonical UUID) filters
+  to one career; a malformed or repeated value returns `400` with
+  `career_id must be a UUID`.
 - `400` — invalid pagination; `401` — missing/invalid token;
   `403` — missing `subjects:read` grant
 
@@ -511,15 +528,19 @@ Creates an academic group. Requires a Bearer token whose database role has
 `groups:write`; client-supplied attribution is ignored and `created_by` records
 the verified token subject or `null`.
 
-- Body: `{ "academic_year", "curriculum_semester", "name" }` — both numbers
+- Body: `{ "academic_year", "curriculum_semester", "name", "career_id" }` — both numbers
   must be positive JSON integers within PostgreSQL's 32-bit integer range;
-  `name` is trimmed and must be nonblank. Semester has no curricular ceiling.
-- `201` → `{ "id", "academic_year", "curriculum_semester", "name", "created_by", "created_at" }`;
+  `name` is trimmed and must be nonblank. Semester has no curricular ceiling. `career_id` is required and must be a canonical
+  UUID of an existing career; a missing or malformed value returns `400` with
+  `career_id must be a UUID`, and an unknown career returns `404` with
+  `career was not found`.
+- `201` → `{ "id", "academic_year", "curriculum_semester", "name", "career_id", "created_by", "created_at" }`;
   timestamps are ISO strings.
 - `400` — invalid fields; `401` — missing/invalid token;
-  `403` — missing `groups:write` grant; `409` — the `(academic_year,
-  curriculum_semester, name)` tuple already exists. Group names are case-sensitive
-  for this uniqueness rule.
+  `403` — missing `groups:write` grant; `404` — unknown career; `409` — the `(career_id, academic_year,
+  curriculum_semester, name)` tuple already exists (`group already exists for career,
+  academic year, semester, and name`). The same name may exist in another career.
+  Group names are case-sensitive for this uniqueness rule.
 
 ### GET /groups
 
@@ -531,7 +552,8 @@ be explicitly delegated either permission.
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.
 - `200` → `{ "items", "limit", "offset" }`; items are ordered by academic
-  year, curriculum semester, name and ID ascending. No totals or filters.
+  year, curriculum semester, name and ID ascending. No totals. Optional `career_id`
+  (canonical UUID) filters to one career; malformed or repeated values return `400`.
 - `401` — missing/invalid token; `403` — missing `groups:read` grant.
 
 No group update or delete endpoints are provided.
@@ -544,12 +566,15 @@ is initially granted only to admin and can be delegated to other roles. Admin
 has no bypass. Client-supplied actor fields are ignored; `created_by` is the
 verified token subject or `null`.
 
-- Body: `{ "subject_id", "academic_group_id" }` — both values must be UUIDs.
+- Body: `{ "subject_id", "academic_group_id" }` — both values must be UUIDs. The
+  subject and the academic group must belong to the same career.
 - `201` → `{ "subject_id", "academic_group_id", "created_by", "created_at" }`;
   timestamps are ISO strings.
 - `400` — malformed UUID or invalid request; `401` — missing/invalid token;
   `403` — missing `subject-groups:write` grant; `404` — a referenced subject or
-  academic group does not exist; `409` — this subject/group pair is already linked.
+  academic group does not exist; `409` — this subject/group pair is already linked, or
+  the subject and academic group belong to different careers
+  (`subject and academic group belong to different careers`).
 
 ### GET /subject-groups
 
@@ -864,6 +889,39 @@ Login returns a bearer token signed with `JWT_SECRET` (lifetime
 | `RESET_TOKEN_MAX_OUTSTANDING` | `3` | cap on outstanding reset tokens per user |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | optional; fallback credentials when `pnpm create-admin` runs without `--username`/`--password` |
 
+### Career foundation (migrations 036–037)
+
+Migration `036_create_careers.sql` adds the `careers` table with exactly two seeded
+rows: `kinesiology` (Kinesiología) and `odontology` (Odontología). Subjects and
+academic groups now belong to exactly one career through a required `career_id`:
+
+- Existing subjects and groups are backfilled to kinesiology in the same migration.
+  No odontology subjects or groups are seeded; they are created through
+  `POST /subjects` and `POST /groups`.
+- Group identity is per career: `(career_id, academic_year, curriculum_semester,
+  name)` is unique, so two careers can each have a group named "Grupo A".
+- A subject-group association must join a subject and an academic group from the
+  same career. The database enforces this with composite foreign keys on
+  `subject_academic_groups (subject_id, career_id)` and
+  `(academic_group_id, career_id)`, so a cross-career link cannot be stored even
+  outside the API; the API reports it as `409`.
+- Migration `037_seed_career_permissions.sql` adds the enforced `careers:read`
+  permission and grants it to admin only, mirroring `subjects:read` today. Other
+  roles need an explicit database grant.
+- Kinesiology clinical isolation: cross-context reads of kinesiology evaluations and
+  evolutions (detail, list, history) additionally require the reader's context subject
+  to belong to the record's origin career. Creating a kinesiology evaluation or evolution
+  in a non-kinesiology context is rejected with `403 an active student context is
+  required`. The kinesiology career is resolved by code `kinesiology`, never by a
+  hard-coded identifier.
+
+**Rollout:** apply `036` and then `037` before routing subject, group, or
+association traffic that sends `career_id`. Migration `036` is not idempotent; the
+ledger prevents replay, so do not rerun it over an existing schema. After `037`
+the canonical matrix has **36 permission rows and 46 grants**. Careers CRUD, a
+coordinator role, the odontology clinical forms, and kinesiology cross-career
+read isolation are outside this delivery.
+
 ## Permission-matrix deployment and rollback
 
 These are prerequisites for a separately authorized deployment, not evidence
@@ -875,6 +933,8 @@ that migrations or database checks have been performed.
    migration ledger. Review customized grants against the approved access policy.
 2. Apply migrations through `015_seed_teacher_habilitation_revocation_permission.sql`
    before routing subject, group, association, or teacher-habilitation traffic.
+   Migrations `036` and `037` (careers) must also be applied before routing any
+   traffic that sends `career_id`.
    Migration `006` creates the permission tables, `007` seeds the original matrix,
    `009` creates academic catalog tables, and `011`–`015` add independent subject,
    group, association, activation, and revocation permissions with initial admin
@@ -921,7 +981,7 @@ tests against a shared or valuable database.
 The subjects integration test additionally requires
 `SUBJECTS_TEST_ISOLATED=true` and the complete dedicated `SUBJECTS_TEST_*`
 configuration (database URL, JWT secret, client URL, JWT key ID, token lifetime,
-bcrypt cost and reset-token settings). Apply migrations `011`–`015`
+bcrypt cost and reset-token settings). Apply migrations `011`–`015` and `036`–`037`
 beforehand; the test verifies all ledger entries and grants before invoking
 destructive cleanup. Run it
 only after explicit authorization and independent verification of a dedicated

@@ -24,7 +24,7 @@ const MIGRATIONS = [
   '024_create_kinesiology_correction_requests.sql', '025_create_kinesiology_validation_reviews.sql',
   '026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql', '031_create_kinesiology_evolutions.sql', '032_seed_kinesiology_evolution_permissions.sql',
-  '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql',
+  '033_create_kinesiology_evolution_reviews.sql', '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql',
 ];
 const APP_NAME = 'student-habilitations-integration';
 const PG_OPTIONS = '-c search_path=pg_catalog,public,pg_temp -c statement_timeout=5000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=5000';
@@ -172,12 +172,12 @@ async function seedStudent() {
 }
 
 async function seedContext(name = nextName('context')) {
-  const { rows: subjects } = await pool.query('INSERT INTO subjects (name) VALUES ($1) RETURNING id', [`${name}_subject`]);
+  const { rows: subjects } = await pool.query("INSERT INTO subjects (name, career_id) VALUES ($1, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id", [`${name}_subject`]);
   const { rows: groups } = await pool.query(
-    `INSERT INTO academic_groups (academic_year, curriculum_semester, name)
-     VALUES (2098, 1, $1) RETURNING id`, [`${name}_group`]);
+    `INSERT INTO academic_groups (academic_year, curriculum_semester, name, career_id)
+     VALUES (2098, 1, $1, (SELECT id FROM careers WHERE code = 'kinesiology')) RETURNING id`, [`${name}_group`]);
   await pool.query(
-    'INSERT INTO subject_academic_groups (subject_id, academic_group_id) VALUES ($1, $2)',
+    `INSERT INTO subject_academic_groups (subject_id, academic_group_id, career_id) VALUES ($1, $2, (SELECT id FROM careers WHERE code = 'kinesiology'))`,
     [subjects[0].id, groups[0].id],
   );
   return { subjectId: subjects[0].id, groupId: groups[0].id };

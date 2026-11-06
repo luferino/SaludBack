@@ -16,16 +16,31 @@ test('list applies defaults and returns the pagination envelope', async () => {
   const repository = fakeRepository();
   const result = await new ListGroups({ repository }).execute();
   assert.deepEqual(result, { items: [], limit: 50, offset: 0 });
-  assert.deepEqual(repository.calls, [{ limit: 50, offset: 0 }]);
+  assert.deepEqual(repository.calls, [{ careerId: undefined, limit: 50, offset: 0 }]);
+});
+
+test('list forwards a canonical career filter and rejects malformed ones before querying', async () => {
+  const repository = fakeRepository();
+  const careerId = '11111111-1111-4111-8111-111111111111';
+  const result = await new ListGroups({ repository }).execute({ career_id: careerId });
+  assert.deepEqual(result, { items: [], limit: 50, offset: 0 });
+  assert.deepEqual(repository.calls, [{ careerId, limit: 50, offset: 0 }]);
+  for (const career_id of ['', ` ${careerId}`, [careerId], {}, 'bad']) {
+    await assert.rejects(
+      () => new ListGroups({ repository }).execute({ career_id }),
+      (error) => error instanceof BadRequestError && error.message === 'career_id must be a UUID',
+    );
+  }
+  assert.equal(repository.calls.length, 1);
 });
 
 test('list accepts inclusive bounds and strictly parses decimal query strings', async () => {
   const repository = fakeRepository();
   const result = await new ListGroups({ repository }).execute({ limit: '100', offset: '10000' });
   assert.deepEqual(result, { items: [], limit: 100, offset: 10000 });
-  assert.deepEqual(repository.calls, [{ limit: 100, offset: 10000 }]);
+  assert.deepEqual(repository.calls, [{ careerId: undefined, limit: 100, offset: 10000 }]);
   await new ListGroups({ repository }).execute({ limit: '1', offset: '0' });
-  assert.deepEqual(repository.calls[1], { limit: 1, offset: 0 });
+  assert.deepEqual(repository.calls[1], { careerId: undefined, limit: 1, offset: 0 });
 });
 
 test('list rejects arrays, malformed and out-of-range query values before persistence', async () => {

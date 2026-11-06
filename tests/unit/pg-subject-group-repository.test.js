@@ -6,33 +6,35 @@ import { ConflictError, NotFoundError } from '../../src/modules/shared/domain/er
 
 const SUBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const GROUP_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const CAREER_ID = '11111111-1111-4111-8111-111111111111';
 const CREATED_AT = new Date('2026-02-03T04:05:06Z');
 
 function row(overrides = {}) {
   return {
     subject_id: SUBJECT_ID,
     academic_group_id: GROUP_ID,
+    career_id: CAREER_ID,
     created_by: null,
     created_at: CREATED_AT,
     ...overrides,
   };
 }
 
-test('create uses parameterized insert and maps returned pair columns', async () => {
+test('create uses parameterized insert with the shared career and maps returned pair columns', async () => {
   let call;
   const repository = new PgSubjectGroupRepository({
     async query(text, params) { call = { text, params }; return { rows: [row({ created_by: 'actor-1' })] }; },
   });
   const result = await repository.create(new SubjectGroup({
-    subjectId: SUBJECT_ID, academicGroupId: GROUP_ID, createdBy: 'actor-1',
+    subjectId: SUBJECT_ID, academicGroupId: GROUP_ID, careerId: CAREER_ID, createdBy: 'actor-1',
   }));
 
-  assert.match(call.text, /INSERT INTO subject_academic_groups \(subject_id, academic_group_id, created_by\)/);
-  assert.match(call.text, /VALUES \(\$1, \$2, \$3\)\s+RETURNING subject_id, academic_group_id, created_by, created_at/);
-  assert.deepEqual(call.params, [SUBJECT_ID, GROUP_ID, 'actor-1']);
+  assert.match(call.text, /INSERT INTO subject_academic_groups \(subject_id, academic_group_id, career_id, created_by\)/);
+  assert.match(call.text, /VALUES \(\$1, \$2, \$3, \$4\)\s+RETURNING subject_id, academic_group_id, career_id, created_by, created_at/);
+  assert.deepEqual(call.params, [SUBJECT_ID, GROUP_ID, CAREER_ID, 'actor-1']);
   assert.deepEqual(
-    [result.subjectId, result.academicGroupId, result.createdBy, result.createdAt],
-    [SUBJECT_ID, GROUP_ID, 'actor-1', CREATED_AT],
+    [result.subjectId, result.academicGroupId, result.careerId, result.createdBy, result.createdAt],
+    [SUBJECT_ID, GROUP_ID, CAREER_ID, 'actor-1', CREATED_AT],
   );
 });
 
@@ -42,21 +44,24 @@ test('create translates only the association primary key violation to conflict',
   });
   const repository = new PgSubjectGroupRepository({ async query() { throw duplicate; } });
   await assert.rejects(
-    () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID })),
+    () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID, careerId: CAREER_ID })),
     (error) => error instanceof ConflictError && error.statusCode === 409 && error.code === 'CONFLICT',
   );
 });
 
-test('create translates only subject and academic-group foreign keys to reusable not-found', async () => {
+test('create translates subject, academic-group, and composite career foreign keys to reusable not-found', async () => {
   for (const constraint of [
     'subject_academic_groups_subject_id_fkey',
     'subject_academic_groups_academic_group_id_fkey',
+    'subject_academic_groups_subject_career_fkey',
+    'subject_academic_groups_academic_group_career_fkey',
   ]) {
     const missingReference = Object.assign(new Error('foreign key'), { code: '23503', constraint });
     const repository = new PgSubjectGroupRepository({ async query() { throw missingReference; } });
     await assert.rejects(
-      () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID })),
-      (error) => error instanceof NotFoundError && error.statusCode === 404 && error.code === 'NOT_FOUND',
+      () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID, careerId: CAREER_ID })),
+      (error) => error instanceof NotFoundError && error.statusCode === 404 && error.code === 'NOT_FOUND'
+        && error.message === 'subject or academic group was not found',
     );
   }
 });
@@ -74,10 +79,21 @@ test('create propagates actor FK and unknown database failures by identity', asy
   for (const failure of failures) {
     const repository = new PgSubjectGroupRepository({ async query() { throw failure; } });
     await assert.rejects(
-      () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID })),
+      () => repository.create(new SubjectGroup({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID, careerId: CAREER_ID })),
       (error) => error === failure,
     );
   }
+});
+
+test('findCareerPair reads both careers in one parameterized query and reports missing references as null', async () => {
+  let call;
+  const repository = new PgSubjectGroupRepository({
+    async query(text, params) { call = { text, params }; return { rows: [{ subject_career_id: CAREER_ID, academic_group_career_id: null }] }; },
+  });
+  const pair = await repository.findCareerPair({ subjectId: SUBJECT_ID, academicGroupId: GROUP_ID });
+  assert.match(call.text, /SELECT \(SELECT career_id FROM subjects WHERE id = \$1\) AS subject_career_id,\s+\(SELECT career_id FROM academic_groups WHERE id = \$2\) AS academic_group_career_id/);
+  assert.deepEqual(call.params, [SUBJECT_ID, GROUP_ID]);
+  assert.deepEqual(pair, { subjectCareerId: CAREER_ID, academicGroupCareerId: null });
 });
 
 test('list queries only association rows with parameterized stable ordering when unfiltered', async () => {
@@ -108,6 +124,7 @@ test('pair serialization exposes only pair keys, actor, and ISO timestamp', () =
   const serialized = new SubjectGroup({
     subjectId: SUBJECT_ID,
     academicGroupId: GROUP_ID,
+    careerId: CAREER_ID,
     createdBy: null,
     createdAt: CREATED_AT,
   }).toJSON();

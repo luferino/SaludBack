@@ -53,7 +53,8 @@ test('cleanDb checks correction-link column privilege and clears cyclic links be
   assert.match(calls[40], /patient-availabilities:manage[\s\S]*patient-availabilities:read/);
   assert.match(calls[41], /kinesiology-evolutions:write[\s\S]*kinesiology-evolutions:read/);
   assert.match(calls[42], /kinesiology-evolutions:submit[\s\S]*kinesiology-evolutions:review/);
-  assert.equal(calls.length, 43);
+  assert.match(calls[43], /INSERT INTO permissions \(permission, enforced\) VALUES\s+\('careers:read', true\)/);
+  assert.equal(calls.length, 44);
 });
 
 test('cleanDb fails closed on missing correction-link UPDATE privilege before any cleanup mutation', async () => {

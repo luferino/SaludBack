@@ -27,6 +27,7 @@ export function createSubjectRouter({
     const actor = await getActor(req);
     const subject = await createSubject.execute({
       name: req.body?.name,
+      career_id: req.body?.career_id,
       createdBy: actor,
     });
     res.status(201).json(subject.toJSON());
@@ -35,6 +36,7 @@ export function createSubjectRouter({
   router.get('/', async (req: Request, res: Response) => {
     await listGuard.authorize(req);
     const result = await listSubjects.execute({
+      career_id: req.query.career_id,
       limit: req.query.limit,
       offset: req.query.offset,
     });

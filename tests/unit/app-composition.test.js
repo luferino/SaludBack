@@ -47,7 +47,7 @@ test('all protected mounts reject missing tokens without SQL and global HTTP beh
     assert.equal(await root.text(), 'Hello, World!');
     for (const [method, path] of [
       ['POST', '/auth/register'], ['GET', '/auth/me'], ['POST', '/patients'],
-      ['GET', '/students'], ['GET', '/teachers'], ['GET', '/subjects'], ['GET', '/groups'],
+      ['GET', '/students'], ['GET', '/teachers'], ['GET', '/careers'], ['GET', '/subjects'], ['GET', '/groups'],
       ['GET', '/subject-groups'], ['GET', '/student-habilitations'],
       ['GET', '/patient-assignments'], ['GET', '/kinesiology-evaluations'], ['GET', '/teacher-habilitations'],
     ]) {

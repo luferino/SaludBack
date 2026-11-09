@@ -181,8 +181,8 @@ test('legacy integration preflights match the canonical permission/grant invento
 
   assert.match(habilitations,/assert\.deepEqual\(new Set\(required\.map\(\(\{ tablename \}\) => tablename\)\), new Set\(REQUIRED_TABLES\)/);
   assert.doesNotMatch(habilitations,/required\.length,\s*24/);
-  assert.match(assignments,/exact expected migration ledger 001-046 is required before fixture cleanup/);
-  assert.match(drafts,/exact migration ledger 001–046 required before cleanup/);
+  assert.match(assignments,/exact expected migration ledger 001-047 is required before fixture cleanup/);
+  assert.match(drafts,/exact migration ledger 001–047 required before cleanup/);
 });
 
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {

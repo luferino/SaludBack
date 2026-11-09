@@ -27,7 +27,7 @@ const MIGRATIONS = [
   'create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql','create_kinesiology_evolutions.sql','seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql','seed_kinesiology_evolution_review_permissions.sql',
   'create_kinesiology_evolution_amendment_links.sql',
-  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql','create_oral_surgery_authorizations.sql','seed_oral_surgery_authorization_permission.sql','create_reception_access.sql','create_reception_patient_enrollments.sql',
+  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql','create_oral_surgery_authorizations.sql','seed_oral_surgery_authorization_permission.sql','create_reception_access.sql','create_reception_patient_enrollments.sql','seed_reception_availability_permissions.sql',
 ].map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`);
 
 function reject(message) {

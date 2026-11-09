@@ -5,9 +5,10 @@ import { authenticate } from '../../modules/auth/infrastructure/middleware/authe
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 import { createReceptionRouter } from '../../modules/reception/infrastructure/routes/reception.routes.js';
 import { createReceptionPatientRouter } from '../../modules/reception/infrastructure/routes/reception-patient.routes.js';
+import { createReceptionAvailabilityRouter } from '../../modules/reception/infrastructure/routes/reception-availability.routes.js';
 
 export function mountAuthRoutes(app: Express, dependencies: AppDependencies['auth']): void {
-  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, clientUrl, resetTokenTtl, receptionRepository, receptionPatientRepository } = dependencies;
+  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, clientUrl, resetTokenTtl, receptionRepository, receptionPatientRepository, receptionAvailabilityRepository } = dependencies;
 
   app.use(
     '/auth',
@@ -37,4 +38,5 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
   app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
   app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));
   app.use('/reception/patients', createReceptionPatientRouter({ repository: receptionPatientRepository, authenticate: receptionMiddleware }));
+  app.use('/reception/availability', createReceptionAvailabilityRouter({ repository: receptionAvailabilityRepository, authenticate: receptionMiddleware }));
 }

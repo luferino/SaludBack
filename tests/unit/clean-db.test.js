@@ -70,7 +70,10 @@ test('cleanDb checks correction-link column privilege and clears cyclic links be
   assert.match(calls[54], /INSERT INTO permissions[\s\S]*reception:patients:manage/);
   assert.match(calls[54], /\('reception', 'reception:patients:manage'\)/);
   assert.doesNotMatch(calls[54], /CREATE TABLE|CREATE (?:UNIQUE )?INDEX/);
-  assert.equal(calls.length, 55);
+  assert.match(calls[55], /INSERT INTO permissions[\s\S]*reception:availability:manage/);
+  assert.match(calls[55], /\('reception', 'reception:availability:manage'\)/);
+  assert.doesNotMatch(calls[55], /CREATE TABLE|CREATE (?:UNIQUE )?INDEX/);
+  assert.equal(calls.length, 56);
 });
 
 test('cleanDb fails closed on missing correction-link UPDATE privilege before any cleanup mutation', async () => {

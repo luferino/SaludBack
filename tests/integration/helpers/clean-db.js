@@ -110,6 +110,11 @@ const receptionPatientPermissionMigrationSql = readFileSync(
 );
 const receptionPatientPermissionSeedSql = receptionPatientPermissionMigrationSql.match(/INSERT INTO permissions[\s\S]*/)?.[0];
 if (!receptionPatientPermissionSeedSql) throw new Error('Reception patient permission seed is missing from migration 046');
+const receptionAvailabilityPermissionMigrationSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/047_seed_reception_availability_permissions.sql'), 'utf8',
+);
+const receptionAvailabilityPermissionSeedSql = receptionAvailabilityPermissionMigrationSql.match(/INSERT INTO permissions[\s\S]*/)?.[0];
+if (!receptionAvailabilityPermissionSeedSql) throw new Error('Reception availability permission seed is missing from migration 047');
 
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
@@ -174,4 +179,5 @@ export async function cleanDb(pool) {
   await pool.query(oralSurgeryAuthorizationPermissionSeedSql);
   await pool.query(receptionPermissionSeedSql);
   await pool.query(receptionPatientPermissionSeedSql);
+  await pool.query(receptionAvailabilityPermissionSeedSql);
 }

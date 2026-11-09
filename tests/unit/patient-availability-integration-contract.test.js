@@ -34,7 +34,7 @@ const permissionSeeds = ['007_seed_permission_matrix.sql', '011_seed_subject_per
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql',
   '030_seed_patient_availability_permissions.sql', '032_seed_kinesiology_evolution_permissions.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '037_seed_career_permissions.sql',
-  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql'];
+  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql'];
 const permissions = new Set(), grants = new Set();
 for (const seed of permissionSeeds) {
   const sql = readFileSync(`src/db/migrations/${seed}`, 'utf8');
@@ -55,6 +55,7 @@ test('clinical cleanup deletes separate evolution rows before their evaluation p
   assert.ok(permissionSeeds.includes('032_seed_kinesiology_evolution_permissions.sql'));
   assert.ok(permissionSeeds.includes('045_create_reception_access.sql'));
   assert.ok(permissionSeeds.includes('046_create_reception_patient_enrollments.sql'));
+  assert.ok(permissionSeeds.includes('047_seed_reception_availability_permissions.sql'));
 });
 
 test('clinical cleanup final counts retain the same canonical permission/grant totals as its preflight', () => {
@@ -75,7 +76,7 @@ for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evalua
       const declared = vm.runInNewContext(declaration[1], Object.create(null), { timeout: 1000 });
       assert.deepEqual([...declared].sort(), [...expected].sort(), name);
     }
-    assert.equal(permissions.size, 45);
-    assert.equal(grants.size, 59);
+    assert.equal(permissions.size, 46);
+    assert.equal(grants.size, 60);
   });
 }

@@ -202,7 +202,7 @@ before(async () => {
       max: 12, connectionTimeoutMillis: timeout, statement_timeout: timeout, query_timeout: timeout + 1000,
       lock_timeout: timeout, idle_in_transaction_session_timeout: timeout, options });
     const { rows } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.equal(rows.length, 45, 'all migrations through 045 must be present');
+    assert.equal(rows.length, 46, 'all migrations through 046 must be present');
     assert.equal(target.databaseName, new URL(process.env.DATABASE_URL).pathname.slice(1));
     cleanupAuthorized = true;
     await cleanDb(pool);

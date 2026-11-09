@@ -12,11 +12,11 @@
  * kinesiology_evolutions -> kinesiology_evaluations -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
- * password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
+ * reception_patient_enrollments -> patients -> reception_career_grants -> password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, 034, and 037 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, and the permission/grant INSERT section of 045 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -100,6 +100,21 @@ const oralSurgeryDraftPermissionSeedSql = readFileSync(
 const oralSurgeryAuthorizationPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/044_seed_oral_surgery_authorization_permission.sql'), 'utf8',
 );
+const receptionPermissionMigrationSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/045_create_reception_access.sql'), 'utf8',
+);
+const receptionPermissionSeedSql = receptionPermissionMigrationSql.match(/INSERT INTO permissions[\s\S]*/)?.[0];
+if (!receptionPermissionSeedSql) throw new Error('Reception permission seed is missing from migration 045');
+const receptionPatientPermissionMigrationSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/046_create_reception_patient_enrollments.sql'), 'utf8',
+);
+const receptionPatientPermissionSeedSql = receptionPatientPermissionMigrationSql.match(/INSERT INTO permissions[\s\S]*/)?.[0];
+if (!receptionPatientPermissionSeedSql) throw new Error('Reception patient permission seed is missing from migration 046');
+const receptionAvailabilityPermissionMigrationSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/047_seed_reception_availability_permissions.sql'), 'utf8',
+);
+const receptionAvailabilityPermissionSeedSql = receptionAvailabilityPermissionMigrationSql.match(/INSERT INTO permissions[\s\S]*/)?.[0];
+if (!receptionAvailabilityPermissionSeedSql) throw new Error('Reception availability permission seed is missing from migration 047');
 
 export async function cleanDb(pool) {
   const { rows } = await pool.query(
@@ -135,7 +150,9 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM oral_surgery_subjects');
   await pool.query('DELETE FROM subjects');
   await pool.query('DELETE FROM clinical_records');
+  await pool.query('DELETE FROM reception_patient_enrollments');
   await pool.query('DELETE FROM patients');
+  await pool.query('DELETE FROM reception_career_grants');
   await pool.query('DELETE FROM password_reset_tokens');
   await pool.query('DELETE FROM users');
   // Re-seed the permission matrix so every suite starts from the canonical state.
@@ -160,4 +177,7 @@ export async function cleanDb(pool) {
   await pool.query(oralSurgerySubjectPermissionSeedSql);
   await pool.query(oralSurgeryDraftPermissionSeedSql);
   await pool.query(oralSurgeryAuthorizationPermissionSeedSql);
+  await pool.query(receptionPermissionSeedSql);
+  await pool.query(receptionPatientPermissionSeedSql);
+  await pool.query(receptionAvailabilityPermissionSeedSql);
 }

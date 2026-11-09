@@ -10,7 +10,7 @@ test('cleanDb checks correction-link column privilege and clears cyclic links be
   } });
   assert.equal(calls[0], "SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed");
   assert.equal(calls[1], 'UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
-  assert.deepEqual(calls.slice(2, 31), [
+  assert.deepEqual(calls.slice(2, 33), [
     'DELETE FROM kinesiology_evolution_correction_requests',
     'DELETE FROM kinesiology_evolution_validation_reviews',
     'DELETE FROM kinesiology_evolution_submissions',
@@ -37,31 +37,43 @@ test('cleanDb checks correction-link column privilege and clears cyclic links be
     'DELETE FROM oral_surgery_subjects',
     'DELETE FROM subjects',
     'DELETE FROM clinical_records',
+    'DELETE FROM reception_patient_enrollments',
     'DELETE FROM patients',
+    'DELETE FROM reception_career_grants',
     'DELETE FROM password_reset_tokens',
     'DELETE FROM users',
   ]);
-  assert.equal(calls[31], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
-  assert.match(calls[32], /INSERT INTO permissions[\s\S]*materias:read/);
-  assert.match(calls[33], /subjects:write[\s\S]*subjects:read/);
-  assert.match(calls[34], /groups:write[\s\S]*groups:read/);
-  assert.match(calls[35], /subject-groups:write[\s\S]*subject-groups:read/);
-  assert.match(calls[36], /teacher-habilitations:write/);
-  assert.match(calls[37], /teacher-habilitations:revoke/);
-  assert.match(calls[38], /student-habilitations:write/);
-  assert.match(calls[39], /student-habilitations:revoke/);
-  assert.match(calls[40], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
-  assert.match(calls[41], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
-  assert.match(calls[42], /teachers:read[\s\S]*students:read/);
-  assert.match(calls[43], /teacher-habilitations:read[\s\S]*student-habilitations:read/);
-  assert.match(calls[44], /patient-availabilities:manage[\s\S]*patient-availabilities:read/);
-  assert.match(calls[45], /kinesiology-evolutions:write[\s\S]*kinesiology-evolutions:read/);
-  assert.match(calls[46], /kinesiology-evolutions:submit[\s\S]*kinesiology-evolutions:review/);
-  assert.match(calls[47], /INSERT INTO permissions \(permission, enforced\) VALUES\s+\('careers:read', true\)/);
-  assert.match(calls[48], /oral-surgery-subjects:read[\s\S]*oral-surgery-subjects:write/);
-  assert.match(calls[49], /oral-surgery-drafts:read[\s\S]*oral-surgery-drafts:write/);
-  assert.match(calls[50], /oral-surgery-drafts:authorize/);
-  assert.equal(calls.length, 51);
+  assert.equal(calls[33], 'TRUNCATE role_permissions, permissions RESTART IDENTITY');
+  assert.match(calls[34], /INSERT INTO permissions[\s\S]*materias:read/);
+  assert.match(calls[35], /subjects:write[\s\S]*subjects:read/);
+  assert.match(calls[36], /groups:write[\s\S]*groups:read/);
+  assert.match(calls[37], /subject-groups:write[\s\S]*subject-groups:read/);
+  assert.match(calls[38], /teacher-habilitations:write/);
+  assert.match(calls[39], /teacher-habilitations:revoke/);
+  assert.match(calls[40], /student-habilitations:write/);
+  assert.match(calls[41], /student-habilitations:revoke/);
+  assert.match(calls[42], /patient-assignments:write[\s\S]*patient-assignments:read-own/);
+  assert.match(calls[43], /kinesiology-evaluations:read[\s\S]*kinesiology-evaluations:review/);
+  assert.match(calls[44], /teachers:read[\s\S]*students:read/);
+  assert.match(calls[45], /teacher-habilitations:read[\s\S]*student-habilitations:read/);
+  assert.match(calls[46], /patient-availabilities:manage[\s\S]*patient-availabilities:read/);
+  assert.match(calls[47], /kinesiology-evolutions:write[\s\S]*kinesiology-evolutions:read/);
+  assert.match(calls[48], /kinesiology-evolutions:submit[\s\S]*kinesiology-evolutions:review/);
+  assert.match(calls[49], /INSERT INTO permissions \(permission, enforced\) VALUES\s+\('careers:read', true\)/);
+  assert.match(calls[50], /oral-surgery-subjects:read[\s\S]*oral-surgery-subjects:write/);
+  assert.match(calls[51], /oral-surgery-drafts:read[\s\S]*oral-surgery-drafts:write/);
+  assert.match(calls[52], /oral-surgery-drafts:authorize/);
+  assert.match(calls[53], /INSERT INTO permissions[\s\S]*reception:accounts:write[\s\S]*reception:careers:write[\s\S]*reception:careers:read/);
+  assert.match(calls[53], /\('reception', 'profile:read'\)/);
+  assert.match(calls[53], /\('reception', 'reception:careers:read'\)/);
+  assert.doesNotMatch(calls[53], /CREATE TABLE|CREATE (?:UNIQUE )?INDEX/);
+  assert.match(calls[54], /INSERT INTO permissions[\s\S]*reception:patients:manage/);
+  assert.match(calls[54], /\('reception', 'reception:patients:manage'\)/);
+  assert.doesNotMatch(calls[54], /CREATE TABLE|CREATE (?:UNIQUE )?INDEX/);
+  assert.match(calls[55], /INSERT INTO permissions[\s\S]*reception:availability:manage/);
+  assert.match(calls[55], /\('reception', 'reception:availability:manage'\)/);
+  assert.doesNotMatch(calls[55], /CREATE TABLE|CREATE (?:UNIQUE )?INDEX/);
+  assert.equal(calls.length, 56);
 });
 
 test('cleanDb fails closed on missing correction-link UPDATE privilege before any cleanup mutation', async () => {

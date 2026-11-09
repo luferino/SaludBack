@@ -3,9 +3,10 @@ import type { AppDependencies } from '../create-dependencies.js';
 import { createAuthRouter } from '../../modules/auth/infrastructure/routes/auth.routes.js';
 import { authenticate } from '../../modules/auth/infrastructure/middleware/authenticate.js';
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
+import { createReceptionRouter } from '../../modules/reception/infrastructure/routes/reception.routes.js';
 
 export function mountAuthRoutes(app: Express, dependencies: AppDependencies['auth']): void {
-  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, clientUrl, resetTokenTtl } = dependencies;
+  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, clientUrl, resetTokenTtl, receptionRepository } = dependencies;
 
   app.use(
     '/auth',
@@ -30,4 +31,8 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
+
+  const receptionMiddleware = authenticate(tokenService, matrixReader);
+  app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
+  app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));
 }

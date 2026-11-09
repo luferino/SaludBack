@@ -34,12 +34,12 @@ const permissionSeeds = ['007_seed_permission_matrix.sql', '011_seed_subject_per
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql',
   '030_seed_patient_availability_permissions.sql', '032_seed_kinesiology_evolution_permissions.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '037_seed_career_permissions.sql',
-  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql'];
+  '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql'];
 const permissions = new Set(), grants = new Set();
 for (const seed of permissionSeeds) {
   const sql = readFileSync(`src/db/migrations/${seed}`, 'utf8');
   for (const match of sql.matchAll(/\('([^']+:[^']+)',\s*(?:true|false)\)/g)) permissions.add(match[1]);
-  for (const match of sql.matchAll(/\('(admin|teacher|estudiante)',\s*'([^']+)'\)/g)) grants.add(`${match[1]}:${match[2]}`);
+  for (const match of sql.matchAll(/\('(admin|teacher|estudiante|reception)',\s*'([^']+)'\)/g)) grants.add(`${match[1]}:${match[2]}`);
 }
 test('clinical cleanup deletes separate evolution rows before their evaluation parents and reseeds exact grants', () => {
   const source = readFileSync('tests/integration/helpers/clean-db.js', 'utf8');
@@ -48,7 +48,10 @@ test('clinical cleanup deletes separate evolution rows before their evaluation p
   assert.ok(source.indexOf('DELETE FROM kinesiology_evolution_correction_requests') < source.indexOf('DELETE FROM kinesiology_evolutions'));
   assert.ok(source.indexOf('DELETE FROM kinesiology_evolution_validation_reviews') < source.indexOf('DELETE FROM kinesiology_evolution_submissions'));
   assert.match(source, /034_seed_kinesiology_evolution_review_permissions\.sql/);
+  assert.ok(source.indexOf('DELETE FROM reception_career_grants') < source.indexOf('DELETE FROM users'));
+  assert.match(source, /045_create_reception_access\.sql/);
   assert.ok(permissionSeeds.includes('032_seed_kinesiology_evolution_permissions.sql'));
+  assert.ok(permissionSeeds.includes('045_create_reception_access.sql'));
 });
 
 test('clinical cleanup final counts retain the same canonical permission/grant totals as its preflight', () => {
@@ -69,7 +72,7 @@ for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evalua
       const declared = vm.runInNewContext(declaration[1], Object.create(null), { timeout: 1000 });
       assert.deepEqual([...declared].sort(), [...expected].sort(), name);
     }
-    assert.equal(permissions.size, 41);
-    assert.equal(grants.size, 53);
+    assert.equal(permissions.size, 44);
+    assert.equal(grants.size, 58);
   });
 }

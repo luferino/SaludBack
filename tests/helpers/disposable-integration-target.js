@@ -13,7 +13,7 @@ export const REQUIRED_EMPTY_BASELINE_TABLES = [
   'kinesiology_evaluation_submissions','kinesiology_consent_attestations','kinesiology_evaluation_amendment_links',
   'kinesiology_evolution_amendment_links','kinesiology_evolutions','kinesiology_evaluations','patient_assignments','patient_context_availabilities','student_academic_habilitations',
   'teacher_academic_habilitations','students','teachers','subject_academic_groups','academic_groups','subjects',
-  'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects','reception_career_grants','clinical_records','patients','password_reset_tokens','users',
+  'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects','reception_patient_enrollments','reception_career_grants','clinical_records','patients','password_reset_tokens','users',
 ];
 const MIGRATIONS = [
   'create_users.sql','create_patients.sql','add_email_and_reset_tokens.sql','multi_role_and_audit.sql','user_id_unique_profiles.sql',
@@ -27,7 +27,7 @@ const MIGRATIONS = [
   'create_patient_context_availabilities.sql','seed_patient_availability_permissions.sql','create_kinesiology_evolutions.sql','seed_kinesiology_evolution_permissions.sql',
   'create_kinesiology_evolution_reviews.sql','seed_kinesiology_evolution_review_permissions.sql',
   'create_kinesiology_evolution_amendment_links.sql',
-  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql','create_oral_surgery_authorizations.sql','seed_oral_surgery_authorization_permission.sql','create_reception_access.sql',
+  'create_careers.sql', 'seed_career_permissions.sql','create_oral_surgery_subjects.sql','seed_oral_surgery_subject_permissions.sql','create_oral_surgery_drafts.sql','seed_oral_surgery_draft_permissions.sql','create_oral_surgery_consent_declarations.sql','create_oral_surgery_authorizations.sql','seed_oral_surgery_authorization_permission.sql','create_reception_access.sql','create_reception_patient_enrollments.sql',
 ].map((name, index) => `${String(index + 1).padStart(3, '0')}_${name}`);
 
 function reject(message) {

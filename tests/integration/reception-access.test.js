@@ -42,7 +42,7 @@ async function waitForLockWait(pool, queryPattern) {
   assert.fail(`expected PostgreSQL lock wait was not observed for ${queryPattern}`);
 }
 
-test('Reception account/grant HTTP paths and scope/revocation serialize on fresh migrated 001-045 database', { skip: !enabled }, async () => {
+test('Reception account/grant HTTP paths and scope/revocation serialize on fresh migrated 001-046 database', { skip: !enabled }, async () => {
   const target = await verifyDisposableIntegrationTarget();
   const pool = new pg.Pool({ connectionString: process.env.DISPOSABLE_INTEGRATION_DATABASE_URL,
     connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 12000 });
@@ -65,10 +65,10 @@ test('Reception account/grant HTTP paths and scope/revocation serialize on fresh
     assert.equal(canonicalAddress(identity.rows[0].address), canonicalAddress(target.identity.serverAddress));
 
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 45);
-    assert.equal(ledger.rows.at(-1).name, '045_create_reception_access.sql');
+    assert.equal(ledger.rowCount, 46);
+    assert.equal(ledger.rows.at(-1).name, '046_create_reception_patient_enrollments.sql');
     const privileges = await pool.query("SELECT permission FROM role_permissions WHERE role='reception' ORDER BY permission");
-    assert.deepEqual(privileges.rows, [{ permission: 'profile:read' }, { permission: 'reception:careers:read' }]);
+    assert.deepEqual(privileges.rows, [{ permission: 'profile:read' }, { permission: 'reception:careers:read' }, { permission: 'reception:patients:manage' }]);
 
     await pool.query(`INSERT INTO users (id, username, password_hash, role, email)
       VALUES ($1, 'reception_test_admin', 'synthetic-hash', 'admin', 'reception-admin@example.invalid')`, [ADMIN_ID]);

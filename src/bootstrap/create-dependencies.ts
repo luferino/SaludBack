@@ -24,6 +24,7 @@ import { PgUnitOfWork } from '../modules/shared/infrastructure/pg-unit-of-work.j
 import { PgKinesiologyEvaluationRepository } from '../modules/kinesiology-evaluations/index.js';
 import { PgKinesiologyEvolutionRepository } from '../modules/kinesiology-evolutions/index.js';
 import { PgReceptionAccessRepository } from '../modules/reception/infrastructure/repositories/pg-reception-access.repository.js';
+import { PgReceptionPatientRepository } from '../modules/reception/infrastructure/repositories/pg-reception-patient.repository.js';
 
 /** Build one app-local object graph; shared services are never global singletons. */
 export function createDependencies(pool: Pool) {
@@ -56,12 +57,13 @@ export function createDependencies(pool: Pool) {
   });
   const matrixReader = new PgPermissionMatrixRepository(pool);
   const receptionRepository = new PgReceptionAccessRepository(pool);
+  const receptionPatientRepository = new PgReceptionPatientRepository(pool);
 
   return {
     auth: {
       repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader,
       clientUrl: config.clientUrl, resetTokenTtl: config.resetTokenTtl,
-      receptionRepository,
+      receptionRepository, receptionPatientRepository,
     },
     profiles: {
       patientRepository, studentRepository, teacherRepository,

@@ -47,7 +47,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
-  'careers:read',
+  'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read',
 ]);
 const EXPECTED_GRANTS = new Set([
   'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read',
@@ -63,6 +63,8 @@ const EXPECTED_GRANTS = new Set([
   'teacher:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:read', 'estudiante:kinesiology-evaluations:write', 'estudiante:kinesiology-evaluations:submit', 'teacher:kinesiology-evaluations:verify-consent', 'teacher:kinesiology-evaluations:review',
   'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
   'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'estudiante:kinesiology-evolutions:submit', 'teacher:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:review',
+  'admin:reception:accounts:write', 'admin:reception:careers:write', 'admin:reception:careers:read',
+  'reception:profile:read', 'reception:reception:careers:read',
 ]);
 
 let pool;
@@ -174,7 +176,7 @@ after(async () => {
   }
 });
 
-test('migrations 011–044 are present before cleanup and cleanup restores the canonical matrix', async () => {
+test('migrations 011–045 are present before cleanup and cleanup restores the canonical matrix', async () => {
   const { rows: ledgerBefore } = await pool.query(
     'SELECT name FROM schema_migrations ORDER BY name',
   );
@@ -213,6 +215,7 @@ test('migrations 011–044 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('042_create_oral_surgery_consent_declarations.sql'), 'migration 042 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('043_create_oral_surgery_authorizations.sql'), 'migration 043 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('044_seed_oral_surgery_authorization_permission.sql'), 'migration 044 must already be applied; this suite never migrates');
+  assert.ok(ledgerNamesBefore.has('045_create_reception_access.sql'), 'migration 045 must already be applied; this suite never migrates');
 
   const { rows: subjectPermissions } = await pool.query(
     "SELECT permission, enforced FROM permissions WHERE permission LIKE 'subjects:%' ORDER BY permission",
@@ -298,10 +301,10 @@ test('migrations 011–044 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 41);
+  assert.equal(permissions.length, 44);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 53);
+  assert.equal(grants.length, 58);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

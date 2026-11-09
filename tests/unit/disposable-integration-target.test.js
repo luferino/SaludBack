@@ -109,6 +109,7 @@ test('requires every known application table in the empty baseline', () => {
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_correction_requests'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_validation_reviews'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('kinesiology_evolution_amendment_links'));
+  assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('reception_career_grants'));
   rejectsSafely(cloneTarget({ emptyBaseline: { irrelevant: 0 } }), /complete disposable database empty baseline required/);
   const missing = { ...validTarget.emptyBaseline }; delete missing.patients;
   rejectsSafely(cloneTarget({ emptyBaseline: missing }), /complete disposable database empty baseline required/);
@@ -163,7 +164,7 @@ test('legacy integration preflights match the canonical permission/grant invento
   for (const seed of permissionSeeds) {
     const sql = readFileSync(path.join(cwd,'src/db/migrations',seed),'utf8');
     for (const [, permission] of sql.matchAll(/\('([^']+:[^']+)',\s*(?:true|false)\)/g)) permissions.add(permission);
-    for (const [, role, permission] of sql.matchAll(/\('(admin|teacher|estudiante)',\s*'([^']+)'\)/g)) grants.add(`${role}:${permission}`);
+    for (const [, role, permission] of sql.matchAll(/\('(admin|teacher|estudiante|reception)',\s*'([^']+)'\)/g)) grants.add(`${role}:${permission}`);
   }
   const assertCanonicalCounts = (source, expectedPermissions, expectedGrants) => {
     const counts = source.match(/permissions\s*:\s*(\d+),\s*grants\s*:\s*(\d+)/);
@@ -179,8 +180,8 @@ test('legacy integration preflights match the canonical permission/grant invento
 
   assert.match(habilitations,/assert\.deepEqual\(new Set\(required\.map\(\(\{ tablename \}\) => tablename\)\), new Set\(REQUIRED_TABLES\)/);
   assert.doesNotMatch(habilitations,/required\.length,\s*24/);
-  assert.match(assignments,/exact expected migration ledger 001-044 is required before fixture cleanup/);
-  assert.match(drafts,/exact migration ledger 001–044 required before cleanup/);
+  assert.match(assignments,/exact expected migration ledger 001-045 is required before fixture cleanup/);
+  assert.match(drafts,/exact migration ledger 001–045 required before cleanup/);
 });
 
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {

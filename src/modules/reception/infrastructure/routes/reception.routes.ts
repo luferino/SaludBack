@@ -26,6 +26,34 @@ export function createReceptionRouter({ repository, hasher, surface = 'admin', a
   const router = Router();
   const authentication = authenticate ? [authenticate] : [];
   if (surface === 'admin') {
+  router.get('/accounts', ...authentication, async (req: Request, res: Response) => {
+    await authorizeAdmin(adminGuard, req);
+    // Parse raw pairs to reject duplicates and nested keys independently of Express's query parser.
+    const queryStart = req.originalUrl.indexOf('?');
+    const query = new URLSearchParams(queryStart === -1 ? '' : req.originalUrl.slice(queryStart + 1));
+    const allowed = new Set(['q', 'career', 'limit', 'offset']);
+    for (const key of query.keys()) {
+      if (!allowed.has(key)) throw new BadRequestError(`unknown query parameter: ${key}`);
+      if (query.getAll(key).length !== 1) throw new BadRequestError(`query parameter must not be repeated: ${key}`);
+    }
+    const q = query.get('q')?.trim() || undefined;
+    if (q && q.length > 100) throw new BadRequestError('q must be at most 100 characters');
+    const career = query.get('career') ?? undefined;
+    if (career !== undefined && !CAREERS.has(career)) throw new BadRequestError('career must be kinesiology or odontology');
+    const page = (name: 'limit' | 'offset', fallback: number, minimum: number, maximum: number): number => {
+      const raw = query.get(name);
+      if (raw === null) return fallback;
+      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) < minimum || Number(raw) > maximum) {
+        throw new BadRequestError(`${name} must be an integer between ${minimum} and ${maximum}`);
+      }
+      return Number(raw);
+    };
+    const limit = page('limit', 50, 1, 100), offset = page('offset', 0, 0, 10000);
+    const items = await repository.searchAccounts({ q, career, limit, offset });
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ items, limit, offset });
+  });
+
   router.post('/accounts', ...authentication, async (req: Request, res: Response) => {
     await authorizeAdmin(adminGuard, req);
     for (const field of ['username', 'password', 'email']) {

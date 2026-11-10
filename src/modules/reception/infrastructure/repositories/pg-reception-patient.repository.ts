@@ -14,8 +14,8 @@ const COLUMNS = 'p.id, p.documento, p.nombres, p.apellidos, p.fecha_nacimiento, 
 export class PgReceptionPatientRepository implements ReceptionPatientRepository {
   private readonly access: PgReceptionAccessRepository;
   constructor(private readonly pool: Pool) { this.access = new PgReceptionAccessRepository(pool); }
-  withActiveCareerScope<T>(userId: string, career: string, work: (client: Queryable) => Promise<T>): Promise<T> {
-    return this.access.withActiveCareerScope(userId, career, work);
+  withActiveCareerScope<T>(userId: string, career: string, work: (client: Queryable) => Promise<T>, roleGrantId?: string): Promise<T> {
+    return this.access.withActiveCareerScope(userId, career, work, roleGrantId);
   }
   async matchByDocumento(db: Queryable, documento: string): Promise<{ id: string } | null> {
     const { rows } = await db.query<{ id: string }>('SELECT id FROM patients WHERE documento = $1', [documento]);

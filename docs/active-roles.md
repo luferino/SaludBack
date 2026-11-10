@@ -1,6 +1,6 @@
 # Student and Reception active roles
 
-This slice adds persistence for audited additional Reception-role grants. Existing career scopes remain separate. It mounts the admin APIs that grant and revoke the additional Reception role. Every protected route now validates additional-role tokens against their exact live grant. Reception runtime integration and role discovery/switching arrive in the next slices.
+This slice lets entitled dual-role accounts (a Student with an active additional Reception grant) receive career grants and use career-scoped Reception operations. Earlier slices added the audited additional Reception grants and live-grant authentication. Role discovery/switching arrives in a later slice.
 
 ## Persistence facts
 
@@ -8,7 +8,7 @@ This slice adds persistence for audited additional Reception-role grants. Existi
 - Only eligible Student identities can receive an additional Reception grant. A role grant does not create or modify a user, profile, permission catalog, or primary role.
 - Career eligibility is stored separately and must be explicitly granted. Adding Reception does not grant a career, assignment, or clinical access; patient assignment remains teacher-owned.
 - Revocation closes the active grant period and follows the repository's user → role-grant → career-grant locking order. Replay of an earlier revocation does not revoke a later grant or its careers.
-- Existing primary roles and their permission seeds remain unchanged. The persisted grant data is inert until later slices connect runtime authorization consumers.
+- Existing primary roles and their permission seeds remain unchanged. Grant data authorizes nothing by itself; it is consulted only by live-grant authentication and Reception career-scope checks.
 
 ## Admin API
 
@@ -40,5 +40,8 @@ A `roleGrant` has exactly `{ id, user_id, role, granted_by, granted_at, revoked_
 
 - Live-grant authentication: a token carrying `role_grant_id` must have `role: "reception"`, a UUID `sub`, and a UUID grant id that is the subject's exact active Reception grant; otherwise the request returns 401. A database fault during that check returns 500, not 401. Tokens without the claim keep the existing signature-verification and permission-matrix behavior. No endpoint issues such tokens yet.
 - Role discovery/switching arrives in a later slice. Until then, a granted Reception role is recorded but cannot be used for self-service switching.
-- Existing account listings and career operations are unchanged in this slice.
+- `GET /auth/accounts` lists primary Reception accounts and Students with an active additional Reception grant, with the same `{ items, limit, offset }` shape.
+- Career grant accepts live entitled dual-role accounts. Career revoke is addressed by grant id and is unchanged. Career grants stay separate from role grants.
+- Reception scoped patient and availability operations revalidate the token's exact role grant inside the transaction, locking in the order user → role grant → career grant → patient rows. A grant-carrying token whose primary role is not Student, or whose role grant is revoked or absent, returns 401.
+- Pre-existing error responses are unchanged: an ineligible career-grant target returns 404 `career was not found`, and a missing or non-Reception account without a grant-carrying token returns 404 `Reception account was not found`.
 - General role/catalog maintenance stays outside this feature.

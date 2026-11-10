@@ -32,7 +32,7 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     if (typeof value !== 'string' || !CAREERS.has(value)) throw new BadRequestError('career must be kinesiology or odontology');
     return value;
   };
-  const inScope = <T>(userId: string, scope: string, work: (db: Queryable) => Promise<T>): Promise<T> => repository.withActiveCareerScope(userId, scope, work);
+  const inScope = <T>(req: Request, userId: string, scope: string, work: (db: Queryable) => Promise<T>): Promise<T> => repository.withActiveCareerScope(userId, scope, work, (req as AuthenticatedRequest).auth?.roleGrantId);
   const pathId = (value: string | string[]): string => {
     if (typeof value !== 'string' || !UUID.test(value)) throw new BadRequestError('id must be a UUID');
     return value;
@@ -42,7 +42,7 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     const userId = await actor(req), scope = career(req.body?.career);
     const documento = typeof req.body?.documento === 'string' || typeof req.body?.documento === 'number' ? String(req.body.documento).trim() : '';
     if (!/^\d{4,8}$/.test(documento)) throw new BadRequestError('documento must be 4-8 digits');
-    const match = await inScope<{ id: string } | null>(userId, scope, db => repository.matchByDocumento(db, documento));
+    const match = await inScope<{ id: string } | null>(req, userId, scope, db => repository.matchByDocumento(db, documento));
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json(match ? { match: true, patient_id: match.id } : { match: false });
   });
@@ -51,7 +51,7 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     if (typeof id !== 'string' || !UUID.test(id)) throw new BadRequestError('patient_id must be a UUID');
     const documento = typeof req.body?.documento === 'string' || typeof req.body?.documento === 'number' ? String(req.body.documento).trim() : '';
     if (!/^\d{4,8}$/.test(documento)) throw new BadRequestError('documento must be 4-8 digits');
-    await inScope(userId, scope, async db => {
+    await inScope(req, userId, scope, async db => {
       const match = await repository.matchByDocumento(db, documento);
       if (!match || match.id !== id) throw new NotFoundError('matching patient was not found');
       await repository.enrollExisting(db, id, scope);
@@ -62,7 +62,7 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     const userId = await actor(req);
     const body = registrationBody(req.body);
     const scope = career(body.career);
-    const patient = await inScope<Patient>(userId, scope, async db => {
+    const patient = await inScope<Patient>(req, userId, scope, async db => {
       const input = validateRegistrationInput(body);
       const useCase = new CreatePatient({ repository: {
         findByDocumento: documento => repository.findPatientByDocumento(db, documento),
@@ -74,13 +74,13 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
   });
   router.get('/', ...authentication, async (req: Request, res: Response) => {
     const userId = await actor(req), scope = career(req.query.career);
-    const items = await inScope<Patient[]>(userId, scope, db => repository.list(db, scope, 100, 0));
+    const items = await inScope<Patient[]>(req, userId, scope, db => repository.list(db, scope, 100, 0));
     res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items: items.map(serializePatient) });
   });
   router.get('/:id', ...authentication, async (req: Request, res: Response) => {
     const userId = await actor(req), scope = career(req.query.career);
     const id = pathId(req.params.id);
-    const patient = await inScope<Patient | null>(userId, scope, db => repository.findEnrolled(db, id, scope));
+    const patient = await inScope<Patient | null>(req, userId, scope, db => repository.findEnrolled(db, id, scope));
     if (!patient) throw new NotFoundError('enrolled patient was not found');
     res.setHeader('Cache-Control', 'no-store'); res.status(200).json(serializePatient(patient));
   });
@@ -93,7 +93,7 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     for (const field of ['celular', 'direccion'] as const) {
       if (body[field] !== undefined && !(body[field] as string).trim()) throw new BadRequestError(`${field} is required`);
     }
-    const updated = await inScope<Patient | null>(userId, scope, async db => {
+    const updated = await inScope<Patient | null>(req, userId, scope, async db => {
       const current = await repository.findEnrolled(db, id, scope);
       if (!current) throw new NotFoundError('enrolled patient was not found');
       const email = body.email === undefined ? current.email : normalizeEmail(body.email);

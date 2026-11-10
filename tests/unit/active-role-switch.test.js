@@ -90,3 +90,31 @@ test('public protected route rejects revoked or mismatched grant instances, and 
   const malformed = await requestFor({ ...claims, role_grant_id: 'forged' }, { async isValidActiveRole() { assert.fail('must reject before DB'); } });
   assert.equal(malformed.status, 401);
 });
+
+test('a login-shaped token switches roles through the real authenticate middleware', async () => {
+  const repo = repository();
+  const signed = [];
+  const verify = async token => (token === 'login' ? { sub: USER, username: 'STUDENT1', role: 'estudiante' } : { sub: USER, role: 'estudiante' });
+  const matrixReader = { async permissionsForRole(role) { return role === 'reception' ? ['reception:patients:manage'] : ['student:read']; } };
+  const app = express(); app.use(express.json());
+  app.use('/auth', createActiveRoleAdminRouter({
+    repository: repo,
+    authenticate: authenticate({ verify }, matrixReader, repo),
+    tokenService: { async sign(claims) { signed.push(claims); return 'switched'; } },
+    matrixReader,
+  }));
+  app.use(errorHandler);
+  const server = createServer(app); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const switchAs = token => fetch(`http://127.0.0.1:${server.address().port}/auth/active-role`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ role: 'reception' }),
+    });
+    const switched = await switchAs('login');
+    assert.equal(switched.status, 200);
+    assert.deepEqual(await switched.json(), { token: 'switched' });
+    assert.deepEqual(signed, [{ sub: USER, username: 'STUDENT1', role: 'reception', permissions: ['reception:patients:manage'], role_grant_id: GRANT }]);
+    const withoutUsername = await switchAs('no-username');
+    assert.equal(withoutUsername.status, 401);
+    assert.equal(signed.length, 1);
+  } finally { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+});

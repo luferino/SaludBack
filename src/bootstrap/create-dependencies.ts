@@ -3,6 +3,7 @@ import config from '../config.js';
 import { PgUserRepository } from '../modules/auth/infrastructure/repositories/pg-user.repository.js';
 import { PgResetTokenRepository } from '../modules/auth/infrastructure/repositories/pg-reset-token.repository.js';
 import { PgPermissionMatrixRepository } from '../modules/auth/infrastructure/repositories/pg-permission-matrix.repository.js';
+import { PgRoleGrantRepository } from '../modules/auth/infrastructure/repositories/pg-role-grant.repository.js';
 import { BcryptHasher } from '../modules/auth/infrastructure/services/bcrypt-hasher.service.js';
 import { JwtTokenService } from '../modules/auth/infrastructure/services/jwt-token.service.js';
 import { ConsoleMailer } from '../modules/auth/infrastructure/services/console-mailer.service.js';
@@ -57,13 +58,14 @@ export function createDependencies(pool: Pool) {
     expiresIn: config.jwtExpiresIn,
   });
   const matrixReader = new PgPermissionMatrixRepository(pool);
+  const roleGrantRepository = new PgRoleGrantRepository(pool);
   const receptionRepository = new PgReceptionAccessRepository(pool);
   const receptionPatientRepository = new PgReceptionPatientRepository(pool);
   const receptionAvailabilityRepository = new PgReceptionAvailabilityRepository(pool);
 
   return {
     auth: {
-      repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader,
+      repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, roleGrantRepository,
       clientUrl: config.clientUrl, resetTokenTtl: config.resetTokenTtl,
       receptionRepository, receptionPatientRepository, receptionAvailabilityRepository,
     },

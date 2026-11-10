@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from 'pg';
 import { ConflictError, NotFoundError } from '../../../shared/domain/errors.js';
 import type { User } from '../../../auth/domain/user.entity.js';
 import { PgUserRepository } from '../../../auth/infrastructure/repositories/pg-user.repository.js';
-import type { ReceptionAccessRepository, ReceptionCareerGrant } from '../../application/reception.ports.js';
+import type { ReceptionAccessRepository, ReceptionCareerGrant, ReceptionAccountSearch, ReceptionAccountSummary } from '../../application/reception.ports.js';
 import type { Queryable } from '../../../shared/application/unit-of-work.js';
 
 interface GrantRow {
@@ -16,6 +16,23 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
   constructor(private readonly pool: Pool, private readonly users = new PgUserRepository(pool)) {}
 
   createAccount(user: User): Promise<User> { return this.users.create(user); }
+
+  async searchAccounts(input: ReceptionAccountSearch): Promise<ReceptionAccountSummary[]> {
+    const { rows } = await this.pool.query<ReceptionAccountSummary>(
+      `SELECT u.id, u.username, u.email,
+         ARRAY(SELECT c.code FROM reception_career_grants g JOIN careers c ON c.id = g.career_id
+               WHERE g.user_id = u.id AND g.revoked_at IS NULL ORDER BY c.code) AS active_careers
+       FROM users u
+       WHERE u.role = 'reception'
+         AND ($1::text IS NULL OR strpos(lower(u.username), lower($1)) > 0
+              OR strpos(lower(u.email), lower($1)) > 0)
+         AND ($2::text IS NULL OR EXISTS (
+           SELECT 1 FROM reception_career_grants g JOIN careers c ON c.id = g.career_id
+           WHERE g.user_id = u.id AND g.revoked_at IS NULL AND c.code = $2))
+       ORDER BY u.username, u.id LIMIT $3 OFFSET $4`,
+      [input.q ?? null, input.career ?? null, input.limit, input.offset]);
+    return rows;
+  }
 
   async listGrants(userId: string, activeOnly = false): Promise<ReceptionCareerGrant[]> {
     const { rows } = await this.pool.query<GrantRow>(

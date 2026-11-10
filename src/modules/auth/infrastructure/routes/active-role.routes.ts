@@ -5,15 +5,52 @@ import { PermissionGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import type { RoleGrantRepository, UserRoleGrant } from '../../application/active-role.ports.js';
+import type { TokenServicePort, PermissionMatrixReader } from '../../application/auth.ports.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Admin-only management of the predefined additional Reception membership. */
-export function createActiveRoleAdminRouter({ repository, authenticate, guard = new PermissionGuard('reception:accounts:write') }: {
+export function createActiveRoleAdminRouter({ repository, authenticate, guard = new PermissionGuard('reception:accounts:write'), tokenService, matrixReader }: {
   repository: RoleGrantRepository; authenticate?: RequestHandler; guard?: Guard;
+  tokenService?: TokenServicePort; matrixReader?: PermissionMatrixReader;
 }): Router {
   const router = Router();
   const auth = authenticate ? [authenticate] : [];
+
+  router.get('/roles', ...auth, async (req: Request, res: Response) => {
+    const authContext = (req as AuthenticatedRequest).auth;
+    const userId = authContext?.userId ?? authContext?.sub;
+    if (!userId || !UUID.test(userId) || !authContext?.role) throw new UnauthorizedError('A verified UUID actor is required');
+    await requireCurrentMembership(repository, userId, authContext.role, authContext.roleGrantId);
+    const availableRoles = await repository.availableRoles(userId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ active_role: authContext.role, available_roles: availableRoles });
+  });
+
+  router.post('/active-role', ...auth, async (req: Request, res: Response) => {
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)
+        || Object.keys(req.body).length !== 1 || typeof req.body.role !== 'string') {
+      throw new BadRequestError('body must contain exactly role');
+    }
+    const authContext = (req as AuthenticatedRequest).auth;
+    const userId = authContext?.userId ?? authContext?.sub;
+    if (!userId || !UUID.test(userId) || typeof authContext?.username !== 'string' || !authContext.role) throw new UnauthorizedError('A verified UUID actor is required');
+    await requireCurrentMembership(repository, userId, authContext.role, authContext.roleGrantId);
+    if (!tokenService || !matrixReader) throw new Error('active-role token services are not configured');
+    const available = await repository.availableRoles(userId);
+    const target = req.body.role as string;
+    if (!available.includes(target)) throw new ForbiddenError('Requested role is not available');
+    const primary = available[0];
+    const roleGrant = target === 'reception' && primary !== 'reception'
+      ? await repository.activeReceptionRoleGrant(userId) : null;
+    if (target === 'reception' && primary !== 'reception' && !roleGrant) throw new ForbiddenError('Requested role is not available');
+    const permissions = await matrixReader.permissionsForRole(target);
+    const claims: { sub: string; username: string; role: string; permissions: readonly string[]; role_grant_id?: string } = {
+      sub: userId, username: authContext.username, role: target, permissions,
+    };
+    if (roleGrant) claims.role_grant_id = roleGrant.id;
+    res.status(200).json({ token: await tokenService.sign(claims) });
+  });
 
   router.get('/reception-role-candidates', ...auth, async (req: Request, res: Response) => {
     await authorizeAdmin(guard, req);
@@ -51,6 +88,12 @@ export function createActiveRoleAdminRouter({ repository, authenticate, guard = 
     res.status(200).json(serializeGrant(grant));
   });
   return router;
+}
+
+async function requireCurrentMembership(repository: RoleGrantRepository, userId: string, role: string, grantId?: string): Promise<void> {
+  if (!await repository.isValidActiveRole(userId, role, grantId)) {
+    throw new UnauthorizedError('Invalid or missing token');
+  }
 }
 
 async function authorizeAdmin(guard: Guard, req: Request): Promise<void> {

@@ -36,7 +36,7 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
   );
 
   const receptionMiddleware = authenticate(tokenService, matrixReader, roleGrantRepository);
-  app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware }));
+  app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware, tokenService, matrixReader }));
   app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
   app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));
   app.use('/reception/patients', createReceptionPatientRouter({ repository: receptionPatientRepository, authenticate: receptionMiddleware }));

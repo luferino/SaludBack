@@ -7,7 +7,7 @@ import { authenticate } from '../../modules/auth/infrastructure/middleware/authe
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 
 export function mountProfileRoutes(app: Express, dependencies: AppDependencies['profiles']): void {
-  const { patientRepository, studentRepository, teacherRepository, userRepository, hasher, unitOfWork, tokenService, matrixReader } = dependencies;
+  const { patientRepository, studentRepository, teacherRepository, userRepository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository } = dependencies;
 
   // Alta endpoints require their mapped write permission: authenticate runs
   // BEFORE the router so req.auth exists when PermissionGuard evaluates and
@@ -15,12 +15,12 @@ export function mountProfileRoutes(app: Express, dependencies: AppDependencies['
   // TEA-004, PAT-005).
   app.use(
     '/patients',
-    authenticate(tokenService, matrixReader),
+    authenticate(tokenService, matrixReader, roleGrantRepository),
     createPatientRouter({ repository: patientRepository, guard: new PermissionGuard('patients:write') }),
   );
   app.use(
     '/students',
-    authenticate(tokenService, matrixReader),
+    authenticate(tokenService, matrixReader, roleGrantRepository),
     createStudentRouter({
       repository: studentRepository,
       userRepository,
@@ -32,7 +32,7 @@ export function mountProfileRoutes(app: Express, dependencies: AppDependencies['
   );
   app.use(
     '/teachers',
-    authenticate(tokenService, matrixReader),
+    authenticate(tokenService, matrixReader, roleGrantRepository),
     createTeacherRouter({
       repository: teacherRepository,
       userRepository,

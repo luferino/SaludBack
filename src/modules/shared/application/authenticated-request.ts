@@ -12,5 +12,7 @@ export interface AuthenticatedRequest extends Request {
     permissions: string[];
     sub?: string;
     userId?: string;
+    username?: string;
+    roleGrantId?: string;
   };
 }

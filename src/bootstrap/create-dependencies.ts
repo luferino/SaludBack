@@ -71,12 +71,12 @@ export function createDependencies(pool: Pool) {
     },
     profiles: {
       patientRepository, studentRepository, teacherRepository,
-      userRepository: repository, hasher, unitOfWork, tokenService, matrixReader,
+      userRepository: repository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository,
     },
     academic: {
       careerRepository, oralSurgerySubjectRepository, subjectRepository, groupRepository, subjectGroupRepository,
       studentHabilitationRepository, teacherHabilitationRepository,
-      tokenService, matrixReader,
+      tokenService, matrixReader, roleGrantRepository,
     },
     clinical: {
       oralSurgeryDraftRepository,
@@ -85,7 +85,7 @@ export function createDependencies(pool: Pool) {
       assignmentOptionsRepository: patientAssignmentOptionsRepository,
       evaluationRepository: kinesiologyEvaluationRepository,
       evolutionRepository: kinesiologyEvolutionRepository,
-      tokenService, matrixReader,
+      tokenService, matrixReader, roleGrantRepository,
     },
   };
 }

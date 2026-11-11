@@ -16,6 +16,8 @@ test('composition shares dependencies within one app and isolates separate app f
   const first = createDependencies(pool);
   const second = createDependencies(pool);
   assert.equal(first.auth.repository, first.profiles.userRepository);
+  assert.ok(first.auth.roleGrantRepository);
+  assert.notEqual(first.auth.roleGrantRepository, second.auth.roleGrantRepository);
   assert.equal(first.auth.hasher, first.profiles.hasher);
   for (const area of ['profiles', 'academic', 'clinical']) {
     assert.equal(first.auth.tokenService, first[area].tokenService);

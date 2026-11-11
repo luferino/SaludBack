@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
 import { createAuthRouter } from '../../modules/auth/infrastructure/routes/auth.routes.js';
+import { createActiveRoleAdminRouter } from '../../modules/auth/infrastructure/routes/active-role.routes.js';
 import { authenticate } from '../../modules/auth/infrastructure/middleware/authenticate.js';
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 import { createReceptionRouter } from '../../modules/reception/infrastructure/routes/reception.routes.js';
@@ -8,7 +9,7 @@ import { createReceptionPatientRouter } from '../../modules/reception/infrastruc
 import { createReceptionAvailabilityRouter } from '../../modules/reception/infrastructure/routes/reception-availability.routes.js';
 
 export function mountAuthRoutes(app: Express, dependencies: AppDependencies['auth']): void {
-  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, clientUrl, resetTokenTtl, receptionRepository, receptionPatientRepository, receptionAvailabilityRepository } = dependencies;
+  const { repository, resetTokenRepository, mailer, hasher, tokenService, matrixReader, roleGrantRepository, clientUrl, resetTokenTtl, receptionRepository, receptionPatientRepository, receptionAvailabilityRepository } = dependencies;
 
   app.use(
     '/auth',
@@ -28,13 +29,14 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
       // PermissionGuard('profile:read'), then a fresh DB read by the
       // verified subject (PR-001).
       guard: new PermissionGuard('users:write'),
-      registerMiddleware: authenticate(tokenService, matrixReader),
-      meMiddleware: authenticate(tokenService, matrixReader),
+      registerMiddleware: authenticate(tokenService, matrixReader, roleGrantRepository),
+      meMiddleware: authenticate(tokenService, matrixReader, roleGrantRepository),
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
 
-  const receptionMiddleware = authenticate(tokenService, matrixReader);
+  const receptionMiddleware = authenticate(tokenService, matrixReader, roleGrantRepository);
+  app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware, tokenService, matrixReader }));
   app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
   app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));
   app.use('/reception/patients', createReceptionPatientRouter({ repository: receptionPatientRepository, authenticate: receptionMiddleware }));

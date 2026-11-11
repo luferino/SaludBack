@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import { ConflictError, NotFoundError } from '../../../shared/domain/errors.js';
+import { ConflictError, NotFoundError, UnauthorizedError } from '../../../shared/domain/errors.js';
 import type { User } from '../../../auth/domain/user.entity.js';
 import { PgUserRepository } from '../../../auth/infrastructure/repositories/pg-user.repository.js';
 import type { ReceptionAccessRepository, ReceptionCareerGrant, ReceptionAccountSearch, ReceptionAccountSummary } from '../../application/reception.ports.js';
@@ -23,7 +23,7 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
          ARRAY(SELECT c.code FROM reception_career_grants g JOIN careers c ON c.id = g.career_id
                WHERE g.user_id = u.id AND g.revoked_at IS NULL ORDER BY c.code) AS active_careers
        FROM users u
-       WHERE u.role = 'reception'
+       WHERE (u.role = 'reception' OR EXISTS (SELECT 1 FROM user_role_grants rg WHERE rg.user_id=u.id AND rg.role='reception' AND rg.revoked_at IS NULL))
          AND ($1::text IS NULL OR strpos(lower(u.username), lower($1)) > 0
               OR strpos(lower(u.email), lower($1)) > 0)
          AND ($2::text IS NULL OR EXISTS (
@@ -43,21 +43,31 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
   }
 
   async grantCareer(userId: string, careerCode: string, actorId: string): Promise<ReceptionCareerGrant> {
+    const client = await this.pool.connect();
     try {
-      const { rows } = await this.pool.query<GrantRow>(
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+      const { rows: accounts } = await client.query<{ role: string }>('SELECT role FROM users WHERE id=$1 FOR UPDATE', [userId]);
+      // A missing or ineligible account matches no row in the baseline JOIN, so nothing is inserted.
+      if (accounts[0]?.role !== 'reception') {
+        if (!['estudiante', 'student'].includes(accounts[0]?.role ?? '')) throw new NotFoundError('career was not found');
+        const roleGrant = await client.query(`SELECT id FROM user_role_grants WHERE user_id=$1 AND role='reception' AND revoked_at IS NULL FOR UPDATE`, [userId]);
+        if (!roleGrant.rows.length) throw new NotFoundError('career was not found');
+      }
+      const { rows } = await client.query<GrantRow>(
         `INSERT INTO reception_career_grants (user_id, career_id, granted_by, granted_at)
-         SELECT $1, c.id, $3, clock_timestamp() FROM careers c
-         JOIN users u ON u.id = $1 AND u.role = 'reception' WHERE c.code = $2
+         SELECT $1, c.id, $3, clock_timestamp() FROM careers c WHERE c.code=$2
          RETURNING id, user_id, (SELECT code FROM careers WHERE id = career_id) AS career_code,
                    granted_by, granted_at, revoked_by, revoked_at`, [userId, careerCode, actorId]);
       if (!rows.length) throw new NotFoundError('career was not found');
+      await client.query('COMMIT');
       return mapGrant(rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK');
       const e = error as { code?: string; constraint?: string };
       if (e.code === '23505' && e.constraint === 'reception_career_grants_one_active') throw new ConflictError('career grant is already active');
       if (e.code === '23503') throw new NotFoundError('Reception account was not found');
       throw error;
-    }
+    } finally { client.release(); }
   }
 
   async revokeGrant(grantId: string, actorId: string): Promise<ReceptionCareerGrant> {
@@ -78,14 +88,23 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
    * grants without taking the user lock; this method locks the grant row after the
    * user row, so grant revocation and scoped mutations serialize on that grant row.
    */
-  async withActiveCareerScope<T>(userId: string, careerCode: string, work: (client: Queryable) => Promise<T>): Promise<T> {
+  async withActiveCareerScope<T>(userId: string, careerCode: string, work: (client: Queryable) => Promise<T>, roleGrantId?: string): Promise<T> {
     const client: PoolClient = await this.pool.connect();
     try {
       // READ COMMITTED rechecks a grant changed while waiting for its row lock.
       // No callback replay is necessary (or safe) after a concurrent revocation.
       await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-      const account = await client.query("SELECT id FROM users WHERE id = $1 AND role = 'reception' FOR UPDATE", [userId]);
+      const account = await client.query('SELECT id, role FROM users WHERE id = $1 FOR UPDATE', [userId]);
       if (!account.rows.length) throw new NotFoundError('Reception account was not found');
+      const primaryRole = account.rows[0].role;
+      if (roleGrantId !== undefined) {
+        if (!['estudiante', 'student'].includes(primaryRole)) throw new UnauthorizedError('Invalid or revoked Reception role grant');
+        const roleGrant = await client.query(
+          `SELECT id FROM user_role_grants WHERE id=$1 AND user_id=$2 AND role='reception' AND revoked_at IS NULL FOR UPDATE`, [roleGrantId, userId]);
+        if (!roleGrant.rows.length) throw new UnauthorizedError('Invalid or revoked Reception role grant');
+      } else if (primaryRole !== 'reception') {
+        throw new NotFoundError('Reception account was not found');
+      }
       const { rows } = await client.query(
         `SELECT g.id FROM reception_career_grants g JOIN careers c ON c.id = g.career_id
          WHERE g.user_id = $1 AND c.code = $2 AND g.revoked_at IS NULL FOR UPDATE OF g`, [userId, careerCode]);

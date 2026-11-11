@@ -39,6 +39,7 @@ export interface TokenClaims {
   username?: string;
   role?: string;
   permissions?: readonly string[];
+  role_grant_id?: string;
   [key: string]: unknown;
 }
 

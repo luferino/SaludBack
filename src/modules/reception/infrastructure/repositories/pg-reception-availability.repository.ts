@@ -12,8 +12,8 @@ const COLUMNS = 'a.id::text AS id, a.patient_id, a.subject_id, a.academic_group_
 export class PgReceptionAvailabilityRepository implements ReceptionAvailabilityRepository {
   private readonly access: PgReceptionAccessRepository;
   constructor(private readonly pool: Pool) { this.access = new PgReceptionAccessRepository(pool); }
-  withActiveCareerScope<T>(userId: string, career: string, work: (db: Queryable) => Promise<T>): Promise<T> {
-    return this.access.withActiveCareerScope(userId, career, work);
+  withActiveCareerScope<T>(userId: string, career: string, work: (db: Queryable) => Promise<T>, roleGrantId?: string): Promise<T> {
+    return this.access.withActiveCareerScope(userId, career, work, roleGrantId);
   }
 
   async contextChoices(db: Queryable, career: string, limit: number, offset: number) {

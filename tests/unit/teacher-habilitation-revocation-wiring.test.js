@@ -12,6 +12,7 @@ const { JwtTokenService } = await import('../../src/modules/auth/infrastructure/
 test('public revocation preserves audit facts and period isolation while reloading delegated grants', async () => {
   const actor = '40000000-0000-4000-8000-000000000001';
   const other = '40000000-0000-4000-8000-000000000002';
+  const firstDelegateActor = '40000000-0000-4000-8000-000000000004';
   const input = { teacher_id: '30000000-0000-4000-8000-000000000001', subject_id: '10000000-0000-4000-8000-000000000001', academic_group_id: '20000000-0000-4000-8000-000000000001' };
   const grants = { admin: [], delegate: [], writer: ['teacher-habilitations:write'] };
   const rows = new Map();
@@ -40,7 +41,7 @@ test('public revocation preserves audit facts and period isolation while reloadi
   } };
   const service = new JwtTokenService({ secret: process.env.JWT_SECRET, secretKid: 'test-key', previousSecrets: [], expiresIn: '1h' });
   const admin = await service.sign({ role: 'admin', sub: actor, permissions: ['teacher-habilitations:revoke'] });
-  const delegate = await service.sign({ role: 'delegate', sub: actor });
+  const delegate = await service.sign({ role: 'delegate', sub: firstDelegateActor });
   const secondActor = await service.sign({ role: 'delegate', sub: other });
   const writer = await service.sign({ role: 'writer', sub: actor });
   const server = createServer(createApp(pool));
@@ -65,9 +66,10 @@ test('public revocation preserves audit facts and period isolation while reloadi
     await deny(path, delegate, 403, forbidden);
     grants.delegate = ['teacher-habilitations:revoke'];
     const revoked = await post(path, delegate, { revoked_by: other, revoked_at: '1999-01-01', teacher_id: 'spoof' });
-    assert.deepEqual(revoked, { status: 200, body: { ...first.body, revoked_by: actor, revoked_at: '2026-04-05T06:07:09.000Z' } });
+    assert.deepEqual(revoked, { status: 200, body: { ...first.body, revoked_by: firstDelegateActor, revoked_at: '2026-04-05T06:07:09.000Z' } });
     assert.equal(counters.updates, 1);
     const beforeRepeat = JSON.stringify([...rows]);
+    assert.notEqual(firstDelegateActor, other);
     assert.deepEqual(await post(path, secondActor), revoked);
     assert.equal(JSON.stringify([...rows]), beforeRepeat);
     assert.equal(counters.updates, 2);

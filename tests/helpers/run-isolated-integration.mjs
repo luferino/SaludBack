@@ -35,7 +35,7 @@ function discoverIntegrationSuites() {
   return suites;
 }
 const usage = `Usage: node tests/helpers/run-isolated-integration.mjs --disposable
-Requires DISPOSABLE_INTEGRATION_TARGET=true. Creates a fresh salud_e2e_<16 hex> database, migrates it, and runs every sorted tests/integration/**/*.test.js file (including history-dependent fixtures) without skipping failures. It migrates the current full ledger 001–047, then drops only this run's exact database identity when it has zero connections. Never points writes at .env.test's database.
+Requires DISPOSABLE_INTEGRATION_TARGET=true. Creates a fresh salud_e2e_<16 hex> database, migrates it, and runs every sorted tests/integration/**/*.test.js file (including history-dependent fixtures) without skipping failures. It migrates the current full ledger 001–048, then drops only this run's exact database identity when it has zero connections. Never points writes at .env.test's database.
 Upgrade-only mode: node tests/helpers/run-isolated-integration.mjs --disposable --career-upgrade-rehearsal
 Applies 001–035, seeds synthetic legacy data, then applies 036/037 and checks preservation, backfill, constraints and grants instead of running the full suite. Uses the same target guards and cleanup.`;
 function preflight(args, env) {
@@ -310,7 +310,7 @@ async function main() {
         const actual=await readIdentity(finalTarget,name), targetMeta=await finalTarget.query("SELECT (SELECT oid::text FROM pg_catalog.pg_namespace WHERE nspname='public') public_oid,current_setting('server_version') server_version");
         if(Object.values(counts.rows[0]).some(n=>n!==0)) safe('post-migration application baseline is not empty');
         const ledger=await finalTarget.query('SELECT name FROM public.schema_migrations ORDER BY name');
-        if(ledger.rowCount!==47) safe('migration ledger is incomplete');
+        if(ledger.rowCount!==48) safe('migration ledger is incomplete');
         manifest.database.schemaFingerprint=schemaFingerprint; writeManifest(manifestHandle,manifest);
         run.manifest=manifest;
         const fp=targetFingerprint(targetUrl,{...actual,...targetMeta.rows[0]});

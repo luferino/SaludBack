@@ -6,7 +6,7 @@ export interface ReceptionAccessRepository {
   listGrants(userId: string, activeOnly?: boolean): Promise<ReceptionCareerGrant[]>;
   grantCareer(userId: string, careerCode: string, actorId: string): Promise<ReceptionCareerGrant>;
   revokeGrant(grantId: string, actorId: string): Promise<ReceptionCareerGrant>;
-  withActiveCareerScope<T>(userId: string, careerCode: string, work: (client: import('../../shared/application/unit-of-work.js').Queryable) => Promise<T>): Promise<T>;
+  withActiveCareerScope<T>(userId: string, careerCode: string, work: (client: import('../../shared/application/unit-of-work.js').Queryable) => Promise<T>, roleGrantId?: string): Promise<T>;
 }
 
 export interface ReceptionAccountSearch {

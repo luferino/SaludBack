@@ -51,18 +51,21 @@ export class PgGroupRepository implements GroupRepositoryPort {
     }
   }
 
-  async list({ careerId, limit, offset }: { careerId?: string; limit: number; offset: number }): Promise<Group[]> {
-    const query = careerId === undefined
-      ? `SELECT ${GROUP_COLUMNS}
-         FROM academic_groups
-         ORDER BY academic_year ASC, curriculum_semester ASC, name ASC, id ASC
-         LIMIT $1 OFFSET $2`
-      : `SELECT ${GROUP_COLUMNS}
-         FROM academic_groups
-         WHERE career_id = $1
-         ORDER BY academic_year ASC, curriculum_semester ASC, name ASC, id ASC
-         LIMIT $2 OFFSET $3`;
-    const params = careerId === undefined ? [limit, offset] : [careerId, limit, offset];
+  async list({ careerId, q, limit, offset }: { careerId?: string; q?: string; limit: number; offset: number }): Promise<Group[]> {
+    const params: Array<string | number> = [];
+    const filters: string[] = [];
+    if (careerId !== undefined) {
+      params.push(careerId);
+      filters.push(`career_id = $${params.length}`);
+    }
+    if (q) {
+      params.push('%' + q.replace(/[\\%_]/g, '\\$&') + '%');
+      filters.push(`name ILIKE $${params.length}`);
+    }
+    const where = filters.length ? ` WHERE ${filters.join(' AND ')}` : '';
+    params.push(limit, offset);
+    const query = `SELECT ${GROUP_COLUMNS} FROM academic_groups${where}
+      ORDER BY academic_year ASC, curriculum_semester ASC, name ASC, id ASC LIMIT $${params.length - 1} OFFSET $${params.length}`;
     const { rows } = await this.pool.query<GroupRow>(query, params);
     return rows.map(rowToGroup);
   }

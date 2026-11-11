@@ -542,6 +542,12 @@ are trimmed nonblank strings, and duplicate names are allowed.
 Lists subjects for a role with `subjects:read` in the database. The read grant
 is independent from the write grant.
 
+- Optional `q` searches `name` by case-insensitive literal substring (including
+  literal `%`, `_` and backslash). Trimmed to at most 100 characters; omitted
+  or blank means no search. Repeated, structured or overlong values return
+  `400`: `q must be a string of at most 100 characters`. Search intersects
+  `career_id` before pagination, without changing permissions or ordering.
+  Example: `GET /subjects?q=ana&limit=20&offset=0`. No code field/search is provided.
 - Query: `limit` defaults to `50` and accepts `1`–`100`; `offset` defaults to
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.
@@ -582,6 +588,12 @@ Lists groups for a role with `groups:read` in the database. Read and write
 grants are independent; admin has no authorization bypass and other roles can
 be explicitly delegated either permission.
 
+- Optional `q` searches `name` by case-insensitive literal substring (including
+  literal `%`, `_` and backslash). Trimmed to at most 100 characters; omitted
+  or blank means no search. Repeated, structured or overlong values return
+  `400`: `q must be a string of at most 100 characters`. Search intersects
+  `career_id` before pagination, without changing permissions or ordering.
+  Example: `GET /groups?q=ana&limit=20&offset=0`. No code field/search is provided.
 - Query: `limit` defaults to `50` and accepts `1`–`100`; `offset` defaults to
   `0` and accepts `0`–`10000`. Values must be decimal digits only; repeated
   parameters, fractions and out-of-range values return `400`.

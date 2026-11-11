@@ -37,6 +37,7 @@ export function createSubjectRouter({
     await listGuard.authorize(req);
     const result = await listSubjects.execute({
       career_id: req.query.career_id,
+      q: req.query.q,
       limit: req.query.limit,
       offset: req.query.offset,
     });

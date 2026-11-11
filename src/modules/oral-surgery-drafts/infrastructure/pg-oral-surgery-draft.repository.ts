@@ -91,8 +91,11 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
       `SELECT ${COLUMNS} FROM oral_surgery_drafts e WHERE ($1::uuid IS NULL OR e.patient_id = $1)
          AND ${READ_ACCESS} AND ($4::uuid IS NULL OR e.origin_subject_id = $4)
          AND ($5::uuid IS NULL OR e.origin_group_id = $5)
+         AND ($8::date IS NULL OR e.created_at >= ($8::date::timestamp AT TIME ZONE 'UTC'))
+         AND ($9::date IS NULL OR e.created_at < (($9::date + 1)::timestamp AT TIME ZONE 'UTC'))
        ORDER BY e.id DESC LIMIT $6 OFFSET $7`,
-      [filter.patientId ?? null, actor.id, actor.role, filter.subjectId ?? null, filter.groupId ?? null, filter.limit, filter.offset],
+      [filter.patientId ?? null, actor.id, actor.role, filter.subjectId ?? null, filter.groupId ?? null,
+        filter.limit, filter.offset, filter.dateFrom ?? null, filter.dateTo ?? null],
     );
     return result.rows;
   }

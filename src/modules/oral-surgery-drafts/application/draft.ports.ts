@@ -2,7 +2,7 @@ import type { DraftContent } from '../domain/content.js';
 
 export interface DraftActor { id: string; role: string }
 export interface DraftInput { patientId: string; subjectId: string; groupId: string; content: DraftContent }
-export interface DraftFilter { patientId?: string; subjectId?: string; groupId?: string; limit: number; offset: number }
+export interface DraftFilter { patientId?: string; subjectId?: string; groupId?: string; dateFrom?: string; dateTo?: string; limit: number; offset: number }
 export interface DraftRow {
   id: string; clinical_record_id: string; patient_id: string; author_id: string;
   origin_student_habilitation_id: string; origin_subject_id: string; origin_group_id: string;

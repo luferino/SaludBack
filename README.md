@@ -411,13 +411,20 @@ access to their accounts, clinical information or other academic contexts.
 Neither selector returns `user_id`, passwords/hashes, contact or audit fields.
 Permissions can be explicitly delegated through `role_permissions`.
 
+- Optional search: `q`, a single string trimmed to at most 100 characters.
+  Case-insensitive literal substring matching on `nombres` or `apellidos`;
+  `/students` also searches `codalumno`. Omitted or blank `q` leaves the list
+  unfiltered. `%`, `_` and backslash are literal characters, not wildcards.
+  Repeated, structured or overlong `q` values return `400 BAD_REQUEST`
+  (`q must be a string of at most 100 characters`). Search retains the same
+  read grants, item fields and ordering, and is applied before pagination.
 - Query: `limit` (default 50, range 1–100), `offset` (default 0, range 0–10000).
   Each must be a single decimal-digit string; empty, repeated, signed, fractional
   and out-of-range values return `400`.
 - `200` → `{ "items": [...], "limit": 50, "offset": 0 }`; no total count.
   Ordered by `apellidos`, `nombres`, then profile `id`, ascending. An empty page
   is `200` with `items: []`.
-- Errors: `400 BAD_REQUEST` for invalid pagination; `401 UNAUTHORIZED` for missing
+- Errors: `400 BAD_REQUEST` for invalid pagination or search; `401 UNAUTHORIZED` for missing
   or invalid authentication; `403 FORBIDDEN` for a missing exact read grant;
   unexpected failures are `500 INTERNAL_SERVER_ERROR` with no database details.
   Error shape: `{ "error": { "code": "FORBIDDEN", "message": "..." } }`.
@@ -425,6 +432,8 @@ Permissions can be explicitly delegated through `role_permissions`.
 ```bash
 curl.exe "http://localhost:3000/students?limit=20&offset=0" -H "Authorization: Bearer <teacher-token>"
 curl.exe "http://localhost:3000/teachers?limit=20&offset=0" -H "Authorization: Bearer <admin-token>"
+curl.exe "http://localhost:3000/students?q=2024&limit=20" -H "Authorization: Bearer <teacher-token>"
+curl.exe "http://localhost:3000/teachers?q=Lopez" -H "Authorization: Bearer <admin-token>"
 ```
 
 For example, `/students` returns:

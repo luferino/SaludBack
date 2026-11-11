@@ -15,7 +15,7 @@ export interface TeacherListItem {
 }
 
 export interface TeacherRepositoryPort {
-  list(input: { limit: number; offset: number }): Promise<TeacherListItem[]>;
+  list(input: { limit: number; offset: number; q?: string }): Promise<TeacherListItem[]>;
   /**
    * Persists a teacher profile row. Unlike students, teachers have no
    * `codalumno`, so there is no duplicate-key guard: linking is driven

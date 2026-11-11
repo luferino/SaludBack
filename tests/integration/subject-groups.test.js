@@ -32,6 +32,7 @@ const MIGRATIONS = [
   '032_seed_kinesiology_evolution_permissions.sql', '033_create_kinesiology_evolution_reviews.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '035_create_kinesiology_evolution_amendment_links.sql',
   '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql',
+  '048_create_user_role_grants.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write',
@@ -231,7 +232,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–047 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–048 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);

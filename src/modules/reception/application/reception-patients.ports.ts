@@ -2,7 +2,7 @@ import type { Queryable } from '../../shared/application/unit-of-work.js';
 import type { Patient } from '../../patients/domain/patient.entity.js';
 
 export interface ReceptionPatientRepository {
-  withActiveCareerScope<T>(userId: string, career: string, work: (client: Queryable) => Promise<T>): Promise<T>;
+  withActiveCareerScope<T>(userId: string, career: string, work: (client: Queryable) => Promise<T>, roleGrantId?: string): Promise<T>;
   matchByDocumento(db: Queryable, documento: string): Promise<{ id: string } | null>;
   findPatientByDocumento(db: Queryable, documento: string): Promise<Patient | null>;
   enrollExisting(db: Queryable, id: string, career: string): Promise<void>;

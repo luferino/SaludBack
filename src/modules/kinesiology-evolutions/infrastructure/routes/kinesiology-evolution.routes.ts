@@ -8,6 +8,7 @@ import { defaultGetActor } from '../../../shared/infrastructure/default-get-acto
 import { isCanonicalUuid } from '../../../subject-groups/application/create-subject-group.usecase.js';
 import type { EvolutionRepositoryPort, EvolutionView } from '../../application/evolution.ports.js';
 import { EvolutionService } from '../../application/evolution.service.js';
+import { parseKinesiologyEvaluationId, parseKinesiologyListFilters } from '../../../kinesiology-evaluations/application/list-filters.js';
 
 const MAX_BIGINT = 9223372036854775807n;
 const CREATE_FIELDS = ['patient_id', 'evaluation_id', 'subject_id', 'academic_group_id', 'content'];
@@ -175,7 +176,10 @@ export function createKinesiologyEvolutionRouter({
       ? undefined : uuid(request.query.subject_id, 'subject_id');
     const groupId = request.query.academic_group_id === undefined
       ? undefined : uuid(request.query.academic_group_id, 'academic_group_id');
-    const items = await service.list(patientId, actor, subjectId, groupId);
+    const filters = parseKinesiologyListFilters(request.query as Record<string, unknown>);
+    const evaluationId = request.query.evaluation_id === undefined
+      ? undefined : parseKinesiologyEvaluationId(request.query.evaluation_id);
+    const items = await service.list(patientId, actor, subjectId, groupId, { ...filters, evaluationId });
     response.json({ items: items.map(serialize) });
   });
   return router;

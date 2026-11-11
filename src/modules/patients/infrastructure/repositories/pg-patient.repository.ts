@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { Patient } from '../../domain/patient.entity.js';
-import type { PatientRepositoryPort } from '../../application/patient.ports.js';
+import type { PatientRepositoryPort, PatientListingRepositoryPort, PatientListInput } from '../../application/patient.ports.js';
 
 interface PatientRow {
   id: string;
@@ -26,11 +26,22 @@ const PATIENT_COLUMNS =
  * Receives a `pg` Pool (or any duck-typed `{ query }`) via constructor
  * injection so tests can pass a fake pool.
  */
-export class PgPatientRepository implements PatientRepositoryPort {
+export class PgPatientRepository implements PatientRepositoryPort, PatientListingRepositoryPort {
   private readonly pool: Pool;
 
   constructor(pool: Pool) {
     this.pool = pool;
+  }
+
+  async list({ q, limit, offset }: PatientListInput): Promise<Patient[]> {
+    const { rows } = await this.pool.query<PatientRow>(
+      `SELECT ${PATIENT_COLUMNS} FROM patients
+       WHERE ($1::text IS NULL OR strpos(lower(documento), lower($1)) > 0
+         OR strpos(lower(nombres), lower($1)) > 0 OR strpos(lower(apellidos), lower($1)) > 0)
+       ORDER BY apellidos, nombres, id LIMIT $2 OFFSET $3`,
+      [q ?? null, limit, offset],
+    );
+    return rows.map(rowToPatient);
   }
 
   async findByDocumento(documento: string): Promise<Patient | null> {

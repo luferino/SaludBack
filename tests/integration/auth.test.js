@@ -372,7 +372,7 @@ test('protected route passes a valid token and exposes role, permissions, sub an
     });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), {
-      auth: { role: 'estudiante', permissions: ['kinesiology-evaluations:read', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:write', 'materias:read', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'patient-assignments:read-own', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1' },
+      auth: { role: 'estudiante', permissions: ['kinesiology-evaluations:read', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:write', 'materias:read', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'patient-assignments:read-own', 'profile:read', 'turnos:read'], sub: 'uuid-1', userId: 'uuid-1', username: 'lperez' },
     });
   });
 });

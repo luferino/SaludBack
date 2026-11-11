@@ -76,7 +76,12 @@ export function createPatientAssignmentOptionsRouter({
     const subjectId = uuid(req.query.subject_id, 'subject_id');
     const academicGroupId = uuid(req.query.academic_group_id, 'academic_group_id');
     const page = pagination(req.query);
-    const items = await service.listStudents(actor, subjectId, academicGroupId, page.limit, page.offset);
+    const value = req.query.q;
+    if (value !== undefined && (typeof value !== 'string' || value.trim().length > 100)) {
+      throw new BadRequestError('q must be a string of at most 100 characters');
+    }
+    const q = typeof value === 'string' ? value.trim() : '';
+    const items = await service.listStudents(actor, subjectId, academicGroupId, page.limit, page.offset, q || undefined);
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ items: items.map(row => ({
       student_habilitation_id: row.student_habilitation_id,

@@ -7,7 +7,7 @@ export class PatientAssignmentOptionsService {
     return this.repository.listContexts(actorId, limit, offset);
   }
 
-  listStudents(actorId: string, subjectId: string, academicGroupId: string, limit: number, offset: number) {
-    return this.repository.listStudents(actorId, subjectId, academicGroupId, limit, offset);
+  listStudents(actorId: string, subjectId: string, academicGroupId: string, limit: number, offset: number, q?: string) {
+    return q ? this.repository.listStudents(actorId, subjectId, academicGroupId, limit, offset, q) : this.repository.listStudents(actorId, subjectId, academicGroupId, limit, offset);
   }
 }

@@ -1,6 +1,6 @@
 # Student and Reception active roles
 
-This slice adds persistence for audited additional Reception-role grants. Existing career scopes remain separate. It mounts the admin APIs that grant and revoke the additional Reception role. It does not yet activate a runtime consumer: role discovery/switching and live-grant authentication arrive in the next slice, and Reception runtime integration arrives after that.
+This slice adds persistence for audited additional Reception-role grants. Existing career scopes remain separate. It mounts the admin APIs that grant and revoke the additional Reception role. Every protected route now validates additional-role tokens against their exact live grant. Reception runtime integration and role discovery/switching arrive in the next slices.
 
 ## Persistence facts
 
@@ -38,6 +38,7 @@ A `roleGrant` has exactly `{ id, user_id, role, granted_by, granted_at, revoked_
 
 ## Scope
 
-- Role discovery/switching and live-grant authentication arrive in the next slice. Until then, a granted Reception role is recorded but cannot be used for self-service switching.
+- Live-grant authentication: a token carrying `role_grant_id` must have `role: "reception"`, a UUID `sub`, and a UUID grant id that is the subject's exact active Reception grant; otherwise the request returns 401. A database fault during that check returns 500, not 401. Tokens without the claim keep the existing signature-verification and permission-matrix behavior. No endpoint issues such tokens yet.
+- Role discovery/switching arrives in a later slice. Until then, a granted Reception role is recorded but cannot be used for self-service switching.
 - Existing account listings and career operations are unchanged in this slice.
 - General role/catalog maintenance stays outside this feature.

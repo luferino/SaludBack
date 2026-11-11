@@ -22,6 +22,7 @@ test('composition shares dependencies within one app and isolates separate app f
   for (const area of ['profiles', 'academic', 'clinical']) {
     assert.equal(first.auth.tokenService, first[area].tokenService);
     assert.equal(first.auth.matrixReader, first[area].matrixReader);
+    assert.equal(first.auth.roleGrantRepository, first[area].roleGrantRepository);
     assert.notEqual(first[area].tokenService, second[area].tokenService);
   }
   const source = readFileSync('src/bootstrap/create-dependencies.ts', 'utf8');

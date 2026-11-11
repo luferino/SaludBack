@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError } from '../../../shared/domain/errors.js';
 import type { TokenServicePort, TokenClaims, PermissionMatrixReader } from '../../application/auth.ports.js';
+import type { LiveRoleReader } from '../../application/active-role.ports.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 
 /**
@@ -21,7 +22,9 @@ import type { AuthenticatedRequest } from '../../../shared/application/authentic
  * INTERNAL_SERVER_ERROR (fail closed): a server fault must not be
  * misclassified as a client-auth fault.
  */
-export function authenticate(tokenService: TokenServicePort, matrixReader: PermissionMatrixReader) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function authenticate(tokenService: TokenServicePort, matrixReader: PermissionMatrixReader, liveRoleReader?: LiveRoleReader) {
   return async function authenticateMiddleware(
     req: Request,
     _res: Response,
@@ -44,6 +47,28 @@ export function authenticate(tokenService: TokenServicePort, matrixReader: Permi
     }
 
     const role = typeof decoded.role === 'string' ? decoded.role : '';
+    const userId = typeof decoded.sub === 'string' ? decoded.sub : undefined;
+    const hasGrantClaim = Object.prototype.hasOwnProperty.call(decoded, 'role_grant_id');
+    const grantId = decoded.role_grant_id;
+    if (hasGrantClaim && (!role || role !== 'reception' || !userId || !UUID.test(userId)
+        || typeof grantId !== 'string' || !UUID.test(grantId) || !liveRoleReader)) {
+      return next(new UnauthorizedError('Invalid or missing token'));
+    }
+    // Legacy JWTs without an additional-role claim retain the established
+    // signature-verification and permission-matrix contract. Current primary
+    // membership is checked locally by role-discovery/switch endpoints; adding
+    // a global lookup here would break existing role-to-matrix delegation.
+    // Additional Reception claims, however, require the exact live grant on
+    // every protected request and never fall back to the primary identity.
+    if (hasGrantClaim) {
+      try {
+        if (!await liveRoleReader!.isValidActiveRole(userId!, role, grantId as string)) {
+          return next(new UnauthorizedError('Invalid or missing token'));
+        }
+      } catch (error) {
+        return next(error as Error); // A live grant database failure is a server fault, not a token fault.
+      }
+    }
     let permissions: readonly string[];
     try {
       permissions = await matrixReader.permissionsForRole(role); // DB wins; claim ignored
@@ -53,10 +78,12 @@ export function authenticate(tokenService: TokenServicePort, matrixReader: Permi
 
     const authReq = req as AuthenticatedRequest;
     authReq.auth = { role, permissions: [...permissions] };
-    if (typeof decoded.sub === 'string') {
-      authReq.auth.sub = decoded.sub;
-      authReq.auth.userId = decoded.sub;
+    if (userId) {
+      authReq.auth.sub = userId;
+      authReq.auth.userId = userId;
     }
+    if (typeof decoded.username === 'string') authReq.auth.username = decoded.username;
+    if (hasGrantClaim && typeof grantId === 'string') authReq.auth.roleGrantId = grantId;
     return next();
   };
 }

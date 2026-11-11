@@ -106,6 +106,62 @@ test('a token without a sub claim leaves both sub and userId absent while DB per
   assert.deepEqual(req.auth.permissions, DB_ESTUDIANTE_PERMISSIONS_LOCAL);
 });
 
+test('legacy primary token without sub remains authenticated and uses refreshed permissions with live reader configured', async () => {
+  const { req, res, next, state } = createContext({ headers: { authorization: 'Bearer legacy-no-sub' } });
+  const readerCalls = [];
+  const middleware = authenticate(
+    createFakeTokenService({ decoded: { role: 'estudiante', permissions: ['forged'] } }),
+    createFakeMatrixReader(),
+    { async isValidActiveRole(...args) { readerCalls.push(args); return false; } },
+  );
+  await middleware(req, res, next);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(readerCalls, []);
+  assert.equal(req.auth.sub, undefined);
+  assert.equal(req.auth.userId, undefined);
+  assert.deepEqual(req.auth.permissions, DB_ESTUDIANTE_PERMISSIONS_LOCAL);
+});
+
+test('a legacy primary token with malformed sub skips live lookup and preserves downstream identity handling', async () => {
+  const { req, res, next, state } = createContext({ headers: { authorization: 'Bearer malformed-primary-sub' } });
+  const readerCalls = [];
+  const middleware = authenticate(
+    createFakeTokenService({ decoded: { role: 'estudiante', sub: 'not-a-uuid', permissions: ['forged'] } }),
+    createFakeMatrixReader(),
+    { async isValidActiveRole(...args) { readerCalls.push(args); return false; } },
+  );
+  await middleware(req, res, next);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(readerCalls, []);
+  assert.equal(req.auth.sub, 'not-a-uuid');
+  assert.equal(req.auth.userId, 'not-a-uuid');
+  assert.deepEqual(req.auth.permissions, DB_ESTUDIANTE_PERMISSIONS_LOCAL);
+});
+
+test('legacy primary UUID token delegates membership to downstream authorization and refreshes matrix permissions', async () => {
+  const { req, res, next, state } = createContext({ headers: { authorization: 'Bearer legacy-primary' } });
+  const readerCalls = [];
+  await authenticate(
+    createFakeTokenService({ decoded: { role: 'profesor', sub: '11111111-1111-4111-8111-111111111111', permissions: ['forged'] } }),
+    createFakeMatrixReader({ permissions: ['teacher:read'] }),
+    { async isValidActiveRole(...args) { readerCalls.push(args); return false; } },
+  )(req, res, next);
+  assert.equal(state.calls[0], undefined);
+  assert.deepEqual(readerCalls, []);
+  assert.equal(req.auth.role, 'profesor');
+  assert.deepEqual(req.auth.permissions, ['teacher:read']);
+});
+
+test('additional-role token without sub fails closed even without a live reader', async () => {
+  const { req, res, next, state } = createContext({ headers: { authorization: 'Bearer extra-role-no-sub' } });
+  await authenticate(
+    createFakeTokenService({ decoded: { role: 'reception', role_grant_id: '11111111-1111-4111-8111-111111111111' } }),
+    createFakeMatrixReader(),
+  )(req, res, next);
+  assert.ok(state.calls[0] instanceof UnauthorizedError);
+  assert.equal(req.auth, undefined);
+});
+
 test('the matrix answer replaces even a richer token permissions claim (DB wins)', async () => {
   const { req, res, next, state } = createContext({
     headers: { authorization: 'Bearer scoped-token' },

@@ -29,13 +29,13 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
       // PermissionGuard('profile:read'), then a fresh DB read by the
       // verified subject (PR-001).
       guard: new PermissionGuard('users:write'),
-      registerMiddleware: authenticate(tokenService, matrixReader),
-      meMiddleware: authenticate(tokenService, matrixReader),
+      registerMiddleware: authenticate(tokenService, matrixReader, roleGrantRepository),
+      meMiddleware: authenticate(tokenService, matrixReader, roleGrantRepository),
       meGuard: new PermissionGuard('profile:read'),
     }),
   );
 
-  const receptionMiddleware = authenticate(tokenService, matrixReader);
+  const receptionMiddleware = authenticate(tokenService, matrixReader, roleGrantRepository);
   app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware }));
   app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
   app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));

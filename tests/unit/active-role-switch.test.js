@@ -5,6 +5,9 @@ import { createServer } from 'node:http';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { createActiveRoleAdminRouter } from '../../src/modules/auth/infrastructure/routes/active-role.routes.ts';
 import { authenticate } from '../../src/modules/auth/infrastructure/middleware/authenticate.ts';
+import { LoginUser } from '../../src/modules/auth/application/login-user.usecase.ts';
+import { JwtTokenService } from '../../src/modules/auth/infrastructure/services/jwt-token.service.ts';
+import { User } from '../../src/modules/auth/domain/user.entity.ts';
 
 const USER = '40000000-0000-4000-8000-000000000002';
 const GRANT = '50000000-0000-4000-8000-000000000001';
@@ -91,17 +94,21 @@ test('public protected route rejects revoked or mismatched grant instances, and 
   assert.equal(malformed.status, 401);
 });
 
-test('a login-shaped token switches roles through the real authenticate middleware', async () => {
+test('a token issued by the real login use case switches roles through authenticate', async () => {
   const repo = repository();
-  const signed = [];
-  const verify = async token => (token === 'login' ? { sub: USER, username: 'STUDENT1', role: 'estudiante' } : { sub: USER, role: 'estudiante' });
+  const tokenService = new JwtTokenService({ secret: 'active-role-switch-test-secret', expiresIn: '5m' });
   const matrixReader = { async permissionsForRole(role) { return role === 'reception' ? ['reception:patients:manage'] : ['student:read']; } };
+  const login = new LoginUser({
+    repository: { async findByUsername() { return new User({ id: USER, username: 'STUDENT1', passwordHash: 'stored-hash', role: 'estudiante' }); } },
+    hasher: { async compare(plain, hash) { return plain === 'correct-password' && hash === 'stored-hash'; } },
+    tokenService,
+    matrixReader,
+  });
+  const { token: loginToken } = await login.execute({ username: 'student1', password: 'correct-password' });
+  const tokenWithoutUsername = await tokenService.sign({ sub: USER, role: 'estudiante', permissions: [] });
   const app = express(); app.use(express.json());
   app.use('/auth', createActiveRoleAdminRouter({
-    repository: repo,
-    authenticate: authenticate({ verify }, matrixReader, repo),
-    tokenService: { async sign(claims) { signed.push(claims); return 'switched'; } },
-    matrixReader,
+    repository: repo, authenticate: authenticate(tokenService, matrixReader, repo), tokenService, matrixReader,
   }));
   app.use(errorHandler);
   const server = createServer(app); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -109,12 +116,12 @@ test('a login-shaped token switches roles through the real authenticate middlewa
     const switchAs = token => fetch(`http://127.0.0.1:${server.address().port}/auth/active-role`, {
       method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ role: 'reception' }),
     });
-    const switched = await switchAs('login');
+    const switched = await switchAs(loginToken);
     assert.equal(switched.status, 200);
-    assert.deepEqual(await switched.json(), { token: 'switched' });
-    assert.deepEqual(signed, [{ sub: USER, username: 'STUDENT1', role: 'reception', permissions: ['reception:patients:manage'], role_grant_id: GRANT }]);
-    const withoutUsername = await switchAs('no-username');
+    const claims = await tokenService.verify((await switched.json()).token);
+    assert.deepEqual([claims.sub, claims.username, claims.role, claims.permissions, claims.role_grant_id],
+      [USER, 'STUDENT1', 'reception', ['reception:patients:manage'], GRANT]);
+    const withoutUsername = await switchAs(tokenWithoutUsername);
     assert.equal(withoutUsername.status, 401);
-    assert.equal(signed.length, 1);
   } finally { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });

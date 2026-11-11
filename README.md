@@ -46,6 +46,17 @@ the current application.
 
 See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student clinical drafts, permissions and delivery scope.
 
+## Clinical list filters
+
+Kinesiology patient-scoped lists support optional visible `status` and inclusive
+UTC `date_from`/`date_to`; evolutions also accept `evaluation_id`.
+Oral Surgery drafts support the same date bounds, with existing optional
+`patient_id` and pagination unchanged. No clinical text search or new global
+listing is added. Existing read grants and context/snapshot restrictions apply.
+
+- [Kinesiology filter rules and examples](docs/kinesiology-list-filters.md)
+- [Oral Surgery filter rules and examples](docs/oral-surgery-list-filters.md)
+
 ## Clinical module architecture
 
 `kinesiology-evaluations`, `kinesiology-evolutions` and `patient-assignments` follow the same inward dependency

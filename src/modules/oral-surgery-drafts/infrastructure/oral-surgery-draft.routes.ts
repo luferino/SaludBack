@@ -42,6 +42,18 @@ function page(value: unknown, name: string, fallback: number, max: number): numb
   }
   return Number(value);
 }
+function date(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new BadRequestError(`${name} must be a real YYYY-MM-DD date`);
+  }
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
+  if (year < 1 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new BadRequestError(`${name} must be a real YYYY-MM-DD date`);
+  }
+  return value;
+}
 
 export function createOralSurgeryDraftRouter({ repository }: { repository: DraftRepositoryPort }): Router {
   const router = Router();
@@ -87,11 +99,17 @@ export function createOralSurgeryDraftRouter({ repository }: { repository: Draft
   });
   router.get('/', async (req, res) => {
     const who = await actor(req, false);
-    keys(req.query, ['patient_id', 'subject_id', 'academic_group_id', 'limit', 'offset']);
+    keys(req.query, ['patient_id', 'subject_id', 'academic_group_id', 'limit', 'offset', 'date_from', 'date_to']);
     const optionalUuid = (name: string) => req.query[name] === undefined ? undefined : uuid(req.query[name], name);
+    const dateFrom = req.query.date_from === undefined ? undefined : date(req.query.date_from, 'date_from');
+    const dateTo = req.query.date_to === undefined ? undefined : date(req.query.date_to, 'date_to');
+    if (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) {
+      throw new BadRequestError('date_from must not be after date_to');
+    }
     const items = await repository.list({
       patientId: optionalUuid('patient_id'), subjectId: optionalUuid('subject_id'),
-      groupId: optionalUuid('academic_group_id'), limit: page(req.query.limit, 'limit', 50, 100),
+      groupId: optionalUuid('academic_group_id'), dateFrom, dateTo,
+      limit: page(req.query.limit, 'limit', 50, 100),
       offset: page(req.query.offset, 'offset', 0, 2147483647),
     }, who);
     res.json({ items: items.map(serialize) });

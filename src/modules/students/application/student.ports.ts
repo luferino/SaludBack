@@ -16,7 +16,7 @@ export interface StudentListItem {
 }
 
 export interface StudentRepositoryPort {
-  list(input: { limit: number; offset: number }): Promise<StudentListItem[]>;
+  list(input: { limit: number; offset: number; q?: string }): Promise<StudentListItem[]>;
   /**
    * Finds a student by `codalumno` case-insensitively (STU-003): the
    * query normalizes both sides with `lower()`, matching the functional

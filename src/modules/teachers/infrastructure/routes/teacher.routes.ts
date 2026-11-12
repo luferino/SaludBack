@@ -49,7 +49,7 @@ export function createTeacherRouter({
 
   router.get('/', async (req: Request, res: Response) => {
     await listGuard.authorize(req);
-    const result = await listTeachers.execute({ limit: req.query.limit, offset: req.query.offset });
+    const result = await listTeachers.execute({ limit: req.query.limit, offset: req.query.offset, q: req.query.q });
     res.status(200).json({
       items: result.items.map(({ id, nombres, apellidos }) => ({ id, nombres, apellidos })),
       limit: result.limit,

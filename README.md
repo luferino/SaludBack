@@ -253,6 +253,13 @@ explicitly given the permissions):
 - `GET /patient-assignment-options/students?subject_id=<UUID>&academic_group_id=<UUID>`
   requires the same two grants. Items are `{ student_habilitation_id, student_id,
   nombres, apellidos }`, ordered by given names, surname, student UUID and period UUID.
+  Optional `q` searches `nombres`/`apellidos` by case-insensitive literal substring
+  (trimmed, at most 100 characters; blank/missing leaves the list unchanged).
+  `%`, `_` and `\` are literal characters, not wildcards. Invalid/duplicate `q`
+  returns `400` with `q must be a string of at most 100 characters`.
+  Example: `/patient-assignment-options/students?subject_id=<UUID>&academic_group_id=<UUID>&q=Ada`.
+  Search stays inside that exact live teacher context and active student periods;
+  pagination, ordering and the response fields are unchanged.
   Use **student_habilitation_id**, not student/profile/account ID, in assignment POST.
 - `GET /patient-availabilities?subject_id=<UUID>&academic_group_id=<UUID>` requires
   both `patient-availabilities:read` and `patient-assignments:write`. Items are only
@@ -311,6 +318,15 @@ opt-in preflight checks only its target and is not functional or concurrency pro
 Creation locks/revalidates the teacher context, exact active student period, then patient; it checks active availability for that patient and destination subject/group inside the same transaction. It relies on a database uniqueness guard for one active patient/subject assignment across groups. Errors: `400` malformed UUID/pagination; `401` missing or invalid token; `403` missing permission or active teacher context; `404` missing patient/active matching period; `409` active patient/subject assignment already exists or `patient is not available in the destination context`. Transaction failures roll back.
 
 `GET /patient-assignments` and `/patient-assignments/mine` accept bounded `limit` (1–100, default 50) and nonnegative `offset` (default 0), returning `{ "items": [...], "limit", "offset" }`. Results include only patient `id`, `nombres`, `apellidos`, `documento` and assignment/period/context/audit metadata. They expose no contact or clinical fields and do not provide clinical-record access. Ended assignments and revoked student periods are excluded.
+
+Both assignment lists also accept optional exact UUID filters `patient_id`, `student_id`
+(student profile ID, not account or habilitation ID), `subject_id`, and `academic_group_id`.
+Filters combine with AND **before pagination** and only narrow the existing teacher/own
+scope; a student cannot select another student's assignments. UUID filters accept
+uppercase hexadecimal and normalize it; blank, malformed or duplicate values return
+`400` with `<field> must be a UUID`. Omitting filters preserves the previous list.
+Example: `GET /patient-assignments?student_id=<UUID>&subject_id=<UUID>&limit=20&offset=0`.
+No history, new permissions, or assignment mutations are added.
 
 `POST /patient-assignments/:id/reassign` accepts `{ "student_habilitation_id", "subject_id", "academic_group_id" }` and returns `200` with the replacement assignment. `id` is a positive BIGINT decimal string. The actor must have `patient-assignments:write` and active teacher contexts for both source and destination groups in the same subject; the destination period must be active and match that subject/group. Active patient availability is required in the destination context, but not in the source context. Missing destination availability returns `409` with `patient is not available in the destination context` before changing the source. The old row is closed with server-owned actor/time and null `end_reason`, and the replacement row is inserted atomically. Errors include `400` malformed ID/UUID or cross-subject request, `401` missing/invalid authentication, `403` missing permission/context, `404` missing assignment/active destination period, and `409` ended source or active-assignment uniqueness conflict.
 

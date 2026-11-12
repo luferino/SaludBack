@@ -1,5 +1,5 @@
 import type { AssignmentInput } from '../domain/patient-assignment.js';
-import type { PatientAssignmentRepositoryPort } from './patient-assignment.ports.js';
+import type { AssignmentListFilters, PatientAssignmentRepositoryPort } from './patient-assignment.ports.js';
 
 /** Entry points independent of HTTP and PostgreSQL. Live context checks and state
  * policies stay inside atomic port operations, never separate preflight reads.
@@ -19,11 +19,11 @@ export class PatientAssignmentService {
     return this.repository.end(id, actorId, reason);
   }
 
-  listTeacher(actorId: string, limit: number, offset: number) {
-    return this.repository.listTeacher(actorId, limit, offset);
+  listTeacher(actorId: string, limit: number, offset: number, filters?: AssignmentListFilters) {
+    return filters ? this.repository.listTeacher(actorId, limit, offset, filters) : this.repository.listTeacher(actorId, limit, offset);
   }
 
-  listOwn(actorId: string, limit: number, offset: number) {
-    return this.repository.listOwn(actorId, limit, offset);
+  listOwn(actorId: string, limit: number, offset: number, filters?: AssignmentListFilters) {
+    return filters ? this.repository.listOwn(actorId, limit, offset, filters) : this.repository.listOwn(actorId, limit, offset);
   }
 }

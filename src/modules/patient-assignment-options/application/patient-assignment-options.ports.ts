@@ -2,5 +2,5 @@ import type { PatientAssignmentContextOption, PatientAssignmentStudentOption } f
 
 export interface PatientAssignmentOptionsRepositoryPort {
   listContexts(actorId: string, limit: number, offset: number): Promise<PatientAssignmentContextOption[]>;
-  listStudents(actorId: string, subjectId: string, academicGroupId: string, limit: number, offset: number): Promise<PatientAssignmentStudentOption[]>;
+  listStudents(actorId: string, subjectId: string, academicGroupId: string, limit: number, offset: number, q?: string): Promise<PatientAssignmentStudentOption[]>;
 }

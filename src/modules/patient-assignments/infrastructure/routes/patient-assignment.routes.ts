@@ -6,7 +6,7 @@ import { BadRequestError, UnauthorizedError } from '../../../shared/domain/error
 import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
 import { isCanonicalUuid } from '../../../subject-groups/application/create-subject-group.usecase.js';
 import type { Assignment as AssignmentRow } from '../../domain/patient-assignment.js';
-import type { PatientAssignmentRepositoryPort } from '../../application/patient-assignment.ports.js';
+import type { AssignmentListFilters, PatientAssignmentRepositoryPort } from '../../application/patient-assignment.ports.js';
 import { PatientAssignmentService } from '../../application/patient-assignment.service.js';
 
 function assignmentId(value: unknown): string {
@@ -42,6 +42,14 @@ function pagination(query: Request['query']): { limit: number; offset: number } 
   const offset = integer(query.offset, 0, 'offset');
   if (limit < 1 || limit > 100) throw new BadRequestError('limit must be between 1 and 100');
   return { limit, offset };
+}
+
+function listFilters(query: Request['query']): AssignmentListFilters | undefined {
+  const filters: AssignmentListFilters = {};
+  for (const field of ['patient_id', 'student_id', 'subject_id', 'academic_group_id'] as const) {
+    if (query[field] !== undefined) filters[field] = uuid(query[field], field).toLowerCase();
+  }
+  return Object.keys(filters).length ? filters : undefined;
 }
 
 function serialize(row: AssignmentRow) {
@@ -120,7 +128,7 @@ export function createPatientAssignmentRouter({
     await readGuard.authorize(req);
     const actor = await verifiedActor(getActor, req);
     const page = pagination(req.query);
-    const items = await service.listTeacher(actor, page.limit, page.offset);
+    const items = await service.listTeacher(actor, page.limit, page.offset, listFilters(req.query));
     res.status(200).json({ items: items.map(serialize), ...page });
   });
 
@@ -128,7 +136,7 @@ export function createPatientAssignmentRouter({
     await ownGuard.authorize(req);
     const actor = await verifiedActor(getActor, req);
     const page = pagination(req.query);
-    const items = await service.listOwn(actor, page.limit, page.offset);
+    const items = await service.listOwn(actor, page.limit, page.offset, listFilters(req.query));
     res.status(200).json({ items: items.map(serialize), ...page });
   });
 

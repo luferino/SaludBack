@@ -3,7 +3,7 @@ import type { UnitOfWorkPort } from '../../../shared/application/unit-of-work.js
 import { ConflictError, ForbiddenError, NotFoundError } from '../../../shared/domain/errors.js';
 import type { Assignment as AssignmentRow, AssignmentInput } from '../../domain/patient-assignment.js';
 import { requireActiveAssignment, requireSameSubject } from '../../domain/patient-assignment.js';
-import type { PatientAssignmentRepositoryPort } from '../../application/patient-assignment.ports.js';
+import type { AssignmentListFilters, PatientAssignmentRepositoryPort } from '../../application/patient-assignment.ports.js';
 
 const LIST_COLUMNS = `
   a.id::text AS id, a.patient_id, a.student_habilitation_id, a.subject_id,
@@ -209,29 +209,38 @@ export class PgPatientAssignmentRepository implements PatientAssignmentRepositor
     });
   }
 
-  listTeacher(actor: string, limit: number, offset: number): Promise<AssignmentRow[]> {
+  listTeacher(actor: string, limit: number, offset: number, filters?: AssignmentListFilters): Promise<AssignmentRow[]> {
     const teacherContext = `EXISTS (
       SELECT 1 FROM teachers t
       JOIN teacher_academic_habilitations th ON th.teacher_id = t.id
       WHERE t.user_id = $1 AND th.subject_id = a.subject_id
         AND th.academic_group_id = p.academic_group_id AND th.revoked_at IS NULL
     )`;
-    return this.list(teacherContext, actor, limit, offset);
+    return this.list(teacherContext, actor, limit, offset, filters);
   }
 
-  listOwn(actor: string, limit: number, offset: number): Promise<AssignmentRow[]> {
-    return this.list('p.student_id = (SELECT id FROM students WHERE user_id = $1)', actor, limit, offset);
+  listOwn(actor: string, limit: number, offset: number, filters?: AssignmentListFilters): Promise<AssignmentRow[]> {
+    return this.list('p.student_id = (SELECT id FROM students WHERE user_id = $1)', actor, limit, offset, filters);
   }
 
-  private async list(scope: string, actor: string, limit: number, offset: number): Promise<AssignmentRow[]> {
+  private async list(scope: string, actor: string, limit: number, offset: number, filters: AssignmentListFilters = {}): Promise<AssignmentRow[]> {
+    const params: Array<string | number> = [actor, limit, offset];
+    const predicates: string[] = [];
+    const columns = { patient_id: 'a.patient_id', student_id: 'p.student_id', subject_id: 'a.subject_id', academic_group_id: 'p.academic_group_id' } as const;
+    for (const field of Object.keys(columns) as Array<keyof AssignmentListFilters>) {
+      if (filters[field] !== undefined) {
+        params.push(filters[field]);
+        predicates.push(` AND ${columns[field]} = $${params.length}`);
+      }
+    }
     const { rows } = await this.pool.query<AssignmentRow>(
       `SELECT ${LIST_COLUMNS}
          FROM patient_assignments a
          JOIN student_academic_habilitations p ON p.id = a.student_habilitation_id
          JOIN patients pt ON pt.id = a.patient_id
-        WHERE a.ended_at IS NULL AND p.revoked_at IS NULL AND ${scope}
+        WHERE a.ended_at IS NULL AND p.revoked_at IS NULL AND ${scope}${predicates.join('')}
         ORDER BY a.id LIMIT $2 OFFSET $3`,
-      [actor, limit, offset],
+      params,
     );
     return rows.map((row) => ({
       ...row,

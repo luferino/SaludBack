@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EvolutionService } from '../../src/modules/kinesiology-evolutions/application/evolution.service.ts';
 import { EvaluationService } from '../../src/modules/kinesiology-evaluations/application/evaluation.service.ts';
 import { PatientAssignmentService } from '../../src/modules/patient-assignments/application/patient-assignment.service.ts';
 
@@ -18,6 +19,9 @@ for (const [Service, cases] of [
     ['consent', ['evaluation', 'actor']],
     ['verifyConsent', ['evaluation', '2026-10-01', 'actor']],
     ['detail', ['evaluation', 'actor']],
+    ['list', ['patient', 'actor', 'subject', 'group']],
+  ]],
+  [EvolutionService, [
     ['list', ['patient', 'actor', 'subject', 'group']],
   ]],
   [PatientAssignmentService, [

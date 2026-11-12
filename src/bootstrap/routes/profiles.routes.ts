@@ -16,7 +16,7 @@ export function mountProfileRoutes(app: Express, dependencies: AppDependencies['
   app.use(
     '/patients',
     authenticate(tokenService, matrixReader, roleGrantRepository),
-    createPatientRouter({ repository: patientRepository, guard: new PermissionGuard('patients:write') }),
+    createPatientRouter({ repository: patientRepository, listRepository: patientRepository, guard: new PermissionGuard('patients:write') }),
   );
   app.use(
     '/students',

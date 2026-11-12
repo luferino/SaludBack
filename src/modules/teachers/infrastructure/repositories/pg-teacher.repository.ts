@@ -34,10 +34,12 @@ export class PgTeacherRepository implements TeacherRepositoryPort {
     this.pool = pool;
   }
 
-  async list({ limit, offset }: { limit: number; offset: number }): Promise<Array<{ id: string; nombres: string; apellidos: string }>> {
+  async list({ limit, offset, q }: { limit: number; offset: number; q?: string }): Promise<Array<{ id: string; nombres: string; apellidos: string }>> {
+    const pattern = q ? '%' + q.replace(/[\\%_]/g, '\\$&') + '%' : undefined;
+    const where = pattern ? ' WHERE (nombres ILIKE $3 OR apellidos ILIKE $3)' : '';
     const { rows } = await this.pool.query<{ id: string; nombres: string; apellidos: string }>(
-      'SELECT id, nombres, apellidos FROM teachers ORDER BY apellidos ASC, nombres ASC, id ASC LIMIT $1 OFFSET $2',
-      [limit, offset],
+      `SELECT id, nombres, apellidos FROM teachers${where} ORDER BY apellidos ASC, nombres ASC, id ASC LIMIT $1 OFFSET $2`,
+      pattern ? [limit, offset, pattern] : [limit, offset],
     );
     return rows;
   }

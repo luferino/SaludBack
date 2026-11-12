@@ -4,6 +4,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '../../../shared/do
 import { ageAtAdmission, dateOnly, submissionContent } from '../../domain/evaluation.js';
 import type { EvaluationContent, PatientDemographics } from '../../domain/evaluation.js';
 import type { EvaluationRepositoryPort, EvaluationView as EvaluationRow, EvaluationContext as Context } from '../../application/evaluation.ports.js';
+import type { KinesiologyListFilters } from '../../application/list-filters.js';
 
 interface EvaluationReadRow extends EvaluationRow {
   patient_documento: string;
@@ -643,13 +644,18 @@ export class PgKinesiologyEvaluationRepository implements EvaluationRepositoryPo
     return withPatient(result.rows[0]);
   }
 
-  async list(patientId: string, actorId: string, subjectId?: string, groupId?: string): Promise<EvaluationRow[]> {
+  async list(patientId: string, actorId: string, subjectId?: string, groupId?: string, listFilters: KinesiologyListFilters = {}): Promise<EvaluationRow[]> {
     const params: unknown[] = [actorId, patientId];
     const filters: string[] = ['e.patient_id = $2'];
     if (subjectId) { params.push(subjectId); filters.push(`e.origin_subject_id = $${params.length}`); }
     if (groupId) { params.push(groupId); filters.push(`e.origin_group_id = $${params.length}`); }
     const origin = originRead('$1');
     const cross = crossContextRead('$1');
+    const visibleStatus = `CASE WHEN (${origin}) THEN e.status WHEN validation.id IS NOT NULL THEN 'validated' ELSE 'submitted' END`;
+    const visibleCreatedAt = `CASE WHEN (${origin}) THEN e.created_at ELSE snapshot.submitted_at END`;
+    if (listFilters.status !== undefined) { params.push(listFilters.status); filters.push(`${visibleStatus} = $${params.length}`); }
+    if (listFilters.dateFrom !== undefined) { params.push(listFilters.dateFrom); filters.push(`${visibleCreatedAt} >= ($${params.length}::date::timestamp AT TIME ZONE 'UTC')`); }
+    if (listFilters.dateTo !== undefined) { params.push(listFilters.dateTo); filters.push(`${visibleCreatedAt} < (($${params.length}::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'UTC')`); }
     const result = await this.pool.query<EvaluationReadRow>(
       `SELECT ${projectedReadColumns(origin)}
          FROM kinesiology_evaluations e JOIN patients p ON p.id = e.patient_id

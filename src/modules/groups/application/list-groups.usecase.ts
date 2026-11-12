@@ -5,6 +5,7 @@ import type { GroupRepositoryPort } from './group.ports.js';
 
 export interface ListGroupsInput {
   career_id?: unknown;
+  q?: unknown;
   limit?: unknown;
   offset?: unknown;
 }
@@ -26,7 +27,11 @@ export class ListGroups {
     const careerId = input.career_id === undefined ? undefined : validateCareerId(input.career_id);
     const limit = parseBoundedInteger(input.limit, 50, 1, 100, 'limit');
     const offset = parseBoundedInteger(input.offset, 0, 0, 10000, 'offset');
-    const items = await this.repository.list({ careerId, limit, offset });
+    if (input.q !== undefined && (typeof input.q !== 'string' || input.q.trim().length > 100)) {
+      throw new BadRequestError('q must be a string of at most 100 characters');
+    }
+    const q = typeof input.q === 'string' ? input.q.trim() : '';
+    const items = await this.repository.list({ careerId, limit, offset, ...(q ? { q } : {}) });
     return { items, limit, offset };
   }
 }

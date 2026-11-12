@@ -4,6 +4,7 @@ import { ForbiddenError, NotFoundError, ConflictError } from '../../../shared/do
 import type { EvolutionCorrection, EvolutionCorrectionResult, EvolutionRepositoryPort, EvolutionSubmission, EvolutionValidationResult, EvolutionView } from '../../application/evolution.ports.js';
 import { validateEvolutionSubmission } from '../../domain/evolution.js';
 import type { EvolutionContent } from '../../domain/evolution.js';
+import type { KinesiologyListFilters } from '../../../kinesiology-evaluations/application/list-filters.js';
 
 const columns = `id::text AS id, clinical_record_id::text AS clinical_record_id, evaluation_id::text AS evaluation_id,
  patient_id, author_id, origin_student_habilitation_id, origin_subject_id, origin_group_id,
@@ -317,15 +318,21 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
     return result.rows[0];
   }
 
-  async list(patientId: string, actorId: string, subjectId?: string, groupId?: string): Promise<EvolutionView[]> {
-    const filters = [patientId, actorId];
-    let contextFilter = '';
-    if (subjectId) { filters.push(subjectId); contextFilter += ` AND e.origin_subject_id = $${filters.length}`; }
-    if (groupId) { filters.push(groupId); contextFilter += ` AND e.origin_group_id = $${filters.length}`; }
+  async list(patientId: string, actorId: string, subjectId?: string, groupId?: string, listFilters: KinesiologyListFilters = {}): Promise<EvolutionView[]> {
+    const params: unknown[] = [patientId, actorId];
+    const predicates: string[] = [`e.patient_id = $1`, this.readCondition('$2')];
+    if (subjectId) { params.push(subjectId); predicates.push(`e.origin_subject_id = $${params.length}`); }
+    if (groupId) { params.push(groupId); predicates.push(`e.origin_group_id = $${params.length}`); }
+    const visibleStatus = `CASE WHEN (${originRead('$2')}) THEN e.status ELSE latest.projected_status END`;
+    const visibleCreatedAt = `CASE WHEN (${originRead('$2')}) THEN e.created_at ELSE latest.submitted_at END`;
+    if (listFilters.status !== undefined) { params.push(listFilters.status); predicates.push(`${visibleStatus} = $${params.length}`); }
+    if (listFilters.dateFrom !== undefined) { params.push(listFilters.dateFrom); predicates.push(`${visibleCreatedAt} >= ($${params.length}::date::timestamp AT TIME ZONE 'UTC')`); }
+    if (listFilters.dateTo !== undefined) { params.push(listFilters.dateTo); predicates.push(`${visibleCreatedAt} < (($${params.length}::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'UTC')`); }
+    if (listFilters.evaluationId !== undefined) { params.push(listFilters.evaluationId); predicates.push(`e.evaluation_id = $${params.length}::bigint`); }
     const result = await this.pool.query<EvolutionView>(`SELECT ${documentColumns}
       FROM kinesiology_evolutions e ${latestSubmissionJoin}
-      WHERE e.patient_id = $1 AND ${this.readCondition('$2')}${contextFilter}
-      ORDER BY CASE WHEN (${originRead('$2')}) THEN e.created_at ELSE latest.submitted_at END, e.id`, filters);
+      WHERE ${predicates.join(' AND ')}
+      ORDER BY CASE WHEN (${originRead('$2')}) THEN e.created_at ELSE latest.submitted_at END, e.id`, params);
     return result.rows;
   }
 

@@ -8,6 +8,7 @@ import { isCanonicalUuid } from '../../../subject-groups/application/create-subj
 import { ageAtAdmission, dateOnly, validateDate } from '../../domain/evaluation.js';
 import type { EvaluationRepositoryPort, EvaluationView as EvaluationRow } from '../../application/evaluation.ports.js';
 import { EvaluationService } from '../../application/evaluation.service.js';
+import { parseKinesiologyListFilters } from '../../application/list-filters.js';
 
 const MAX_BIGINT = 9223372036854775807n;
 
@@ -209,7 +210,8 @@ export function createKinesiologyEvaluationRouter({
     const patientId = queryUuid(request.query.patient_id, 'patient_id', true)!;
     const subjectId = queryUuid(request.query.subject_id, 'subject_id', false);
     const groupId = queryUuid(request.query.academic_group_id, 'academic_group_id', false);
-    response.json({ items: (await service.list(patientId, actor, subjectId, groupId)).map(serialize) });
+    const filters = parseKinesiologyListFilters(request.query as Record<string, unknown>);
+    response.json({ items: (await service.list(patientId, actor, subjectId, groupId, filters)).map(serialize) });
   });
   return router;
 }

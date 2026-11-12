@@ -1,4 +1,5 @@
 import type { EvolutionContent } from '../domain/evolution.js';
+import type { KinesiologyListFilters } from '../../kinesiology-evaluations/application/list-filters.js';
 
 export interface EvolutionSubmission {
   id: string;
@@ -53,5 +54,5 @@ export interface EvolutionRepositoryPort {
   submissions(id: string, actorId: string): Promise<{ evolution_id: string; amendment_of_evolution_id?: string; items: EvolutionSubmission[] }>;
   corrections(id: string, actorId: string): Promise<{ evolution_id: string; amendment_of_evolution_id?: string; items: EvolutionCorrection[] }>;
   detail(id: string, actorId: string): Promise<EvolutionView>;
-  list(patientId: string, actorId: string, subjectId?: string, groupId?: string): Promise<EvolutionView[]>;
+  list(patientId: string, actorId: string, subjectId?: string, groupId?: string, filters?: KinesiologyListFilters): Promise<EvolutionView[]>;
 }

@@ -1,5 +1,6 @@
 import { validateCorrectionReason, validateEvolutionContent } from '../domain/evolution.js';
 import type { EvolutionRepositoryPort } from './evolution.ports.js';
+import type { KinesiologyListFilters } from '../../kinesiology-evaluations/application/list-filters.js';
 
 export class EvolutionService {
   constructor(private readonly repository: EvolutionRepositoryPort) {}
@@ -38,7 +39,9 @@ export class EvolutionService {
     return this.repository.detail(id, actorId);
   }
 
-  list(patientId: string, actorId: string, subjectId?: string, groupId?: string) {
-    return this.repository.list(patientId, actorId, subjectId, groupId);
+  list(patientId: string, actorId: string, subjectId?: string, groupId?: string, filters?: KinesiologyListFilters) {
+    return filters === undefined
+      ? this.repository.list(patientId, actorId, subjectId, groupId)
+      : this.repository.list(patientId, actorId, subjectId, groupId, filters);
   }
 }

@@ -1,5 +1,6 @@
 import { validateContent } from '../domain/evaluation.js';
 import type { EvaluationContext, EvaluationRepositoryPort } from './evaluation.ports.js';
+import type { KinesiologyListFilters } from './list-filters.js';
 
 /** Transport-independent use cases. Atomic contextual workflows are port operations;
  * incoming clinical content validation belongs to the application, not HTTP or SQL.
@@ -51,7 +52,9 @@ export class EvaluationService {
     return this.repository.detail(id, actorId);
   }
 
-  list(patientId: string, actorId: string, subjectId?: string, groupId?: string) {
-    return this.repository.list(patientId, actorId, subjectId, groupId);
+  list(patientId: string, actorId: string, subjectId?: string, groupId?: string, filters?: KinesiologyListFilters) {
+    return filters === undefined
+      ? this.repository.list(patientId, actorId, subjectId, groupId)
+      : this.repository.list(patientId, actorId, subjectId, groupId, filters);
   }
 }

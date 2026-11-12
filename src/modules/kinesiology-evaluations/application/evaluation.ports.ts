@@ -1,4 +1,5 @@
 import type { Evaluation, EvaluationContent, PatientDemographics } from '../domain/evaluation.js';
+import type { KinesiologyListFilters } from './list-filters.js';
 
 export interface EvaluationContext {
   subjectId: string;
@@ -78,5 +79,5 @@ export interface EvaluationRepositoryPort {
   consent(id: string, actorId: string): Promise<ConsentResult>;
   verifyConsent(id: string, paperSignatureDate: string, actorId: string): Promise<ConsentResult>;
   detail(id: string, actorId: string): Promise<EvaluationView>;
-  list(patientId: string, actorId: string, subjectId?: string, groupId?: string): Promise<EvaluationView[]>;
+  list(patientId: string, actorId: string, subjectId?: string, groupId?: string, filters?: KinesiologyListFilters): Promise<EvaluationView[]>;
 }

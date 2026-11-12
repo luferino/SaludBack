@@ -39,6 +39,7 @@ export function createGroupRouter({
     await listGuard.authorize(req);
     const result = await listGroups.execute({
       career_id: req.query.career_id,
+      q: req.query.q,
       limit: req.query.limit,
       offset: req.query.offset,
     });

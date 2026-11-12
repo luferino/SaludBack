@@ -38,6 +38,10 @@ require the live source or live test tree to remain at the old revision.
 The ordinary unit suite, including composition and module wiring tests, exercises
 the current application.
 
+## Patient registry
+
+`GET /patients` is restricted to admins and supports bounded pagination plus literal, case-insensitive substring search across document and patient names. Reception has a separate live-career-scoped patient listing. See [patient API contracts](docs/patients.md) for query validation, response fields, and authorization details.
+
 ## Oral Surgery I
 
 See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student clinical drafts, permissions and delivery scope.
@@ -123,6 +127,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/teachers` | account + teacher profile — Bearer token + `teachers:write` |
 | `GET` | `/teachers` | minimal paginated teacher selector — Bearer token + `teachers:read` |
 | `POST` | `/patients` | patient record (no account) — Bearer token + `patients:write` |
+| `GET` | `/patients` | paginated patient registry/search — authenticated admin role; independent from the POST write permission |
 | `GET` | `/careers` | list careers (`id`, `code`, `name`) — Bearer token + `careers:read` |
 | `POST` | `/subjects` | create subject in a career (`career_id` required) — Bearer token + `subjects:write` |
 | `GET` | `/subjects` | list subjects, optional `career_id` filter — Bearer token + `subjects:read` |

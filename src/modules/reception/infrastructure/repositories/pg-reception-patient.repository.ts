@@ -36,8 +36,8 @@ export class PgReceptionPatientRepository implements ReceptionPatientRepository 
     await this.enrollExisting(db, rows[0].id, career);
     return mapPatient(rows[0]);
   }
-  async list(db: Queryable, career: string, limit: number, offset: number): Promise<Patient[]> {
-    const { rows } = await db.query<PatientRow>(`SELECT ${COLUMNS} FROM patients p JOIN reception_patient_enrollments e ON e.patient_id=p.id JOIN careers c ON c.id=e.career_id WHERE c.code=$1 ORDER BY p.apellidos,p.nombres,p.id LIMIT $2 OFFSET $3`, [career, limit, offset]);
+  async list(db: Queryable, career: string, limit: number, offset: number, q?: string): Promise<Patient[]> {
+    const { rows } = await db.query<PatientRow>(`SELECT ${COLUMNS} FROM patients p JOIN reception_patient_enrollments e ON e.patient_id=p.id JOIN careers c ON c.id=e.career_id WHERE c.code=$1 AND ($4::text IS NULL OR strpos(lower(p.documento), lower($4)) > 0 OR strpos(lower(p.nombres), lower($4)) > 0 OR strpos(lower(p.apellidos), lower($4)) > 0) ORDER BY p.apellidos,p.nombres,p.id LIMIT $2 OFFSET $3`, [career, limit, offset, q ?? null]);
     return rows.map(mapPatient);
   }
   async findEnrolled(db: Queryable, id: string, career: string): Promise<Patient | null> {

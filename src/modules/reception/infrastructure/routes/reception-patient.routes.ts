@@ -7,6 +7,7 @@ import { normalizeEmail } from '../../../shared/domain/validation.js';
 import { PermissionGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { ReceptionPatientRepository } from '../../application/reception-patients.ports.js';
+import { listSearchQuery } from '../../../shared/infrastructure/list-search-query.js';
 import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import type { Queryable } from '../../../shared/application/unit-of-work.js';
@@ -74,8 +75,9 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
   });
   router.get('/', ...authentication, async (req: Request, res: Response) => {
     const userId = await actor(req), scope = career(req.query.career);
-    const items = await inScope<Patient[]>(req, userId, scope, db => repository.list(db, scope, 100, 0));
-    res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items: items.map(serializePatient) });
+    const { q, limit, offset } = listSearchQuery(req, 100, ['career']);
+    const items = await inScope<Patient[]>(req, userId, scope, db => repository.list(db, scope, limit, offset, q));
+    res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items: items.map(serializePatient), limit, offset });
   });
   router.get('/:id', ...authentication, async (req: Request, res: Response) => {
     const userId = await actor(req), scope = career(req.query.career);

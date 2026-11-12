@@ -7,7 +7,7 @@ export interface ReceptionPatientRepository {
   findPatientByDocumento(db: Queryable, documento: string): Promise<Patient | null>;
   enrollExisting(db: Queryable, id: string, career: string): Promise<void>;
   createAndEnroll(db: Queryable, patient: Patient, career: string): Promise<Patient>;
-  list(db: Queryable, career: string, limit: number, offset: number): Promise<Patient[]>;
+  list(db: Queryable, career: string, limit: number, offset: number, q?: string): Promise<Patient[]>;
   findEnrolled(db: Queryable, id: string, career: string): Promise<Patient | null>;
   updateContact(db: Queryable, id: string, career: string, input: { email: string; celular: string; direccion: string }, actorId: string): Promise<Patient | null>;
 }

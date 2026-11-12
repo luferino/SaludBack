@@ -185,7 +185,7 @@ test('Reception list/read require persistent enrollment and contact updates cann
   try {
     const listed = await fetch(`${http.base}?career=kinesiology`);
     assert.equal(listed.status, 200);
-    assert.deepEqual(await listed.json(), { items: [{ id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion }] });
+    assert.deepEqual(await listed.json(), { items: [{ id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion }], limit: 100, offset: 0 });
     const read = await fetch(`${http.base}/${patient.id}?career=kinesiology`);
     assert.equal(read.status, 200);
     assert.deepEqual(await read.json(), { id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion });

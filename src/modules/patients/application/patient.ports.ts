@@ -6,6 +6,16 @@ import type { Patient } from '../domain/patient.entity.js';
  * keeping the dependency direction domain <- application <- infrastructure.
  */
 
+export interface PatientListInput {
+  q?: string;
+  limit: number;
+  offset: number;
+}
+
+export interface PatientListingRepositoryPort {
+  list(input: PatientListInput): Promise<Patient[]>;
+}
+
 export interface PatientRepositoryPort {
   findByDocumento(documento: string): Promise<Patient | null>;
   create(patient: Patient): Promise<Patient>;

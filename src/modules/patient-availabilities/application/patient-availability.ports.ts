@@ -5,5 +5,5 @@ export interface PatientAvailabilityRepositoryPort {
   withdraw(id: string, actorId: string): Promise<PatientAvailability>;
   history(patientId: string, limit: number, offset: number): Promise<PatientAvailability[]>;
   searchPatient(documento: string): Promise<PatientAvailabilityPatient[]>;
-  listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number): Promise<PatientAvailabilityPatient[]>;
+  listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number, assignable: boolean): Promise<PatientAvailabilityPatient[]>;
 }

@@ -156,7 +156,7 @@ errors return `{ "error": { "code": "...", "message": "..." } }`.
 | `POST` | `/patient-availabilities/:id/withdraw` | withdraw availability without ending assignments — `patient-availabilities:manage` |
 | `GET` | `/patient-availabilities/manage` | paginated availability history for a required patient — `patient-availabilities:manage` |
 | `POST` | `/patient-availabilities/patient-search` | exact-document administrative lookup, no browse-all — `patient-availabilities:manage` |
-| `GET` | `/patient-availabilities` | enabled patients in a required live teacher context — `patient-availabilities:read` + `patient-assignments:write` |
+| `GET` | `/patient-availabilities` | enabled patients in a required live teacher context, optional `assignable=true` filter — `patient-availabilities:read` + `patient-assignments:write` |
 | `GET` | `/patient-assignment-options/contexts` | named live teacher contexts containing eligible students — `patient-assignments:write` + `student-habilitations:read` |
 | `GET` | `/patient-assignment-options/students` | named eligible student periods in a required live teacher context — same two grants |
 | `POST` | `/patient-assignments` | assign an available patient to an active student period — `patient-assignments:write` + active teacher context |
@@ -278,6 +278,12 @@ explicitly given the permissions):
   Only active availability in that exact live teacher context is returned. Availability
   is not a promise that the patient has no existing assignment: POST still enforces
   active patient/subject uniqueness. No patient document/contact/clinical data is returned.
+- Optional `assignable` query parameter: exactly `assignable=true` also excludes every
+  patient with an active assignment (`ended_at IS NULL`) for the same `subject_id` in any
+  academic group, mirroring the one-active-assignment-per-patient-and-subject rule.
+  `assignable=false` or absence keeps the default behavior. Any other value, including a
+  repeated parameter, returns `400` with `assignable must be true or false`. Pagination
+  applies after the filter; response fields and ordering are unchanged.
 
 No linked teacher/context or no matching eligible rows produces an empty list,
 not an administrative fallback. New selector/search/history responses use

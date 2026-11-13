@@ -10,6 +10,7 @@ import type { PatientAvailabilityRepositoryPort } from '../../application/patien
 import { PatientAvailabilityService } from '../../application/patient-availability.service.js';
 
 function uuid(value: unknown, field: string): string { if (!isCanonicalUuid(value)) throw new BadRequestError(`${field} must be a UUID`); return value; }
+function assignableFilter(value: unknown): boolean { if (value === undefined || value === 'false') return false; if (value === 'true') return true; throw new BadRequestError('assignable must be true or false'); }
 function pagination(query: Request['query']) {
   const parse = (value: unknown, fallback: number, key: string) => {
     if (value === undefined) return fallback;
@@ -57,9 +58,9 @@ export function createPatientAvailabilityRouter({ repository, manageGuard = new 
   });
   router.get('/', async (req: Request, res: Response) => {
     await readGuard.authorize(req); await assignmentGuard.authorize(req); const actor = await actorId(getActor, req), page = pagination(req.query);
-    const subjectId = uuid(req.query.subject_id, 'subject_id'), groupId = uuid(req.query.academic_group_id, 'academic_group_id');
+    const subjectId = uuid(req.query.subject_id, 'subject_id'), groupId = uuid(req.query.academic_group_id, 'academic_group_id'), assignable = assignableFilter(req.query.assignable);
     res.setHeader('Cache-Control', 'no-store');
-    const items = await service.listTeacher(actor, subjectId, groupId, page.limit, page.offset);
+    const items = await service.listTeacher(actor, subjectId, groupId, page.limit, page.offset, assignable);
     res.status(200).json({ items: items.map(({ patient_id, nombres, apellidos }) => ({ patient_id, nombres, apellidos })), ...page });
   });
   return router;

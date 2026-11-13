@@ -7,7 +7,7 @@ export class PatientAvailabilityService {
   withdraw(id: string, actorId: string) { return this.repository.withdraw(id, actorId); }
   history(patientId: string, limit: number, offset: number) { return this.repository.history(patientId, limit, offset); }
   searchPatient(documento: string) { return this.repository.searchPatient(documento); }
-  listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number) {
-    return this.repository.listTeacher(actorId, subjectId, groupId, limit, offset);
+  listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number, assignable: boolean) {
+    return this.repository.listTeacher(actorId, subjectId, groupId, limit, offset, assignable);
   }
 }

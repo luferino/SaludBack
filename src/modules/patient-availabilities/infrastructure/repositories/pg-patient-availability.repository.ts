@@ -57,14 +57,16 @@ export class PgPatientAvailabilityRepository implements PatientAvailabilityRepos
     return rows;
   }
 
-  async listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number): Promise<PatientAvailabilityPatient[]> {
+  async listTeacher(actorId: string, subjectId: string, groupId: string, limit: number, offset: number, assignable: boolean): Promise<PatientAvailabilityPatient[]> {
     const { rows } = await this.pool.query<PatientAvailabilityPatient>(
       `SELECT p.id AS patient_id, p.nombres, p.apellidos
          FROM patient_context_availabilities a JOIN patients p ON p.id = a.patient_id
         WHERE a.subject_id = $2 AND a.academic_group_id = $3 AND a.withdrawn_at IS NULL
           AND EXISTS (SELECT 1 FROM teachers t JOIN teacher_academic_habilitations h ON h.teacher_id = t.id
                        WHERE t.user_id = $1 AND h.subject_id = $2 AND h.academic_group_id = $3 AND h.revoked_at IS NULL)
-        ORDER BY p.apellidos, p.nombres, p.id LIMIT $4 OFFSET $5`, [actorId, subjectId, groupId, limit, offset]);
+          AND ($6::boolean IS NOT TRUE OR NOT EXISTS (SELECT 1 FROM patient_assignments pa
+                       WHERE pa.patient_id = a.patient_id AND pa.subject_id = $2 AND pa.ended_at IS NULL))
+        ORDER BY p.apellidos, p.nombres, p.id LIMIT $4 OFFSET $5`, [actorId, subjectId, groupId, limit, offset, assignable]);
     return rows;
   }
 }

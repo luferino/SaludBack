@@ -26,7 +26,7 @@ function fakeRepository() {
     async withdraw(id, actorId) { state.calls.push(['withdraw', id, actorId]); const result = state.history.find(r => r.id === id); if (!result) throw new Error('missing'); if (!result.withdrawn_at) { result.withdrawn_by = actorId; result.withdrawn_at = new Date('2026-01-02T00:00:00Z'); } return result; },
     async history(id, limit, offset) { state.calls.push(['history', id]); return state.history.filter(r => r.patient_id === id).slice(offset, offset + limit); },
     async searchPatient(documento) { state.calls.push(['search', documento]); return documento === '00-X' ? [{ patient_id: patient, nombres: 'Ada', apellidos: 'Lovelace', documento, celular: 'private' }] : []; },
-    async listTeacher(actorId, subjectId, groupId, limit, offset) { state.calls.push(['list', actorId, subjectId, groupId]); return actorId === actor && subjectId === subject && groupId === group && state.history.some(r => !r.withdrawn_at) ? [{ patient_id: patient, nombres: 'Ada', apellidos: 'Lovelace', documento: 'private' }] : []; },
+    async listTeacher(actorId, subjectId, groupId, limit, offset, assignable) { state.calls.push(['list', actorId, subjectId, groupId, assignable]); return actorId === actor && subjectId === subject && groupId === group && state.history.some(r => !r.withdrawn_at) ? [{ patient_id: patient, nombres: 'Ada', apellidos: 'Lovelace', documento: 'private' }] : []; },
   };
 }
 async function withRouter({ repository = fakeRepository(), guards = fakeGuards(), actorId = actor }, run) {
@@ -98,6 +98,36 @@ test('permissions, UUID validation and pagination arrays/bounds reject before re
       ['/patient-availabilities?subject_id='+subject+'&academic_group_id=bad', 'academic_group_id must be a UUID'],
     ]) { const response = await request(base, 'GET', path); assert.equal(response.status, 400); assert.deepEqual(await response.json(), expectedError('BAD_REQUEST', message)); }
     for (const body of [{ ...enableBody, patient_id: 'bad' }, { documento: '  ' }]) { const path = body.documento === '  ' ? '/patient-availabilities/patient-search' : '/patient-availabilities'; const response = await request(base, 'POST', path, body); assert.equal(response.status, 400); }
+    assert.deepEqual(repo.state.calls, []);
+  });
+});
+
+test('teacher listing default contract is unchanged when assignable is absent or false', async () => {
+  const repository = fakeRepository(); repository.state.history.push(row());
+  await withRouter({ repository }, async (base, repo) => {
+    for (const suffix of ['', '&assignable=false']) {
+      const response = await request(base, 'GET', `/patient-availabilities?subject_id=${subject}&academic_group_id=${group}${suffix}`);
+      assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(await response.json(), { items: [{ patient_id: patient, nombres: 'Ada', apellidos: 'Lovelace' }], limit: 50, offset: 0 });
+    }
+    assert.deepEqual(repo.state.calls.filter(c => c[0] === 'list').map(c => c[4]), [false, false]);
+  });
+});
+
+test('teacher listing forwards exact assignable=true to the repository', async () => {
+  await withRouter({}, async (base, repo) => {
+    const response = await request(base, 'GET', `/patient-availabilities?subject_id=${subject}&academic_group_id=${group}&assignable=true`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(repo.state.calls.filter(c => c[0] === 'list').map(c => c[4]), [true]);
+  });
+});
+
+test('teacher listing rejects non-exact assignable values and repeated parameters before repository access', async () => {
+  await withRouter({}, async (base, repo) => {
+    for (const query of ['assignable=1', 'assignable=TRUE', 'assignable=', 'assignable=yes', 'assignable=true&assignable=true', 'assignable=false&assignable=true']) {
+      const response = await request(base, 'GET', `/patient-availabilities?subject_id=${subject}&academic_group_id=${group}&${query}`);
+      assert.equal(response.status, 400); assert.deepEqual(await response.json(), expectedError('BAD_REQUEST', 'assignable must be true or false'));
+    }
     assert.deepEqual(repo.state.calls, []);
   });
 });

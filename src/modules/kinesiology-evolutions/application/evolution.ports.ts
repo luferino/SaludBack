@@ -42,6 +42,9 @@ export interface EvolutionView {
   projected_reviewed_at?: Date | string | null;
   validation_status?: 'pending_validation' | 'validated';
   amendment_of_evolution_id?: string | null;
+  pending_correction_reason?: string | null;
+  pending_correction_requested_at?: Date | string | null;
+  pending_correction_reviewed_by?: string | null;
   created_at: Date | string; updated_at: Date | string;
 }
 export interface EvolutionRepositoryPort {

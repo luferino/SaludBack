@@ -12,10 +12,10 @@ Backend worktree: .pi/assignable-patient-availability on fix/assignable-patient-
 
 ## Tasks
 - T1 [S2] done — Frontend owner committed 394847c «fix(clinical): hide study controls on read-only evaluations» on fix/read-only-add-study from origin/main d3f11b7 (not pushed). Commit: frontend 394847c.
-- T2 [S3,S5,S6] done — Backend optional assignable filter committed f1a7e02 on fix/assignable-patient-availability (7 files, 100+/9-). Frontend selector adoption follows when frontend resumes.
+- T2 [S3,S5,S6] done — Backend optional assignable filter committed f1a7e02 on fix/assignable-patient-availability (7 files, 100+/9-). Frontend selector adoption delivered in SaludFrond PR #49 (bd04d7e, L10).
 - T3 [S4] done — Frontend owner confirmed read-only: evaluations already show «Corrección solicitada» with reason/author/date per version (SubmissionSnapshot.astro:6,31-34; origin teacher teacher-clinical/[id].astro:58,129; student author kinesiology-evaluations/[id].astro:122-130); cross readers hidden on purpose. No backend contract change needed for evaluations.
 - T4 [S4] dropped — Backend marker not needed: evaluations already labeled; evolutions gap is UI-only.
-- T5 [S4] blocked — Evolutions have no detail/history page in the frontend; a corrected evolution shows as «Enviada». Showing a marker there is a frontend product decision for the human, deferred.
+- T5 [S4] done — Superseded by odd/tasks/evolution-pending-correction.md: corrected evolutions return to «Borrador» for origin readers (not «Enviada»); human chose an origin-only `pending_correction` field (SaludBack PR #74, 174043f) plus a frontend marker tracked there as its T5 (L11).
 
 ## Log
 - L1: User original request verbatim: «okey, hagamos esos tres».
@@ -27,3 +27,5 @@ Backend worktree: .pi/assignable-patient-availability on fix/assignable-patient-
 - L7: User authorized verbatim «si, procede» (push, PR and merge of backend f1a7e02). Created issue https://github.com/luferino/SaludBack/issues/69 (status:approved, type:feature), pushed fix/assignable-patient-availability, opened PR https://github.com/luferino/SaludBack/pull/70 (Closes #69, type:feature), CLEAN/MERGEABLE with 0 checks (no CI configured; not claimed as CI success), merged with --match-head-commit f1a7e02 at 2026-11-13T22:06:35Z, merge commit c81b77b51c6deac39aecc147712b0f273a50c968; issue #69 closed; f1a7e02 verified ancestor of origin/main. Root checkout (historical dirty branch) untouched. Frontend fix 394847c and selector adoption of assignable=true remain frontend decisions.
 - L8: Frontend owner reports T1 published as SaludFrond PR #48 https://github.com/luferino/SaludFrond/pull/48 (head 394847c, type:bug), open and mergeable, not merged. Selector adoption of assignable=true still awaits frontend human authorization. Peer-reported, not independently checked.
 - L9: Frontend owner reports PR #48 merged into SaludFrond main (merge 600b4e5); T1 closed on the frontend side. Selector adoption of assignable=true still awaits frontend human authorization. Peer-reported, not independently checked.
+- L10: Read-only check of SaludFrond origin/main (2026-11-14): PR #47 e2d3f1d (teacher cross-context view), PR #48 394847c and PR #49 bd04d7e (teacher assignment requests assignable=true) are all merged. T2 frontend adoption complete.
+- L11: Correction to T5's premise: requestCorrection sets the evolution to `draft` (pg-kinesiology-evolution.repository.ts), so origin readers saw «Borrador» without a reason; only cross-context readers see the latest submitted snapshot. Human decision and delivery tracked in odd/tasks/evolution-pending-correction.md (issue #73, PR #74 merged 174043f; frontend marker pending).

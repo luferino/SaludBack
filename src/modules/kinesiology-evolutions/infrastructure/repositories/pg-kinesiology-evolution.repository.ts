@@ -20,7 +20,10 @@ const documentColumns = `e.id::text AS id, e.clinical_record_id::text AS clinica
  latest.submitted_at AS projected_submitted_at, latest.reviewed_by AS projected_reviewed_by,
  latest.reviewed_at AS projected_reviewed_at,
  latest.validation_status AS validation_status,
- amendment.original_evolution_id::text AS amendment_of_evolution_id`;
+ amendment.original_evolution_id::text AS amendment_of_evolution_id,
+ CASE WHEN (${originRead('$2')}) AND e.status = 'draft' THEN pending.reason END AS pending_correction_reason,
+ CASE WHEN (${originRead('$2')}) AND e.status = 'draft' THEN pending.requested_at END AS pending_correction_requested_at,
+ CASE WHEN (${originRead('$2')}) AND e.status = 'draft' THEN pending.reviewed_by END AS pending_correction_reviewed_by`;
 const latestSubmissionJoin = `LEFT JOIN kinesiology_evolution_amendment_links amendment ON amendment.amendment_evolution_id = e.id
 LEFT JOIN LATERAL (
  SELECT s.id, s.submitted_by, s.submitted_at, s.clinical_content,
@@ -32,6 +35,13 @@ LEFT JOIN LATERAL (
    ON review.evolution_id = s.evolution_id AND review.submission_id = s.id
  WHERE s.evolution_id = e.id ORDER BY s.ordinal DESC LIMIT 1
 ) latest ON true`;
+// Newest correction request for the latest submission only; detail and list gate its exposure to origin readers of drafts.
+const pendingCorrectionJoin = `LEFT JOIN LATERAL (
+ SELECT cr.reason, cr.requested_at, cr.reviewed_by
+ FROM kinesiology_evolution_correction_requests cr
+ WHERE cr.evolution_id = e.id AND cr.submission_id = latest.id
+ ORDER BY cr.id DESC LIMIT 1
+) pending ON true`;
 
 function originRead(actor: string): string {
   return `(e.author_id = ${actor} AND EXISTS (
@@ -312,7 +322,7 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
   }
   async detail(id: string, actorId: string): Promise<EvolutionView> {
     const result = await this.pool.query<EvolutionView>(`SELECT ${documentColumns}
-      FROM kinesiology_evolutions e ${latestSubmissionJoin}
+      FROM kinesiology_evolutions e ${latestSubmissionJoin} ${pendingCorrectionJoin}
       WHERE e.id = $1 AND ${this.readCondition('$2')}`, [id, actorId]);
     if (!result.rows.length) throw inaccessible();
     return result.rows[0];
@@ -330,7 +340,7 @@ export class PgKinesiologyEvolutionRepository implements EvolutionRepositoryPort
     if (listFilters.dateTo !== undefined) { params.push(listFilters.dateTo); predicates.push(`${visibleCreatedAt} < (($${params.length}::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'UTC')`); }
     if (listFilters.evaluationId !== undefined) { params.push(listFilters.evaluationId); predicates.push(`e.evaluation_id = $${params.length}::bigint`); }
     const result = await this.pool.query<EvolutionView>(`SELECT ${documentColumns}
-      FROM kinesiology_evolutions e ${latestSubmissionJoin}
+      FROM kinesiology_evolutions e ${latestSubmissionJoin} ${pendingCorrectionJoin}
       WHERE ${predicates.join(' AND ')}
       ORDER BY CASE WHEN (${originRead('$2')}) THEN e.created_at ELSE latest.submitted_at END, e.id`, params);
     return result.rows;

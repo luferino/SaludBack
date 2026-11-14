@@ -67,6 +67,11 @@ function serialize(row: EvolutionView) {
       submitted_at: row.projected_submitted_at && new Date(row.projected_submitted_at).toISOString(),
       ...(row.projected_reviewed_by ? { reviewed_by: row.projected_reviewed_by,
         reviewed_at: row.projected_reviewed_at && new Date(row.projected_reviewed_at).toISOString() } : {}) } : {}),
+    ...(row.pending_correction_requested_at ? { pending_correction: {
+      reason: row.pending_correction_reason,
+      requested_at: new Date(row.pending_correction_requested_at).toISOString(),
+      reviewed_by: row.pending_correction_reviewed_by,
+    } } : {}),
     created_at: new Date(row.created_at).toISOString(),
     updated_at: new Date(row.updated_at).toISOString(),
   };

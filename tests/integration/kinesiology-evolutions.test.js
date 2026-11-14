@@ -264,17 +264,33 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
     assert.equal((await request('PATCH', `/kinesiology-evolutions/${draft.body.id}`, studentJwt, { content: prose })).status, 409);
     const firstSnapshot = await pool.query('SELECT clinical_content FROM kinesiology_evolution_submissions WHERE id=$1', [first.body.id]);
     assert.deepEqual(firstSnapshot.rows[0].clinical_content, prose);
+    assert.equal(Object.hasOwn(beforeIncomplete.documents[0].detail.body, 'pending_correction'), false, 'a never-submitted draft has no pending correction');
+    assert.equal(Object.hasOwn((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt)).body, 'pending_correction'), false,
+      'a submitted evolution awaiting review has no pending correction');
 
     const reason = 'Please clarify the treatment sequence';
     const correction = await request('POST', `/kinesiology-evolutions/${draft.body.id}/corrections`, teacherJwt,
       { submission_id: first.body.id, reason });
     assert.equal(correction.status, 201);
+    const firstPending = { reason, requested_at: correction.body.requested_at, reviewed_by: f.teacher.id };
+    const studentDetailAfterCorrection = await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt);
+    assert.equal(studentDetailAfterCorrection.body.status, 'draft');
+    assert.deepEqual(studentDetailAfterCorrection.body.pending_correction, firstPending, 'author detail exposes the pending correction');
+    const studentListAfterCorrection = await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, studentJwt);
+    assert.deepEqual(studentListAfterCorrection.body.items.find(item => item.id === draft.body.id).pending_correction, firstPending,
+      'author list item exposes the pending correction');
+    assert.deepEqual((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, teacherJwt)).body.pending_correction, firstPending,
+      'origin teacher detail exposes the pending correction');
     const changed = evolutionContent({ current_status: 'Stable with residual stiffness' });
     assert.equal((await request('PATCH', `/kinesiology-evolutions/${draft.body.id}`, studentJwt, { content: changed })).status, 200);
     const second = await request('POST', `/kinesiology-evolutions/${draft.body.id}/submissions`, studentJwt, {});
     assert.equal(second.status, 201);
     assert.equal(second.body.ordinal, '2');
     assert.deepEqual(second.body.content, changed);
+    assert.equal(Object.hasOwn((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt)).body, 'pending_correction'), false,
+      'resubmission clears the pending correction');
+    assert.equal(Object.hasOwn((await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, studentJwt)).body.items
+      .find(item => item.id === draft.body.id), 'pending_correction'), false, 'resubmission clears the pending correction in the list');
     const beforeStaleReview = await publicState(studentJwt, f.patient, [draft.body.id]);
     const staleReview = await request('POST', `/kinesiology-evolutions/${draft.body.id}/validations`, teacherJwt,
       { submission_id: first.body.id });
@@ -311,6 +327,13 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
     assert.deepEqual(teacherListDuringCorrection.body.items.find(item => item.id === draft.body.id).content, changed);
     assert.equal(teacherHistoryDuringCorrection.body.items.length, 1);
     assert.equal(teacherHistoryDuringCorrection.body.items[0].id, second.body.id);
+    assert.deepEqual((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt)).body.pending_correction,
+      { reason: secondCorrectionReason, requested_at: secondCorrection.body.requested_at, reviewed_by: f.teacher.id },
+      'a later correction replaces the pending reason');
+    for (const projected of [crossContextDetailDuringCorrection.body, teacherDetailDuringCorrection.body,
+      projectedDuringCorrection, teacherListDuringCorrection.body.items.find(item => item.id === draft.body.id)]) {
+      assert.equal(Object.hasOwn(projected, 'pending_correction'), false, 'cross-context readers never receive a pending correction');
+    }
     const crossContextProjection = JSON.stringify([crossContextDetailDuringCorrection, crossContextListDuringCorrection,
       crossContextHistoryDuringCorrection, teacherDetailDuringCorrection, teacherListDuringCorrection,
       teacherHistoryDuringCorrection]);
@@ -334,6 +357,7 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
     const originalHistory = await request('GET', `/kinesiology-evolutions/${draft.body.id}/submissions`, studentJwt);
     const originalCorrections = await request('GET', `/kinesiology-evolutions/${draft.body.id}/corrections`, studentJwt);
     assert.equal(originalDetail.body.status, 'validated');
+    assert.equal(Object.hasOwn(originalDetail.body, 'pending_correction'), false, 'a validated evolution has no pending correction');
     assert.equal(originalHistory.body.items.length, 3);
     assert.deepEqual(originalHistory.body.items.map(item => item.id), [first.body.id, second.body.id, third.body.id]);
     assert.equal(originalCorrections.body.items.length, 2);
@@ -350,6 +374,8 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
     assert.equal(amendmentSubmit1.body.ordinal, '1');
     assert.equal((await request('POST', `/kinesiology-evolutions/${amendment.body.id}/corrections`, teacherJwt,
       { submission_id: amendmentSubmit1.body.id, reason: 'Clarify the change' })).status, 201);
+    assert.equal((await request('GET', `/kinesiology-evolutions/${amendment.body.id}`, studentJwt)).body.pending_correction.reason,
+      'Clarify the change', 'an amendment draft returned for correction exposes its own pending correction');
     const correctedAmendment = evolutionContent({ current_status: 'Symptom monitored; treatment adjusted' });
     assert.equal((await request('PATCH', `/kinesiology-evolutions/${amendment.body.id}`, studentJwt, { content: correctedAmendment })).status, 200);
     const amendmentSubmit2 = await request('POST', `/kinesiology-evolutions/${amendment.body.id}/submissions`, studentJwt, {});

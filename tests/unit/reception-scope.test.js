@@ -47,6 +47,7 @@ test('dual-role scoped writes lock and revalidate the exact active role grant be
   const userLock = state.calls.findIndex(sql => sql.includes('FROM users'));
   const roleLock = state.calls.findIndex(sql => sql.includes('FROM user_role_grants'));
   const careerLock = state.calls.findIndex(sql => sql.includes('FROM reception_career_grants'));
+  assert.ok(userLock >= 0 && roleLock >= 0 && careerLock >= 0, 'user, role grant and career grant are all locked');
   assert.ok(userLock < roleLock && roleLock < careerLock);
   assert.equal(callbacks, 1);
 

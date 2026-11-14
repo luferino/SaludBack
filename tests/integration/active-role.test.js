@@ -149,7 +149,7 @@ test('real JWT active-role grant, career isolation, exact revocation, replay and
     assert.deepEqual(dualAccount.body.items[0].active_careers, ['kinesiology']);
 
     const listPatients = await request(base, '/reception/patients?career=kinesiology', 'GET', oldReceptionToken);
-    assert.deepEqual(listPatients, { status: 200, body: { items: [] } });
+    assert.deepEqual(listPatients, { status: 200, body: { items: [], limit: 100, offset: 0 } });
     const created = await request(base, '/reception/patients/register', 'POST', oldReceptionToken, registration(documento));
     assert.equal(created.status, 201);
     patientId = created.body.id;

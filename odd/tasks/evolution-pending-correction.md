@@ -10,8 +10,8 @@ Branch: feat/evolution-pending-correction from main f857f62. Frontend rendering 
 
 ## Tasks
 - T1 [S1-S3] done — RED observed inline (L5); GREEN by gentle-ai-worker mwgjjtnl-1-2xz4, parent diff spot-check (L6). Commit: see L6.
-- T2 [S3] pending — Independent verification (risk item 2: correction reasons are private across care contexts); route gentle-ai-verify.
-- T3 [S1-S3] pending — Native review per RDD assess.
+- T2 [S3] done — gentle-ai-verify mwgjw1xp-2-6d0q: S1/S2/S3 PASS, no blockers (L7).
+- T3 [S1-S3] done — RDD assess medium, reviewDue false (under_budget); no native review due (L8).
 - T4 [S3] pending — Publish backend issue/PR (needs human authorization).
 - T5 [S4] pending — Frontend marker in a separate SaludFrond session/worktree.
 
@@ -22,3 +22,5 @@ Branch: feat/evolution-pending-correction from main f857f62. Frontend rendering 
 - L4: First RED run refused in 5s (migration failed: root node_modules partially emptied by the parent's earlier rm -rf of leftover pnpm worktree dirs). Repaired with `pnpm install --force --frozen-lockfile --offline`; frontend unaffected.
 - L5: RED observed (job-3): 183 pass / 1 fail; the only failure is the new assertion 'author detail exposes the pending correction' (actual undefined); absence assertions for never-submitted and awaiting-review states already pass. CLEANUP_OK salud_e2e_eace39c00edbbca8. GREEN delegated to gentle-ai-worker.
 - L6: GREEN (worker mwgjjtnl-1-2xz4): pendingCorrectionJoin LATERAL (newest request for latest submission) in detail/list only; three CASE columns gated by (originRead) AND e.status='draft'; serialize emits pending_correction only when present; README endpoint rows + evolutions paragraph. Checks: tsc exit 0; unit 671/671; guarded PG 184/184 CLEANUP_OK salud_e2e_5c344238b457474c; git diff --check 0. Parent spot-check confirms gating reuses originRead with parentheses and submissions() untouched. Committed as the T1 work unit (high-risk item 2, own commit).
+- L7: Independent verify (mwgjw1xp-2-6d0q) on bc428bb: S1/S2/S3 PASS; tsc 0; guarded PG 184/184 CLEANUP_OK salud_e2e_13f25fcc194c1542; status unchanged. Confirmed originRead parenthesized in new CASEs, LATERAL LIMIT 1 + UNIQUE(submission_id) (migration 033) so no duplicate rows, create/amend/edit and submissions/corrections unchanged. Non-blocking: untested-but-correct cases (former origin reader with cross access during pending correction, origin teacher list, uncorrected amendment, other-career and admin during pending); PATCH /:id response omits pending_correction (frontend must not rely on it); keep the redundant draft gate.
+- L8: gentle_review assess (base f857f62, committedOnly): risk medium, reviewDue false (under_budget), plan independentVerifier false; independent verification already done for item 2.

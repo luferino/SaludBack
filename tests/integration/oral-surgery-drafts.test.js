@@ -215,6 +215,96 @@ test('S2/S3/S5: signed-paper declarations preserve history and require renewal a
     assert.deepEqual(await history(admin), beforeDenied);
   });
 
+test('S1/S2/S3: operative report saves are versioned, visibility follows origin, and teacher closure is immutable',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, outsider, author, otherStudent] = f.tokens;
+    await request('POST', '/oral-surgery-subjects', admin, { subject_id: f.origin.subject });
+    const encounter = await request('POST', '/oral-surgery-drafts', author, {
+      patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group,
+      content: { treatment_plan: { procedure: 'Independent preoperative plan' } },
+    });
+    assert.equal(encounter.status, 201);
+    const url = `/oral-surgery-drafts/${encounter.body.id}`;
+    const reportUrl = `${url}/operative-report`;
+    const consent = await request('POST', `${url}/consent`, author, { expected_version: '1', paper_signed: true });
+    assert.equal(consent.status, 201);
+    const authorization = await request('POST', `${url}/authorizations`, teacher, {
+      expected_version: '1', consent_declaration_id: consent.body.id, paper_consent_verified: true,
+    });
+    assert.equal(authorization.status, 201);
+    const emptyReport = { status: 404, body: { error: { code: 'NOT_FOUND', message: 'oral surgery operative report was not found' } } };
+    const initialDraft = await request('GET', url, admin);
+    const initialConsentHistory = await request('GET', `${url}/consent`, admin);
+    const initialAuthorizationHistory = await request('GET', `${url}/authorizations`, admin);
+    assert.deepEqual(await request('POST', `${reportUrl}/close`, teacher, {
+      expected_version: '1', expected_draft_version: '1',
+    }), emptyReport);
+    assert.deepEqual(await request('GET', reportUrl, admin), emptyReport);
+    assert.deepEqual(await request('GET', url, admin), initialDraft);
+    assert.deepEqual(await request('GET', `${url}/consent`, admin), initialConsentHistory);
+    assert.deepEqual(await request('GET', `${url}/authorizations`, admin), initialAuthorizationHistory);
+    const content = { asepsis: { extraoral: 'Recorded', intraoral: 'Recorded' },
+      anesthesia: { technique: 'Local', drug: 'Recorded', dose: 'Recorded' },
+      extraction: { teeth: '18', technique: 'Recorded', suture: 'Recorded' },
+      prescription: { medications: 'Recorded', route: 'Oral', dose: 'Recorded', frequency: 'Recorded', duration: 'Recorded' },
+      postoperative_instructions: 'Recorded', operative_incident: null };
+    const save = (version, draftVersion, value) => request('PATCH', reportUrl, author, {
+      expected_version: version, expected_draft_version: draftVersion, content: value,
+    });
+    const created = await request('POST', reportUrl, author, { expected_draft_version: '1', content: {} });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.status, 'draft'); assert.equal(created.body.version, '1');
+    assert.equal((await request('GET', reportUrl, otherStudent)).status, 404);
+    assert.deepEqual((await request('GET', reportUrl, admin)).body.content, {});
+    assert.equal((await save('9', '1', content)).status, 409);
+    assert.equal((await request('GET', reportUrl, admin)).body.version, '1');
+    const updated = await save('1', '1', content);
+    assert.equal(updated.status, 200, JSON.stringify(updated.body));
+    assert.equal(updated.body.version, '2'); assert.deepEqual(updated.body.content, content);
+    assert.deepEqual((await request('GET', url, author)).body.content, encounter.body.content);
+    const concurrent = await Promise.all([0, 1].map(() => save('2', '1', content)));
+    assert.deepEqual(concurrent.map(result => result.status).sort(), [200, 409]);
+    const winner = concurrent.find(result => result.status === 200);
+    assert.equal(winner.body.version, '3');
+    const preoperativeEdit = await request('PATCH', url, author, {
+      expected_version: '1', content: { treatment_plan: { procedure: 'Independent preoperative plan' }, medical_history: { hospitalized: false } },
+    });
+    assert.equal(preoperativeEdit.status, 200);
+    assert.equal((await request('POST', `${reportUrl}/close`, teacher, {
+      expected_version: '3', expected_draft_version: '1',
+    })).status, 409);
+    const currentAuthorization = await request('POST', `${url}/authorizations`, teacher, {
+      expected_version: '2', consent_declaration_id: consent.body.id, paper_consent_verified: true,
+    });
+    assert.equal(currentAuthorization.status, 201);
+    const reportBeforeRejectedClose = await request('GET', reportUrl, admin);
+    const draftBeforeRejectedClose = await request('GET', url, admin);
+    const authorizationsBeforeRejectedClose = await request('GET', `${url}/authorizations`, admin);
+    const consentBeforeRejectedClose = await request('GET', `${url}/consent`, admin);
+    assert.deepEqual(await request('POST', `${reportUrl}/close`, teacher, {
+      expected_version: '3', expected_draft_version: '2',
+    }), { status: 409, body: { error: { code: 'CONFLICT',
+      message: 'operative report does not match current clinical version; save it before closing' } } });
+    assert.deepEqual(await request('GET', reportUrl, admin), reportBeforeRejectedClose);
+    assert.deepEqual(await request('GET', url, admin), draftBeforeRejectedClose);
+    assert.deepEqual(await request('GET', `${url}/authorizations`, admin), authorizationsBeforeRejectedClose);
+    assert.deepEqual(await request('GET', `${url}/consent`, admin), consentBeforeRejectedClose);
+    const resaved = await save('3', '2', content);
+    assert.equal(resaved.status, 200); assert.equal(resaved.body.version, '4');
+    const closed = await request('POST', `${reportUrl}/close`, teacher, {
+      expected_version: '4', expected_draft_version: '2',
+    });
+    assert.equal(closed.status, 200, JSON.stringify(closed.body));
+    assert.equal(closed.body.status, 'closed'); assert.equal(closed.body.closed_by, f.teacher.id);
+    assert.ok(Number.isFinite(Date.parse(closed.body.closed_at)));
+    assert.equal((await save('4', '2', content)).status, 409);
+    assert.equal((await request('PATCH', url, author, {
+      expected_version: '2', content: { treatment_plan: { procedure: 'Changed' } },
+    })).status, 409);
+    assert.deepEqual(await request('GET', reportUrl, admin), { status: 200, body: closed.body });
+  });
+
 test('S3/S4/S5: instructor verification authorizes exact snapshots, preserves history and never survives edits',
   { skip: !selected, timeout: 120000 }, async () => {
     const f = await fixture();

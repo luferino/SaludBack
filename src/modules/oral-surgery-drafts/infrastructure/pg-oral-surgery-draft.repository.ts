@@ -1,9 +1,13 @@
 import type { Pool } from 'pg';
 import type { Queryable, UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
-import type { AuthorizationHistory, SurgeryAuthorization, ConsentDeclaration, ConsentHistory, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
+import type { AuthorizationHistory, SurgeryAuthorization, ConsentDeclaration, ConsentHistory, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, OperativeReport } from '../application/draft.ports.js';
 import type { DraftContent } from '../domain/content.js';
+import type { OperativeContent } from '../domain/operative-content.js';
 
+const REPORT_COLUMNS = `r.draft_id::text, r.draft_version::text, r.authorization_id::text,
+  r.content, r.version::text, r.status, r.created_by, r.created_at, r.updated_at,
+  r.closed_by, r.closed_at, r.teacher_habilitation_id`;
 const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_id,
   e.origin_student_habilitation_id, e.origin_subject_id, e.origin_group_id,
   e.content, e.status, e.version::text, e.created_at, e.updated_at`;
@@ -53,6 +57,132 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
     const assignment = assignments.rows.find(row => periods.rows.some(period => period.id === row.student_habilitation_id));
     if (!assignment) throw new NotFoundError('patient was not found');
     return assignment.student_habilitation_id;
+  }
+
+  private async currentAuthorization(db: Queryable, draftId: string, version: string): Promise<string> {
+    const result = await db.query<{ id: string }>(
+      `SELECT id::text FROM oral_surgery_authorizations
+       WHERE draft_id = $1 AND draft_version = $2 ORDER BY id DESC LIMIT 1 FOR KEY SHARE`, [draftId, version],
+    );
+    if (!result.rows.length) throw new ConflictError('current instructor authorization is required');
+    return result.rows[0].id;
+  }
+
+  async createOperativeReport(id: string, draftVersion: string, content: OperativeContent, actor: DraftActor) {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = (await db.query<DraftRow>(
+        `SELECT ${COLUMNS} FROM oral_surgery_drafts e WHERE e.id = $1 AND e.author_id = $2`, [id, actor.id],
+      )).rows[0];
+      if (!hint) throw new NotFoundError('oral surgery draft was not found');
+      try {
+        await this.authorizeWrite(db, { patientId: hint.patient_id, subjectId: hint.origin_subject_id, groupId: hint.origin_group_id }, actor);
+      } catch (error) {
+        if (error instanceof ForbiddenError || error instanceof NotFoundError) throw new NotFoundError('oral surgery draft was not found');
+        throw error;
+      }
+      const draft = (await db.query<{ version: string }>(
+        'SELECT version::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!draft || draft.version !== draftVersion) throw new ConflictError('draft version changed; reload before saving');
+      const existing = await db.query('SELECT 1 FROM oral_surgery_operative_reports WHERE draft_id = $1 FOR UPDATE', [id]);
+      if (existing.rows.length) throw new ConflictError('operative report already exists; reload before saving');
+      const authorizationId = await this.currentAuthorization(db, id, draftVersion);
+      const result = await db.query<OperativeReport>(
+        `INSERT INTO oral_surgery_operative_reports AS r (draft_id, draft_version, authorization_id, content, created_by)
+         VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING ${REPORT_COLUMNS}`,
+        [id, draftVersion, authorizationId, JSON.stringify(content), actor.id],
+      );
+      return result.rows[0];
+    });
+  }
+
+  async editOperativeReport(id: string, version: string, draftVersion: string, content: OperativeContent, actor: DraftActor) {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = (await db.query<DraftRow>(
+        `SELECT ${COLUMNS} FROM oral_surgery_drafts e WHERE e.id = $1 AND e.author_id = $2`, [id, actor.id],
+      )).rows[0];
+      if (!hint) throw new NotFoundError('oral surgery draft was not found');
+      try {
+        await this.authorizeWrite(db, { patientId: hint.patient_id, subjectId: hint.origin_subject_id, groupId: hint.origin_group_id }, actor);
+      } catch (error) {
+        if (error instanceof ForbiddenError || error instanceof NotFoundError) throw new NotFoundError('oral surgery draft was not found');
+        throw error;
+      }
+      const draft = (await db.query<{ version: string }>(
+        'SELECT version::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!draft || draft.version !== draftVersion) throw new ConflictError('draft version changed; reload before saving');
+      const report = (await db.query<{ version: string; status: string }>(
+        'SELECT version::text, status FROM oral_surgery_operative_reports WHERE draft_id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!report || report.version !== version || report.status !== 'draft') throw new ConflictError('operative report changed or is closed; reload before saving');
+      const authorizationId = await this.currentAuthorization(db, id, draftVersion);
+      const result = await db.query<OperativeReport>(
+        `UPDATE oral_surgery_operative_reports AS r SET content = $3::jsonb, draft_version = $4,
+           authorization_id = $5, version = version + 1, updated_at = clock_timestamp()
+         WHERE r.draft_id = $1 AND r.version = $2 AND r.status = 'draft' RETURNING ${REPORT_COLUMNS}`,
+        [id, version, JSON.stringify(content), draftVersion, authorizationId],
+      );
+      if (!result.rows.length) throw new ConflictError('operative report changed or is closed; reload before saving');
+      return result.rows[0];
+    });
+  }
+
+  async getOperativeReport(id: string, actor: DraftActor) {
+    const result = await this.pool.query<OperativeReport>(
+      `SELECT ${REPORT_COLUMNS} FROM oral_surgery_operative_reports r
+       JOIN oral_surgery_drafts e ON e.id = r.draft_id
+       WHERE e.id = $1 AND ${READ_ACCESS}`,
+      [id, actor.id, actor.role],
+    );
+    if (!result.rows.length) throw new NotFoundError('oral surgery operative report was not found');
+    return result.rows[0];
+  }
+
+  async closeOperativeReport(id: string, version: string, draftVersion: string, actor: DraftActor) {
+    if (actor.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = (await db.query<DraftRow>(`SELECT ${COLUMNS} FROM oral_surgery_drafts e WHERE e.id = $1`, [id])).rows[0];
+      if (!hint) throw new NotFoundError('oral surgery operative report was not found');
+      const periods = await db.query<{ id: string }>(
+        `SELECT th.id FROM teacher_academic_habilitations th JOIN teachers t ON t.id = th.teacher_id
+         WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+           AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+        [actor.id, hint.origin_subject_id, hint.origin_group_id],
+      );
+      if (!periods.rows.length) throw new NotFoundError('oral surgery operative report was not found');
+      const draft = (await db.query<{ version: string }>(
+        'SELECT version::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!draft || draft.version !== draftVersion) throw new ConflictError('draft version changed; reload before saving');
+      const report = (await db.query<{ version: string; status: string; draft_version: string; authorization_id: string }>(
+        'SELECT version::text, status, draft_version::text, authorization_id::text FROM oral_surgery_operative_reports WHERE draft_id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!report) throw new NotFoundError('oral surgery operative report was not found');
+      if (report.version !== version || report.status !== 'draft') throw new ConflictError('operative report changed or is closed; reload before saving');
+      if (report.draft_version !== draftVersion) {
+        throw new ConflictError('operative report does not match current clinical version; save it before closing');
+      }
+      const binding = await db.query(
+        `SELECT 1 FROM oral_surgery_authorizations
+         WHERE id = $1 AND draft_id = $2 AND draft_version = $3 FOR KEY SHARE`,
+        [report.authorization_id, id, draftVersion],
+      );
+      if (!binding.rows.length) {
+        throw new ConflictError('operative report does not match current clinical version; save it before closing');
+      }
+      const result = await db.query<OperativeReport>(
+        `UPDATE oral_surgery_operative_reports AS r SET status = 'closed', closed_by = $3,
+           closed_at = clock_timestamp(), teacher_habilitation_id = $4, version = version + 1,
+           updated_at = clock_timestamp()
+         WHERE r.draft_id = $1 AND r.version = $2 AND r.status = 'draft' RETURNING ${REPORT_COLUMNS}`,
+        [id, version, actor.id, periods.rows[0].id],
+      );
+      if (!result.rows.length) throw new ConflictError('operative report changed or is closed; reload before saving');
+      return result.rows[0];
+    });
   }
 
   async create(input: DraftInput, actor: DraftActor): Promise<DraftRow> {
@@ -219,6 +349,12 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
         if (error instanceof ForbiddenError || error instanceof NotFoundError) throw new NotFoundError('oral surgery draft was not found');
         throw error;
       }
+      const locked = (await db.query<{ version: string }>(
+        'SELECT version::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
+      )).rows[0];
+      if (!locked || locked.version !== version) throw new ConflictError('draft version changed; reload before saving');
+      const closed = await db.query('SELECT 1 FROM oral_surgery_operative_reports WHERE draft_id = $1 AND status = \'closed\'', [id]);
+      if (closed.rows.length) throw new ConflictError('closed oral surgery encounter is immutable');
       const result = await db.query<DraftRow>(
         `UPDATE oral_surgery_drafts AS e SET content = $3::jsonb, version = version + 1,
            updated_at = clock_timestamp() WHERE e.id = $1 AND e.version = $2 AND e.author_id = $4

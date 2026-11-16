@@ -39,7 +39,7 @@ const SUBJECT_IDS = [
   '10000000-0000-4000-8000-000000000003',
 ];
 const EXPECTED_PERMISSIONS = new Set([
-  'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write',
+  'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close',
   'oral-surgery-subjects:read', 'oral-surgery-subjects:write',
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
@@ -50,7 +50,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage',
 ]);
 const EXPECTED_GRANTS = new Set([
-  'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read',
+  'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close',
   'estudiante:oral-surgery-drafts:read', 'estudiante:oral-surgery-drafts:write',
   'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write',
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -303,10 +303,10 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 46);
+  assert.equal(permissions.length, 47);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 60);
+  assert.equal(grants.length, 61);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

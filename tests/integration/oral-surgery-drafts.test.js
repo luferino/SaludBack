@@ -299,9 +299,18 @@ test('S1/S2/S3: operative report saves are versioned, visibility follows origin,
     assert.equal(closed.body.status, 'closed'); assert.equal(closed.body.closed_by, f.teacher.id);
     assert.ok(Number.isFinite(Date.parse(closed.body.closed_at)));
     assert.equal((await save('4', '2', content)).status, 409);
-    assert.equal((await request('PATCH', url, author, {
+    const immutable = { status: 409, body: { error: { code: 'CONFLICT', message: 'closed oral surgery encounter is immutable' } } };
+    assert.deepEqual(await request('PATCH', url, author, {
       expected_version: '2', content: { treatment_plan: { procedure: 'Changed' } },
-    })).status, 409);
+    }), immutable);
+    const consents = await request('GET', `${url}/consent`, admin);
+    const authorizations = await request('GET', `${url}/authorizations`, admin);
+    assert.deepEqual(await request('POST', `${url}/consent`, author, { expected_version: '2', paper_signed: true }), immutable);
+    assert.deepEqual(await request('POST', `${url}/authorizations`, teacher, {
+      expected_version: '2', consent_declaration_id: consent.body.id, paper_consent_verified: true,
+    }), immutable);
+    assert.deepEqual(await request('GET', `${url}/consent`, admin), consents);
+    assert.deepEqual(await request('GET', `${url}/authorizations`, admin), authorizations);
     assert.deepEqual(await request('GET', reportUrl, admin), { status: 200, body: closed.body });
   });
 

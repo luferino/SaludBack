@@ -59,6 +59,12 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
     return assignment.student_habilitation_id;
   }
 
+  // Callers hold the draft row lock, which closure also takes, so this check cannot race a close.
+  private async assertOpen(db: Queryable, draftId: string): Promise<void> {
+    const closed = await db.query('SELECT 1 FROM oral_surgery_operative_reports WHERE draft_id = $1 AND status = \'closed\'', [draftId]);
+    if (closed.rows.length) throw new ConflictError('closed oral surgery encounter is immutable');
+  }
+
   private async currentAuthorization(db: Queryable, draftId: string, version: string): Promise<string> {
     const result = await db.query<{ id: string }>(
       `SELECT id::text FROM oral_surgery_authorizations
@@ -249,6 +255,7 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
         'SELECT version::text, plan_revision::text, content FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
       )).rows[0];
       if (!draft || draft.version !== version) throw new ConflictError('draft version changed; reload before saving');
+      await this.assertOpen(db, id);
       const consent = await db.query<{ id: string }>(
         `SELECT id::text FROM oral_surgery_consent_declarations
          WHERE id = $1 AND draft_id = $2 AND plan_revision = $3 FOR KEY SHARE`, [consentId, id, draft.plan_revision],
@@ -303,6 +310,7 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
         'SELECT version::text, plan_revision::text, content FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
       )).rows[0];
       if (!draft || draft.version !== version) throw new ConflictError('draft version changed; reload before saving');
+      await this.assertOpen(db, id);
       return (await db.query<ConsentDeclaration>(
         `INSERT INTO oral_surgery_consent_declarations
          (draft_id, draft_version, plan_revision, treatment_plan, declared_by)
@@ -353,8 +361,7 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
         'SELECT version::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id],
       )).rows[0];
       if (!locked || locked.version !== version) throw new ConflictError('draft version changed; reload before saving');
-      const closed = await db.query('SELECT 1 FROM oral_surgery_operative_reports WHERE draft_id = $1 AND status = \'closed\'', [id]);
-      if (closed.rows.length) throw new ConflictError('closed oral surgery encounter is immutable');
+      await this.assertOpen(db, id);
       const result = await db.query<DraftRow>(
         `UPDATE oral_surgery_drafts AS e SET content = $3::jsonb, version = version + 1,
            updated_at = clock_timestamp() WHERE e.id = $1 AND e.version = $2 AND e.author_id = $4

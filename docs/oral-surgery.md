@@ -211,6 +211,7 @@ Content-Type: application/json
 - If the report was not resaved against the current draft version, or its stored authorization does not belong to that exact encounter/version, closure returns 409 `operative report does not match current clinical version; save it before closing`. A later authorization for the same unchanged draft version does not invalidate the report's already-bound valid authorization.
 - Missing reports and teachers without active original-context habilitation return 404 `oral surgery operative report was not found`. Wrong roles return 403 `teacher instructor role required`.
 - Closure is irreversible through this API. Closed report content and preoperative clinical content cannot be edited, including by direct SQL updates; consent and authorization histories remain. No delete or reopen endpoint is provided.
+- After closure, `PATCH /oral-surgery-drafts/:id`, `POST /oral-surgery-drafts/:id/consent` and `POST /oral-surgery-drafts/:id/authorizations` return 409 `closed oral surgery encounter is immutable` without writing; they still check access and the expected draft version first. Report writes return 409 as described above.
 - Migration 049 stores one report per encounter and enforces closed-content immutability.
 
 ## Scope

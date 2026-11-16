@@ -90,6 +90,44 @@ test('S2: closing a missing report on an accessible encounter returns the report
   assert.equal(updated, false);
 });
 
+function closedEncounterDb(closed) {
+  const writes = [];
+  const db = { async query(sql) {
+    if (sql.includes('FROM oral_surgery_drafts e WHERE e.id = $1')) return { rows: [{
+      id: '1', clinical_record_id: '10', patient_id: 'patient', author_id: user,
+      origin_subject_id: 'subject', origin_group_id: 'group',
+    }] };
+    if (sql.includes('FROM students WHERE')) return { rows: [{ id: 'student' }] };
+    if (sql.includes('FROM student_academic_habilitations h')) return { rows: [{ id: 'period' }] };
+    if (sql.includes('FROM patients WHERE')) return { rows: [{ id: 'patient' }] };
+    if (sql.includes('FROM patient_assignments a')) return { rows: [{ id: 'assignment', student_habilitation_id: 'period' }] };
+    if (sql.includes('FROM teacher_academic_habilitations th')) return { rows: [{ id: 'teacher-period' }] };
+    if (sql.includes('FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE'))
+      return { rows: [{ version: '2', plan_revision: '1', content: { treatment_plan: { procedure: 'Plan' } } }] };
+    if (sql.includes("FROM oral_surgery_operative_reports WHERE draft_id = $1 AND status = 'closed'"))
+      return { rows: closed ? [{ '?column?': 1 }] : [] };
+    if (sql.includes('FROM oral_surgery_consent_declarations')) return { rows: [{ id: '4' }] };
+    if (sql.startsWith('INSERT') || sql.trimStart().startsWith('INSERT')) { writes.push(sql); return { rows: [{ id: 'new' }] }; }
+    throw new Error(`unexpected SQL: ${sql}`);
+  } };
+  return { db, writes, repository: new PgOralSurgeryDraftRepository({ async withTransaction(run) { return run(db); } }, db) };
+}
+
+test('S2: a closed encounter rejects new consent declarations and instructor authorizations without writes', async () => {
+  const closed = closedEncounterDb(true);
+  const immutable = error => error.statusCode === 409 && error.message === 'closed oral surgery encounter is immutable';
+  await assert.rejects(closed.repository.declareConsent('1', '2', { id: user, role: 'estudiante' }), immutable);
+  await assert.rejects(closed.repository.authorizeSurgery('1', '2', '4', { id: user, role: 'teacher' }), immutable);
+  assert.deepEqual(closed.writes, []);
+});
+
+test('S3: an open encounter still records consent declarations and instructor authorizations', async () => {
+  const open = closedEncounterDb(false);
+  assert.deepEqual(await open.repository.declareConsent('1', '2', { id: user, role: 'estudiante' }), { id: 'new' });
+  assert.deepEqual(await open.repository.authorizeSurgery('1', '2', '4', { id: user, role: 'teacher' }), { id: 'new' });
+  assert.equal(open.writes.length, 2);
+});
+
 test('S2: close rejects an operative report saved against an older clinical version without writes', async () => {
   let updated = false;
   let reportDraftVersion = '1';

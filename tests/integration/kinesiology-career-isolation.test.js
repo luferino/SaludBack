@@ -173,6 +173,31 @@ test('odontology-context student and teacher see kinesiology records of the shar
     }
   });
 
+test('odontology-context actors never receive a pending kinesiology evolution correction',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const evaluationId = await validatedEvaluation(f);
+    const evolutionId = await submittedEvolution(f, evaluationId);
+    const studentJwt = await token(f.student), teacherJwt = await token(f.teacher);
+    const history = await request('GET', `/kinesiology-evolutions/${evolutionId}/submissions`, studentJwt);
+    assert.equal(history.status, 200, JSON.stringify(history.body));
+    const reason = 'Odontology readers must not see this reason';
+    const correction = await request('POST', `/kinesiology-evolutions/${evolutionId}/corrections`, teacherJwt,
+      { submission_id: history.body.items[0].id, reason });
+    assert.equal(correction.status, 201, JSON.stringify(correction.body));
+    assert.equal((await request('GET', `/kinesiology-evolutions/${evolutionId}`, studentJwt)).body.pending_correction.reason, reason,
+      'the origin author sees the pending correction');
+    for (const actor of [f.odontologyStudent, f.odontologyTeacher]) {
+      const jwt = await token(actor);
+      assert.deepEqual(await request('GET', `/kinesiology-evolutions/${evolutionId}`, jwt), evolutionNotFound,
+        `evolution detail during a pending correction for ${actor.username}`);
+      assert.deepEqual(await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, jwt), { status: 200, body: { items: [] } },
+        `evolution list during a pending correction for ${actor.username}`);
+      assert.deepEqual(await request('GET', `/kinesiology-evolutions/${evolutionId}/corrections`, jwt), evolutionNotFound,
+        `correction history during a pending correction for ${actor.username}`);
+    }
+  });
+
 test('a kinesiology cross-context reader in another kinesiology subject still reads the latest snapshot',
   { skip: !selected, timeout: 120000 }, async () => {
     const f = await fixture();

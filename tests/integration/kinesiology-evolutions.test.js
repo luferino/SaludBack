@@ -281,6 +281,14 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
       'author list item exposes the pending correction');
     assert.deepEqual((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, teacherJwt)).body.pending_correction, firstPending,
       'origin teacher detail exposes the pending correction');
+    assert.deepEqual((await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, teacherJwt)).body.items
+      .find(item => item.id === draft.body.id).pending_correction, firstPending, 'origin teacher list item exposes the pending correction');
+    const adminDetailDuringCorrection = await request('GET', `/kinesiology-evolutions/${draft.body.id}`, adminJwt);
+    const adminListDuringCorrection = await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, adminJwt);
+    assert.equal(adminDetailDuringCorrection.status, 403, 'admin detail stays forbidden during a pending correction');
+    assert.equal(adminListDuringCorrection.status, 403, 'admin list stays forbidden during a pending correction');
+    assert.equal(JSON.stringify([adminDetailDuringCorrection.body, adminListDuringCorrection.body]).includes(reason), false,
+      'admin responses never carry the pending correction reason');
     const changed = evolutionContent({ current_status: 'Stable with residual stiffness' });
     assert.equal((await request('PATCH', `/kinesiology-evolutions/${draft.body.id}`, studentJwt, { content: changed })).status, 200);
     const second = await request('POST', `/kinesiology-evolutions/${draft.body.id}/submissions`, studentJwt, {});
@@ -367,6 +375,10 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
     const amendment = await request('POST', `/kinesiology-evolutions/${draft.body.id}/amendments`, studentJwt, {});
     assert.equal(amendment.status, 201);
     assert.equal(amendment.body.amendment_of_evolution_id, draft.body.id);
+    assert.equal(Object.hasOwn((await request('GET', `/kinesiology-evolutions/${amendment.body.id}`, studentJwt)).body, 'pending_correction'),
+      false, 'an amendment draft does not inherit the corrections of its original');
+    assert.equal(Object.hasOwn((await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, studentJwt)).body.items
+      .find(item => item.id === amendment.body.id), 'pending_correction'), false, 'an amendment list item does not inherit the corrections of its original');
     const amendmentContent = evolutionContent({ current_status: 'New symptom after treatment' });
     assert.equal((await request('PATCH', `/kinesiology-evolutions/${amendment.body.id}`, studentJwt, { content: amendmentContent })).status, 200);
     const amendmentSubmit1 = await request('POST', `/kinesiology-evolutions/${amendment.body.id}/submissions`, studentJwt, {});
@@ -535,4 +547,46 @@ test('evolutions preserve immutable versions, authorization privacy, SQL constra
       'replacement-authored amendment starts from the immutable validated snapshot');
     assert.equal((await request('GET', `/kinesiology-evolutions/${reassigned.body.id}`, studentJwt)).status, 404,
       'replacement access does not restore former-author access');
+  });
+
+test('a former origin author with cross-context access never receives the pending correction',
+  { skip: !selected, timeout: 60000 }, async () => {
+    const f = await fixture();
+    const studentJwt = await token(f.student), teacherJwt = await token(f.teacher);
+    const evaluation = await validEvaluation(f, studentJwt, teacherJwt);
+    const content = evolutionContent({ current_status: 'Submitted before the author moved context' });
+    const draft = await createEvolution(f, evaluation, studentJwt, content);
+    assert.equal(draft.status, 201);
+    const submitted = await request('POST', `/kinesiology-evolutions/${draft.body.id}/submissions`, studentJwt, {});
+    assert.equal(submitted.status, 201);
+    const reason = 'Former author must not see this reason';
+    const correction = await request('POST', `/kinesiology-evolutions/${draft.body.id}/corrections`, teacherJwt,
+      { submission_id: submitted.body.id, reason });
+    assert.equal(correction.status, 201);
+    const pending = { reason, requested_at: correction.body.requested_at, reviewed_by: f.teacher.id };
+    assert.deepEqual((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt)).body.pending_correction, pending,
+      'the author sees the pending correction while the origin assignment is live');
+
+    // A patient has one active assignment per subject, so the other context's student hands the patient over first.
+    await pool.query(`UPDATE patient_assignments SET ended_by=$2,ended_at=clock_timestamp()
+      WHERE student_habilitation_id=$1 AND ended_at IS NULL`, [f.otherPeriod, f.otherTeacher.id]);
+    await renewStudentPeriod(f, f.period, f.student.id, f.other, f.otherTeacher.id, f.admin.id);
+    const detail = await request('GET', `/kinesiology-evolutions/${draft.body.id}`, studentJwt);
+    assert.equal(detail.status, 200, 'the former author keeps same-career cross-context read access');
+    assert.equal(detail.body.status, 'submitted');
+    assert.deepEqual(detail.body.content, content);
+    assert.equal(detail.body.submission_id, submitted.body.id);
+    const list = await request('GET', `/kinesiology-evolutions?patient_id=${f.patient}`, studentJwt);
+    assert.equal(list.status, 200);
+    const item = list.body.items.find(entry => entry.id === draft.body.id);
+    assert.equal(item.status, 'submitted');
+    for (const projected of [detail.body, item]) {
+      assert.equal(Object.hasOwn(projected, 'pending_correction'), false,
+        'a former origin author reads as cross-context and never receives a pending correction');
+    }
+    assert.equal(JSON.stringify([detail.body, list.body]).includes(reason), false, 'the correction reason stays private to origin readers');
+    assert.equal((await request('GET', `/kinesiology-evolutions/${draft.body.id}/corrections`, studentJwt)).status, 404,
+      'the former author loses the correction history');
+    assert.deepEqual((await request('GET', `/kinesiology-evolutions/${draft.body.id}`, teacherJwt)).body.pending_correction, pending,
+      'the origin teacher still sees the pending correction');
   });

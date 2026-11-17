@@ -18,7 +18,7 @@ const MIGRATIONS = [
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
   '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql','026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql','031_create_kinesiology_evolutions.sql','032_seed_kinesiology_evolution_permissions.sql',
-   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql','045_create_reception_access.sql','046_create_reception_patient_enrollments.sql','047_seed_reception_availability_permissions.sql','048_create_user_role_grants.sql','049_create_oral_surgery_operative_reports.sql','050_seed_oral_surgery_operative_report_permissions.sql','051_create_oral_surgery_practical_evaluations.sql','052_seed_oral_surgery_grade_permission.sql',
+   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql','045_create_reception_access.sql','046_create_reception_patient_enrollments.sql','047_seed_reception_availability_permissions.sql','048_create_user_role_grants.sql','049_create_oral_surgery_operative_reports.sql','050_seed_oral_surgery_operative_report_permissions.sql','051_create_oral_surgery_practical_evaluations.sql','052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
@@ -111,7 +111,7 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–052 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–053 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
     assert.equal(permissions.length, 48, 'exact 48-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
@@ -470,21 +470,27 @@ test('cross-context readers see only the last submitted snapshot while current p
 });
 
 test('submission content, consent, fresh grant, and private target denials preserve documents and versions',async()=>{
-  const f=await fixture(), {draft,studentJwt,teacherJwt}=await readyForSubmission(f,completeContent({illness_history:'   '}));
-  const path=`/kinesiology-evaluations/${draft.id}/submissions`;
+  const f=await fixture(), studentJwt=await token(f.student), teacherJwt=await token(f.teacher);
+  const created=await request('POST','/kinesiology-evaluations',studentJwt,{...createBody(f),content:completeContent()});
+  assert.equal(created.status,201);
+  const draft=created.body, path=`/kinesiology-evaluations/${draft.id}/submissions`;
   const unchanged=async()=> (await pool.query('SELECT content,status,updated_at FROM kinesiology_evaluations WHERE id=$1',[draft.id])).rows[0];
   let before=await unchanged();
+  // Consent history is append-only (migration 053), so missing consent is exercised before it is ever recorded.
+  const missingConsent=await request('POST',path,studentJwt,{});
+  assert.equal(missingConsent.status,409); assert.deepEqual(missingConsent.body,{error:{code:'CONFLICT',message:'verified paper consent is required before submission'}});
+  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
+  assert.deepEqual(await unchanged(),before);
+  assert.equal((await request('POST',`/kinesiology-evaluations/${draft.id}/consent`,teacherJwt,{paper_signature_date:'2026-01-12'})).status,201);
+  const incomplete=await request('PATCH',`/kinesiology-evaluations/${draft.id}`,studentJwt,{content:completeContent({illness_history:'   '})});
+  assert.equal(incomplete.status,200);
+  before=await unchanged();
   const invalid=await request('POST',path,studentJwt,{});
   assert.equal(invalid.status,400); assert.deepEqual(invalid.body,{error:{code:'BAD_REQUEST',message:'illness_history is required for submission'}});
   assert.deepEqual(await unchanged(),before);
   const completed=await request('PATCH',`/kinesiology-evaluations/${draft.id}`,studentJwt,{content:completeContent()});
   assert.equal(completed.status,200);
   before=await unchanged();
-  await pool.query('DELETE FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[draft.id]);
-  const missingConsent=await request('POST',path,studentJwt,{});
-  assert.equal(missingConsent.status,409); assert.deepEqual(missingConsent.body,{error:{code:'CONFLICT',message:'verified paper consent is required before submission'}});
-  assert.equal((await pool.query('SELECT count(*)::int n FROM kinesiology_consent_attestations WHERE evaluation_id=$1',[draft.id])).rows[0].n,0);
-  await request('POST',`/kinesiology-evaluations/${draft.id}/consent`,teacherJwt,{paper_signature_date:'2026-01-12'});
   await pool.query("DELETE FROM role_permissions WHERE role='estudiante' AND permission='kinesiology-evaluations:submit'");
   try {
     const staleGrant=await request('POST',path,studentJwt,{});

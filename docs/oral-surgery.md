@@ -267,7 +267,7 @@ Content-Type: application/json
 - Non-teacher roles return 403 `teacher instructor role required`. Callers without the grade permission return 403 `Permission 'oral-surgery-drafts:grade' required`.
 - Invalid items return 400 `missing practical item: <key>`, `unknown practical item: <key>`, or `<key> must be an integer from 0 to <max>`. Unknown body fields return 400 `allowed fields: items` (grade) or `allowed fields: expected_revision, reason, items` (correction). An invalid reason returns 400 `reason must be non-empty text of at most 4000 characters without NUL`.
 - `GET` with no grade yet returns 404 `oral surgery practical evaluation was not found`.
-- Revisions are append-only at the database level: migration 051 rejects any `UPDATE` on evaluation rows and checks item bounds, the total, the outcome, and that revision 1 has no reason while later revisions have one. No endpoint updates or deletes evaluation rows.
+- Revisions are append-only at the database level: migration 051 rejects any `UPDATE` on evaluation rows and checks item bounds, the total, the outcome, and that revision 1 has no reason while later revisions have one. Migration 053 rejects any `DELETE` on evaluation rows, consent declarations and instructor authorizations (`clinical history rows cannot be deleted from <table>`). No endpoint updates or deletes evaluation rows.
 - Migration 051 creates the table; migration 052 seeds the grade permission.
 
 ## Scope

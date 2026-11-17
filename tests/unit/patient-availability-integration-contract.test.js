@@ -42,12 +42,15 @@ for (const seed of permissionSeeds) {
   for (const match of sql.matchAll(/\('([^']+:[^']+)',\s*(?:true|false)\)/g)) permissions.add(match[1]);
   for (const match of sql.matchAll(/\('(admin|teacher|estudiante|reception)',\s*'([^']+)'\)/g)) grants.add(`${match[1]}:${match[2]}`);
 }
-test('clinical cleanup deletes separate evolution rows before their evaluation parents and reseeds exact grants', () => {
+test('clinical cleanup truncates evolution rows together with their evaluation parents and reseeds exact grants', () => {
   const source = readFileSync('tests/integration/helpers/clean-db.js', 'utf8');
-  assert.ok(source.indexOf("DELETE FROM kinesiology_evolution_amendment_links") < source.indexOf("DELETE FROM kinesiology_evolutions"));
-  assert.ok(source.indexOf("DELETE FROM kinesiology_evolutions") < source.indexOf("DELETE FROM kinesiology_evaluations"));
-  assert.ok(source.indexOf('DELETE FROM kinesiology_evolution_correction_requests') < source.indexOf('DELETE FROM kinesiology_evolutions'));
-  assert.ok(source.indexOf('DELETE FROM kinesiology_evolution_validation_reviews') < source.indexOf('DELETE FROM kinesiology_evolution_submissions'));
+  const historyTruncate = source.match(/TRUNCATE (kinesiology_[^']*)'/)?.[1] ?? '';
+  for (const table of ['kinesiology_evolution_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations',
+    'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions']) {
+    assert.match(historyTruncate, new RegExp(`\\b${table}\\b`), table);
+    assert.equal(source.includes(`DELETE FROM ${table}'`), false, table);
+  }
+  assert.ok(source.indexOf(`TRUNCATE ${historyTruncate}`) < source.indexOf('DELETE FROM patient_assignments'));
   assert.match(source, /034_seed_kinesiology_evolution_review_permissions\.sql/);
   assert.ok(source.indexOf('DELETE FROM reception_patient_enrollments') < source.indexOf('DELETE FROM patients'));
   assert.ok(source.indexOf('DELETE FROM reception_career_grants') < source.indexOf('DELETE FROM users'));

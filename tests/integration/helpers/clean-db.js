@@ -3,9 +3,10 @@
  *
  * Deletes dependent habilitation, profile, catalog and clinical tables BEFORE
  * their parents and users, so no suite's beforeEach()/after() trips a FK
- * constraint on leftover rows. It first verifies the single column UPDATE privilege
- * needed to clear the correction FK cycle. The order below is the contract:
- * `clear correction_from_submission_id -> one TRUNCATE of the clinical history closure
+ * constraint on leftover rows. The correction FK cycle (kinesiology_evaluations <->
+ * kinesiology_evaluation_submissions) lies inside the truncated closure, so no link UPDATE is
+ * needed. The order below is the contract:
+ * `one TRUNCATE of the clinical history closure
  * (every kinesiology_* table plus oral_surgery_practical_evaluations, oral_surgery_operative_reports,
  * oral_surgery_authorizations and oral_surgery_consent_declarations; migration 053 rejects DELETE on the
  * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
@@ -123,13 +124,6 @@ const receptionAvailabilityPermissionSeedSql = receptionAvailabilityPermissionMi
 if (!receptionAvailabilityPermissionSeedSql) throw new Error('Reception availability permission seed is missing from migration 047');
 
 export async function cleanDb(pool) {
-  const { rows } = await pool.query(
-    "SELECT has_column_privilege(current_user, 'public.kinesiology_evaluations', 'correction_from_submission_id', 'UPDATE') AS allowed",
-  );
-  if (rows[0]?.allowed !== true) {
-    throw new Error('Database role lacks UPDATE privilege on public.kinesiology_evaluations.correction_from_submission_id required to clear correction links before cleanup');
-  }
-  await pool.query('UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
   await pool.query('TRUNCATE kinesiology_evolution_correction_requests, kinesiology_evolution_validation_reviews, kinesiology_evolution_submissions, kinesiology_evaluation_correction_requests, kinesiology_evaluation_validation_reviews, kinesiology_evaluation_amendment_links, kinesiology_evaluation_submission_studies, kinesiology_evaluation_submissions, kinesiology_consent_attestations, kinesiology_evolution_amendment_links, kinesiology_evolutions, kinesiology_evaluations, oral_surgery_practical_evaluations, oral_surgery_operative_reports, oral_surgery_authorizations, oral_surgery_consent_declarations');
   await pool.query('DELETE FROM oral_surgery_drafts');
   await pool.query('DELETE FROM patient_assignments');

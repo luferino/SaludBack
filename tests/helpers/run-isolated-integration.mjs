@@ -13,6 +13,9 @@ import {
 
 const ROOT = process.cwd();
 const OPTIONS = '-c statement_timeout=5000 -c lock_timeout=1500';
+// DROP DATABASE forces a checkpoint on Windows and removes every relation file left by per-test
+// TRUNCATE cleanup, so only the drop client gets a longer bound; identity checks keep 5 s.
+const DROP_OPTIONS = '-c statement_timeout=60000 -c lock_timeout=1500';
 const safe = (message) => { const error = new Error(message); error.safe = true; throw error; };
 const norm = (value) => value?.replace(/^::ffff:/, '').replace(/^\[|\]$/g, '').split('/')[0].toLowerCase();
 const loopback = (value) => { const ip = norm(value); return net.isIP(ip) === 4 ? ip.startsWith('127.') : ip === '::1'; };
@@ -202,7 +205,7 @@ async function cleanup(source, resolved, run, handle) {
       await client.query('ROLLBACK'); safe(`cleanup required; stop owned connections, verify ${run.name} oid=${run.oid} owner=${run.owner} server=${run.serverAddress}:${run.serverPort}; manifest=${run.manifestPath}`);
     }
     await client.query('ROLLBACK'); await client.end();
-    const dropper=new pg.Client({connectionString:url.toString(),connectionTimeoutMillis:5000,statement_timeout:5000,query_timeout:6000,options:OPTIONS});
+    const dropper=new pg.Client({connectionString:url.toString(),connectionTimeoutMillis:5000,statement_timeout:60000,query_timeout:65000,options:DROP_OPTIONS});
     try {
       await dropper.connect();
       const check=await identify(dropper,resolved);

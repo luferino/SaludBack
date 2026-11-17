@@ -174,3 +174,13 @@ test('runner discovers every sorted integration test and rejects an empty discov
   assert.match(discovery, /suites\.length\s*===\s*0/);
   assert.doesNotMatch(source, /const SUITES\s*=\s*\[/);
 });
+
+test('only the DROP DATABASE client gets a 60 s timeout; identity checks keep the 5 s bound', () => {
+  const source = readFileSync(runner, 'utf8');
+  const dropper = source.match(/const dropper=new pg\.Client\(\{([^}]*)\}\)/)?.[1] ?? '';
+  assert.match(dropper, /statement_timeout:60000,query_timeout:65000,options:DROP_OPTIONS/);
+  assert.match(source, /const DROP_OPTIONS = '-c statement_timeout=60000 -c lock_timeout=1500';/);
+  assert.match(source, /const OPTIONS = '-c statement_timeout=5000 -c lock_timeout=1500';/);
+  assert.equal((source.match(/statement_timeout:60000/g) ?? []).length, 1);
+  assert.match(source, /const client = new pg\.Client\(\{ connectionString:url\.toString\(\), connectionTimeoutMillis:5000, statement_timeout:5000, query_timeout:6000, options:OPTIONS \}\);/);
+});

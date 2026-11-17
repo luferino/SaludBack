@@ -1,4 +1,5 @@
 import type { OperativeContent } from '../domain/operative-content.js';
+import type { PracticalItems, PracticalOutcome } from '../domain/practical-evaluation.js';
 import type { DraftContent } from '../domain/content.js';
 
 export interface DraftActor { id: string; role: string }
@@ -33,7 +34,21 @@ export interface OperativeReport {
   created_by: string; created_at: Date | string; updated_at: Date | string;
   closed_by: string | null; closed_at: Date | string | null; teacher_habilitation_id: string | null;
 }
+export interface PracticalRevision {
+  revision: string; items: PracticalItems; total: number; outcome: PracticalOutcome;
+  reason: string | null; graded_by: string; teacher_habilitation_id: string; graded_at: Date | string;
+}
+// Students see only the current grade; teachers and admins also see every revision.
+export interface PracticalStudentView {
+  current: { items: PracticalItems; total: number; outcome: PracticalOutcome; graded_at: Date | string };
+}
+export interface PracticalInstructorView {
+  current: PracticalRevision; history: PracticalRevision[];
+}
 export interface DraftRepositoryPort {
+  gradePracticalEvaluation(id: string, items: PracticalItems, actor: DraftActor): Promise<PracticalRevision>;
+  correctPracticalEvaluation(id: string, expectedRevision: string, reason: string, items: PracticalItems, actor: DraftActor): Promise<PracticalRevision>;
+  getPracticalEvaluation(id: string, actor: DraftActor): Promise<PracticalStudentView | PracticalInstructorView>;
   createOperativeReport(id: string, draftVersion: string, content: OperativeContent, actor: DraftActor): Promise<OperativeReport>;
   editOperativeReport(id: string, version: string, draftVersion: string, content: OperativeContent, actor: DraftActor): Promise<OperativeReport>;
   getOperativeReport(id: string, actor: DraftActor): Promise<OperativeReport>;

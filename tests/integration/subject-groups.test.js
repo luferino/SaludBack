@@ -34,9 +34,10 @@ const MIGRATIONS = [
   '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql',
   '048_create_user_role_grants.sql', '049_create_oral_surgery_operative_reports.sql',
   '050_seed_oral_surgery_operative_report_permissions.sql',
+  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
-  'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close',
+  'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
   'oral-surgery-subjects:read', 'oral-surgery-subjects:write',
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read',
@@ -48,7 +49,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage',
 ]);
 const EXPECTED_GRANTS = new Set([
-  'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close',
+  'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close', 'teacher:oral-surgery-drafts:grade',
   'estudiante:oral-surgery-drafts:read', 'estudiante:oral-surgery-drafts:write',
   'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write',
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
@@ -68,7 +69,7 @@ const CLEANUP_TABLES = [
   'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions',
   'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
   'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolution_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
-  'subject_academic_groups', 'academic_groups', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'subjects', 'clinical_records', 'patients',
+  'subject_academic_groups', 'academic_groups', 'oral_surgery_practical_evaluations', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'reception_patient_enrollments', 'reception_career_grants', 'users',
 ];
 const REQUIRED_TABLES = [...CLEANUP_TABLES, 'careers', 'permissions', 'role_permissions', 'schema_migrations'];
@@ -233,11 +234,11 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–050 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–052 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 47, 'Expected the full 47-permission baseline before cleanup.');
+  assert.equal(permissions.length, 48, 'Expected the full 48-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -246,7 +247,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 61, 'Expected the full 61-grant baseline before cleanup.');
+  assert.equal(grants.length, 62, 'Expected the full 62-grant baseline before cleanup.');
 
   const checks = [
     ...CLEANUP_TABLES.map((table_name) => ({ table_name, privilege: 'DELETE' })),
@@ -363,8 +364,8 @@ before(async () => {
   await verifyDestructivePreflight();
   KINESIOLOGY_CAREER_ID = await kinesiologyCareerId(pool);
   cleanupAuthorized = true;
-  // cleanDb issues 58 non-transactional query calls:
-  // one privilege probe, one correction-link UPDATE, 32 ordered DELETEs, one TRUNCATE, and 23 permission-seed batches.
+  // cleanDb issues 60 non-transactional query calls:
+  // one privilege probe, one correction-link UPDATE, 33 ordered DELETEs, one TRUNCATE, and 24 permission-seed batches.
   // Its destructive scope is not atomic; failed preflight never reaches cleanup.
   await cleanDb(pool);
   await seedUser(ADMIN_ID, 'SUBJECT_GROUPS_ADMIN', 'admin');

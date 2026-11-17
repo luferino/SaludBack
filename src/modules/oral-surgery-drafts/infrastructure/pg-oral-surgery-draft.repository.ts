@@ -1,9 +1,11 @@
 import type { Pool } from 'pg';
 import type { Queryable, UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
-import type { AuthorizationHistory, SurgeryAuthorization, ConsentDeclaration, ConsentHistory, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, OperativeReport } from '../application/draft.ports.js';
+import type { AuthorizationHistory, SurgeryAuthorization, ConsentDeclaration, ConsentHistory, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, OperativeReport, PracticalInstructorView, PracticalRevision, PracticalStudentView } from '../application/draft.ports.js';
 import type { DraftContent } from '../domain/content.js';
 import type { OperativeContent } from '../domain/operative-content.js';
+import { PRACTICAL_RUBRIC, practicalOutcome, practicalTotal } from '../domain/practical-evaluation.js';
+import type { PracticalItemKey, PracticalItems, PracticalOutcome } from '../domain/practical-evaluation.js';
 
 const REPORT_COLUMNS = `r.draft_id::text, r.draft_version::text, r.authorization_id::text,
   r.content, r.version::text, r.status, r.created_by, r.created_at, r.updated_at,
@@ -11,6 +13,28 @@ const REPORT_COLUMNS = `r.draft_id::text, r.draft_version::text, r.authorization
 const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_id,
   e.origin_student_habilitation_id, e.origin_subject_id, e.origin_group_id,
   e.content, e.status, e.version::text, e.created_at, e.updated_at`;
+
+const DRAFT_NOT_FOUND = 'oral surgery draft was not found';
+const PRACTICAL_KEYS = PRACTICAL_RUBRIC.map(({ key }) => key);
+const PRACTICAL_SELECT = `p.revision::text, ${PRACTICAL_KEYS.map(key => `p.${key}`).join(', ')},
+  p.total, p.outcome, p.reason, p.graded_by, p.teacher_habilitation_id::text, p.graded_at`;
+
+type PracticalRow = Record<PracticalItemKey, number> & {
+  revision: string; total: number; outcome: PracticalOutcome; reason: string | null;
+  graded_by: string; teacher_habilitation_id: string; graded_at: Date | string;
+};
+
+function practicalItems(row: PracticalRow): PracticalItems {
+  return Object.fromEntries(PRACTICAL_KEYS.map(key => [key, row[key]])) as PracticalItems;
+}
+
+function practicalRevision(row: PracticalRow): PracticalRevision {
+  return {
+    revision: row.revision, items: practicalItems(row), total: row.total, outcome: row.outcome, reason: row.reason,
+    graded_by: row.graded_by, teacher_habilitation_id: row.teacher_habilitation_id,
+    graded_at: new Date(row.graded_at).toISOString(),
+  };
+}
 
 // Bound role prevents a secondary profile from broadening the selected role's access.
 const READ_ACCESS = `($3 = 'admin' OR ($3 = 'estudiante' AND e.author_id = $2 AND EXISTS (
@@ -189,6 +213,83 @@ export class PgOralSurgeryDraftRepository implements DraftRepositoryPort {
       if (!result.rows.length) throw new ConflictError('operative report changed or is closed; reload before saving');
       return result.rows[0];
     });
+  }
+
+  // Grading and correction share one lock order: teacher period -> draft -> closed report -> latest revision.
+  private async lockPractical(db: Queryable, id: string, actor: DraftActor): Promise<{ periodId: string; latest: string | null }> {
+    const hint = (await db.query<{ origin_subject_id: string; origin_group_id: string }>(
+      'SELECT e.origin_subject_id, e.origin_group_id FROM oral_surgery_drafts e WHERE e.id = $1', [id],
+    )).rows[0];
+    if (!hint) throw new NotFoundError(DRAFT_NOT_FOUND);
+    const periods = await db.query<{ id: string }>(
+      `SELECT th.id FROM teacher_academic_habilitations th JOIN teachers t ON t.id = th.teacher_id
+       WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+         AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+      [actor.id, hint.origin_subject_id, hint.origin_group_id],
+    );
+    if (!periods.rows.length) throw new NotFoundError(DRAFT_NOT_FOUND);
+    await db.query('SELECT id::text FROM oral_surgery_drafts WHERE id = $1 FOR UPDATE', [id]);
+    const report = (await db.query<{ status: string }>(
+      'SELECT status FROM oral_surgery_operative_reports WHERE draft_id = $1 FOR SHARE', [id],
+    )).rows[0];
+    if (report?.status !== 'closed') throw new ConflictError('operative report must be closed before practical evaluation');
+    const latest = (await db.query<{ revision: string }>(
+      'SELECT revision::text FROM oral_surgery_practical_evaluations WHERE draft_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE', [id],
+    )).rows[0];
+    return { periodId: periods.rows[0].id, latest: latest?.revision ?? null };
+  }
+
+  private async insertPractical(db: Queryable, id: string, revision: string, reason: string | null,
+    items: PracticalItems, actor: DraftActor, periodId: string): Promise<PracticalRevision> {
+    const total = practicalTotal(items);
+    const result = await db.query<PracticalRow>(
+      `INSERT INTO oral_surgery_practical_evaluations AS p
+       (draft_id, revision, ${PRACTICAL_KEYS.join(', ')}, total, outcome, reason, graded_by, teacher_habilitation_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       RETURNING ${PRACTICAL_SELECT}`,
+      [id, revision, ...PRACTICAL_KEYS.map(key => items[key]), total, practicalOutcome(total), reason, actor.id, periodId],
+    );
+    return practicalRevision(result.rows[0]);
+  }
+
+  async gradePracticalEvaluation(id: string, items: PracticalItems, actor: DraftActor): Promise<PracticalRevision> {
+    if (actor.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    return this.unitOfWork.withTransaction(async db => {
+      const locked = await this.lockPractical(db, id, actor);
+      if (locked.latest !== null) throw new ConflictError('practical evaluation already exists; reload before grading');
+      return this.insertPractical(db, id, '1', null, items, actor, locked.periodId);
+    });
+  }
+
+  async correctPracticalEvaluation(id: string, expectedRevision: string, reason: string, items: PracticalItems,
+    actor: DraftActor): Promise<PracticalRevision> {
+    if (actor.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    return this.unitOfWork.withTransaction(async db => {
+      const locked = await this.lockPractical(db, id, actor);
+      if (locked.latest !== expectedRevision) throw new ConflictError('practical evaluation changed; reload before correcting');
+      return this.insertPractical(db, id, (BigInt(expectedRevision) + 1n).toString(), reason, items, actor, locked.periodId);
+    });
+  }
+
+  async getPracticalEvaluation(id: string, actor: DraftActor): Promise<PracticalStudentView | PracticalInstructorView> {
+    // One statement keeps access, current grade and history in the same MVCC snapshot.
+    const result = await this.pool.query<PracticalRow & { draft_id: string; evaluation_id: string | null }>(
+      `SELECT e.id::text AS draft_id, p.id::text AS evaluation_id, ${PRACTICAL_SELECT}
+       FROM oral_surgery_drafts e
+       LEFT JOIN oral_surgery_practical_evaluations p ON p.draft_id = e.id
+       WHERE e.id = $1 AND ${READ_ACCESS}
+       ORDER BY p.revision`,
+      [id, actor.id, actor.role],
+    );
+    if (!result.rows.length) throw new NotFoundError(DRAFT_NOT_FOUND);
+    const revisions = result.rows.filter(row => row.evaluation_id !== null);
+    if (!revisions.length) throw new NotFoundError('oral surgery practical evaluation was not found');
+    if (actor.role === 'estudiante') {
+      const { items, total, outcome, graded_at } = practicalRevision(revisions[revisions.length - 1]);
+      return { current: { items, total, outcome, graded_at } };
+    }
+    const history = revisions.map(practicalRevision);
+    return { current: history[history.length - 1], history };
   }
 
   async create(input: DraftInput, actor: DraftActor): Promise<DraftRow> {

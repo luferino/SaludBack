@@ -413,3 +413,99 @@ test('S3/S4/S5: instructor verification authorizes exact snapshots, preserves hi
     assert.deepEqual(await authorize('3', freshConsent.body.id), hidden);
     assert.deepEqual(await history(), beforeDenied);
   });
+
+test('S1-S6: practical evaluation is graded only after closure, corrected with history and shown by role',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, otherTeacher, author, otherStudent] = f.tokens;
+    const perfect = { hand_washing: 1, barrier_elements: 1, waste_disposal: 1, clinical_table_setup: 2, asepsis: 1,
+      anamnesis_questionnaire: 3, anesthetic_technique: 2, sindesmotomy_elevators: 2, surgical_procedure: 3,
+      curettage_suture: 2, record_and_equipment: 1, relationship: 1 };
+    const failing = { ...perfect, surgical_procedure: 0, anamnesis_questionnaire: 0 };
+    const passing = { ...perfect, surgical_procedure: 0, anamnesis_questionnaire: 2, relationship: 0 };
+    const notGraded = { status: 404, body: { error: { code: 'NOT_FOUND', message: 'oral surgery practical evaluation was not found' } } };
+    const notClosed = { status: 409, body: { error: { code: 'CONFLICT', message: 'operative report must be closed before practical evaluation' } } };
+    const gradePermission = { status: 403, body: { error: { code: 'FORBIDDEN', message: "Permission 'oral-surgery-drafts:grade' required" } } };
+    await request('POST', '/oral-surgery-subjects', admin, { subject_id: f.origin.subject });
+    const encounter = await request('POST', '/oral-surgery-drafts', author, {
+      patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group,
+      content: { treatment_plan: { procedure: 'Practical plan' } },
+    });
+    assert.equal(encounter.status, 201);
+    const url = `/oral-surgery-drafts/${encounter.body.id}`;
+    const gradeUrl = `${url}/practical-evaluation`;
+    const correctionUrl = `${gradeUrl}/corrections`;
+
+    // Grading waits for a closed operative report, with or without a report on file (S1).
+    assert.deepEqual(await request('POST', gradeUrl, teacher, { items: failing }), notClosed);
+    assert.deepEqual(await request('GET', gradeUrl, author), notGraded);
+    const consent = await request('POST', `${url}/consent`, author, { expected_version: '1', paper_signed: true });
+    assert.equal(consent.status, 201);
+    const authorization = await request('POST', `${url}/authorizations`, teacher, {
+      expected_version: '1', consent_declaration_id: consent.body.id, paper_consent_verified: true,
+    });
+    assert.equal(authorization.status, 201);
+    assert.equal((await request('POST', `${url}/operative-report`, author, { expected_draft_version: '1', content: {} })).status, 201);
+    assert.deepEqual(await request('POST', gradeUrl, teacher, { items: failing }), notClosed);
+    const closed = await request('POST', `${url}/operative-report/close`, teacher, { expected_version: '1', expected_draft_version: '1' });
+    assert.equal(closed.status, 200, JSON.stringify(closed.body));
+
+    // Only the origin teacher holding the grade permission grades; everyone else is refused before any write (S4).
+    assert.deepEqual(await request('POST', gradeUrl, admin, { items: passing }), gradePermission);
+    assert.deepEqual(await request('POST', gradeUrl, author, { items: passing }), gradePermission);
+    assert.deepEqual(await request('POST', gradeUrl, otherTeacher, { items: passing }),
+      { status: 404, body: { error: { code: 'NOT_FOUND', message: 'oral surgery draft was not found' } } });
+    const incomplete = { ...failing };
+    delete incomplete.relationship;
+    assert.deepEqual(await request('POST', gradeUrl, teacher, { items: incomplete }),
+      { status: 400, body: { error: { code: 'BAD_REQUEST', message: 'missing practical item: relationship' } } });
+    assert.deepEqual(await request('GET', gradeUrl, author), notGraded);
+
+    const graded = await request('POST', gradeUrl, teacher, { items: failing });
+    assert.equal(graded.status, 201, JSON.stringify(graded.body));
+    const { graded_at: gradedAt, ...gradedRow } = graded.body;
+    assert.ok(Number.isFinite(Date.parse(gradedAt)));
+    assert.deepEqual(gradedRow, {
+      revision: '1', items: failing, total: 14, outcome: 'annulled', reason: null,
+      graded_by: f.teacher.id, teacher_habilitation_id: f.teacherPeriods[0].id,
+    });
+    assert.deepEqual(await request('POST', gradeUrl, teacher, { items: passing }),
+      { status: 409, body: { error: { code: 'CONFLICT', message: 'practical evaluation already exists; reload before grading' } } });
+
+    // Students see only the current grade; other students stay hidden (S6).
+    assert.deepEqual(await request('GET', gradeUrl, author),
+      { status: 200, body: { current: { items: failing, total: 14, outcome: 'annulled', graded_at: gradedAt } } });
+    assert.deepEqual(await request('GET', gradeUrl, otherStudent),
+      { status: 404, body: { error: { code: 'NOT_FOUND', message: 'oral surgery draft was not found' } } });
+
+    // Stale revisions, blank reasons and nonteacher corrections change nothing (S3).
+    const beforeRejected = await request('GET', gradeUrl, teacher);
+    assert.deepEqual(await request('POST', correctionUrl, teacher, { expected_revision: '2', reason: 'Loaded wrong item', items: passing }),
+      { status: 409, body: { error: { code: 'CONFLICT', message: 'practical evaluation changed; reload before correcting' } } });
+    assert.equal((await request('POST', correctionUrl, teacher, { expected_revision: '1', reason: '   ', items: passing })).status, 400);
+    assert.equal((await request('POST', correctionUrl, admin, { expected_revision: '1', reason: 'Loaded wrong item', items: passing })).status, 403);
+    assert.deepEqual(await request('GET', gradeUrl, teacher), beforeRejected);
+
+    const corrected = await request('POST', correctionUrl, teacher, { expected_revision: '1', reason: 'Loaded wrong item', items: passing });
+    assert.equal(corrected.status, 201, JSON.stringify(corrected.body));
+    assert.equal(corrected.body.revision, '2'); assert.equal(corrected.body.total, 15);
+    assert.equal(corrected.body.outcome, 'approved'); assert.equal(corrected.body.reason, 'Loaded wrong item');
+    assert.equal(corrected.body.graded_by, f.teacher.id);
+
+    // Teachers and admins read the full history with reasons and actors; students keep the current grade only.
+    const instructor = await request('GET', gradeUrl, teacher);
+    assert.equal(instructor.status, 200);
+    assert.equal(instructor.body.current.revision, '2');
+    assert.deepEqual(instructor.body.history.map(row => [row.revision, row.total, row.outcome, row.reason, row.graded_by]),
+      [['1', 14, 'annulled', null, f.teacher.id], ['2', 15, 'approved', 'Loaded wrong item', f.teacher.id]]);
+    assert.equal(instructor.body.history[1].teacher_habilitation_id, f.teacherPeriods[0].id);
+    assert.deepEqual(await request('GET', gradeUrl, admin), instructor);
+    assert.deepEqual(await request('GET', gradeUrl, author),
+      { status: 200, body: { current: { items: passing, total: 15, outcome: 'approved', graded_at: corrected.body.graded_at } } });
+
+    // Grading never touches the clinical draft or the closed operative report.
+    const draft = await request('GET', url, author);
+    assert.equal(draft.body.version, '1');
+    assert.deepEqual(draft.body.content, encounter.body.content);
+    assert.equal((await request('GET', `${url}/operative-report`, author)).body.status, 'closed');
+  });

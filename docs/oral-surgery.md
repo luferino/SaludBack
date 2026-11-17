@@ -214,16 +214,72 @@ Content-Type: application/json
 - After closure, `PATCH /oral-surgery-drafts/:id`, `POST /oral-surgery-drafts/:id/consent` and `POST /oral-surgery-drafts/:id/authorizations` return 409 `closed oral surgery encounter is immutable` without writing; they still check access and the expected draft version first. Report writes return 409 as described above.
 - Migration 049 stores one report per encounter and enforces closed-content immutability.
 
+## Practical evaluation
+
+After the operative report is closed, a teacher grades the encounter with the paper form's fixed rubric. The grade is stored separately from the clinical record: grading and corrections never change the draft, the operative report or the authorizations. Each encounter has append-only revisions: revision `1` is the initial grade and later revisions are corrections that carry a reason. The current grade is the highest revision.
+
+Fixed rubric (12 scored keys, total 20). Bioseguridad is three 1-point sub-items; every key is required and must be an integer from 0 to its maximum.
+
+| Key | Form item | Max |
+| --- | --- | --- |
+| `hand_washing` | Bioseguridad: hand washing | 1 |
+| `barrier_elements` | Bioseguridad: barrier elements | 1 |
+| `waste_disposal` | Bioseguridad: disposal of elements | 1 |
+| `clinical_table_setup` | Clinical table set up properly and complete instruments | 2 |
+| `asepsis` | Applies asepsis | 1 |
+| `anamnesis_questionnaire` | Answers the instructor's questionnaire and performs anamnesis properly | 3 |
+| `anesthetic_technique` | Knows and performs the anesthetic technique properly | 2 |
+| `sindesmotomy_elevators` | Sindesmotomy and correct use of elevators | 2 |
+| `surgical_procedure` | Sequential procedure; performs the extraction without instructor intervention | 3 |
+| `curettage_suture` | Performs curettage and suture correctly | 2 |
+| `record_and_equipment` | Records the procedure; leaves equipment and instruments in order | 1 |
+| `relationship` | Appropriate relationship with teacher, patient and staff | 1 |
+
+The server computes `total` as the sum of the items and `outcome` as `approved` when the total is 15 or more, otherwise `annulled`. Annulment only records the outcome; the clinical record is unchanged and the student repeats the practical in another encounter.
+
+### Bodies
+
+```http
+POST /oral-surgery-drafts/1/practical-evaluation
+Content-Type: application/json
+
+{"items":{"hand_washing":1,"barrier_elements":1,"waste_disposal":1,"clinical_table_setup":2,"asepsis":1,"anamnesis_questionnaire":3,"anesthetic_technique":2,"sindesmotomy_elevators":2,"surgical_procedure":3,"curettage_suture":2,"record_and_equipment":1,"relationship":1}}
+```
+
+```http
+POST /oral-surgery-drafts/1/practical-evaluation/corrections
+Content-Type: application/json
+
+{"expected_revision":"1","reason":"Loaded wrong item","items":{...all 12 keys...}}
+```
+
+- Initial grading returns 201 with one revision. A correction returns 201 with the next revision; it needs the complete corrected `items`, the current `expected_revision`, and a non-empty `reason` of at most 4000 Unicode characters without NUL.
+- Both writes need the `oral-surgery-drafts:grade` permission (migration 052, granted only to the `teacher` role) and an active teacher habilitation in the encounter's original subject and group, the same rule as closure. Admins and students cannot grade.
+- Responses include `revision`, `items`, `total`, `outcome`, `reason`, `graded_by`, `teacher_habilitation_id` and `graded_at`.
+- `GET /oral-surgery-drafts/:id/practical-evaluation` requires `oral-surgery-drafts:read` and the existing draft visibility. The student author receives only `current`, with `items`, `total`, `outcome` and `graded_at`. Teachers and administrators receive `current` with all revision fields plus `history`, the full list of revisions with reasons, `graded_by`, `teacher_habilitation_id` and `graded_at`.
+
+### Errors
+
+- Locks are taken in one transaction: teacher habilitation, then draft, then closed operative report, then latest revision. Concurrent grades and corrections serialize on the draft.
+- Unknown, inaccessible or non-habilitated encounters return 404 `oral surgery draft was not found`, and nothing is written.
+- Grading before closure, including with no operative report, returns 409 `operative report must be closed before practical evaluation`.
+- A second initial grade returns 409 `practical evaluation already exists; reload before grading`. A correction whose `expected_revision` is not the current revision returns 409 `practical evaluation changed; reload before correcting`.
+- Non-teacher roles return 403 `teacher instructor role required`. Callers without the grade permission return 403 `Permission 'oral-surgery-drafts:grade' required`.
+- Invalid items return 400 `missing practical item: <key>`, `unknown practical item: <key>`, or `<key> must be an integer from 0 to <max>`. Unknown body fields return 400 `allowed fields: items` (grade) or `allowed fields: expected_revision, reason, items` (correction). An invalid reason returns 400 `reason must be non-empty text of at most 4000 characters without NUL`.
+- `GET` with no grade yet returns 404 `oral surgery practical evaluation was not found`.
+- Revisions are append-only at the database level: migration 051 rejects any `UPDATE` on evaluation rows and checks item bounds, the total, the outcome, and that revision 1 has no reason while later revisions have one. No endpoint updates or deletes evaluation rows.
+- Migration 051 creates the table; migration 052 seeds the grade permission.
+
 ## Scope
 
-Medical evaluation, clinical examination, treatment-plan drafts, signed-paper consent declarations, version-bound instructor authorization, operative reports and teacher closure are included. Grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
+Medical evaluation, clinical examination, treatment-plan drafts, signed-paper consent declarations, version-bound instructor authorization, operative reports, teacher closure and the practical evaluation (with audited corrections) are included in the backend API. Attachments, patient electronic signatures, shared critical-antecedent aggregation and any frontend are not included.
 
 ## Verification
 
 Use database-free tests directly, never `pnpm test` (its pretest runs configured-database migrations):
 
 ```sh
-node --import tsx --test --test-concurrency=1 tests/unit/oral-surgery-operative-report.test.js tests/unit/oral-surgery-authorization.test.js tests/unit/oral-surgery-consent.test.js tests/unit/oral-surgery-drafts.test.js tests/unit/clean-db.test.js
+node --import tsx --test --test-concurrency=1 tests/unit/oral-surgery-practical-evaluation.test.js tests/unit/oral-surgery-operative-report.test.js tests/unit/oral-surgery-authorization.test.js tests/unit/oral-surgery-consent.test.js tests/unit/oral-surgery-drafts.test.js tests/unit/clean-db.test.js
 pnpm exec tsc --noEmit
 ```
 

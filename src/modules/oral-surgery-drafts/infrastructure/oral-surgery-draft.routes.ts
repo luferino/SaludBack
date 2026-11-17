@@ -9,6 +9,7 @@ import { object, validateContent } from '../domain/content.js';
 import type { DraftActor, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
 
 import { validateOperativeContent } from '../domain/operative-content.js';
+import { validateCorrectionReason, validatePracticalItems } from '../domain/practical-evaluation.js';
 
 const MAX_BIGINT = 9223372036854775807n;
 function decimal(value: unknown, name: string): string {
@@ -32,6 +33,14 @@ async function actor(req: Request, write: boolean): Promise<DraftActor> {
   if (write && role !== 'estudiante') throw new ForbiddenError('student author role required');
   if (!['admin', 'teacher', 'estudiante'].includes(role)) throw new ForbiddenError('clinical role required');
   return { id, role };
+}
+// Grading needs the grade permission and an instructor role; habilitation is checked in the repository.
+async function grader(req: Request): Promise<DraftActor> {
+  await new PermissionGuard('oral-surgery-drafts:grade').authorize(req);
+  const id = await defaultGetActor(req);
+  if (!isCanonicalUuid(id)) throw new UnauthorizedError('A verified UUID actor is required');
+  if ((req as AuthenticatedRequest).auth!.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+  return { id, role: 'teacher' };
 }
 function serialize(row: DraftRow) {
   return { ...row, created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString() };
@@ -88,6 +97,25 @@ export function createOralSurgeryDraftRouter({ repository }: { repository: Draft
     res.json(await repository.closeOperativeReport(decimal(req.params.id, 'draft id'),
       decimal(body.expected_version, 'expected_version'), decimal(body.expected_draft_version, 'expected_draft_version'),
       { id, role: 'teacher' }));
+  });
+  router.post('/:id/practical-evaluation', async (req, res) => {
+    const who = await grader(req);
+    const body = object(req.body, 'body');
+    keys(body, ['items']);
+    res.status(201).json(await repository.gradePracticalEvaluation(decimal(req.params.id, 'draft id'),
+      validatePracticalItems(body.items), who));
+  });
+  router.post('/:id/practical-evaluation/corrections', async (req, res) => {
+    const who = await grader(req);
+    const body = object(req.body, 'body');
+    keys(body, ['expected_revision', 'reason', 'items']);
+    res.status(201).json(await repository.correctPracticalEvaluation(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_revision, 'expected_revision'), validateCorrectionReason(body.reason),
+      validatePracticalItems(body.items), who));
+  });
+  router.get('/:id/practical-evaluation', async (req, res) => {
+    const who = await actor(req, false);
+    res.json(await repository.getPracticalEvaluation(decimal(req.params.id, 'draft id'), who));
   });
   router.post('/:id/authorizations', async (req, res) => {
     await new PermissionGuard('oral-surgery-drafts:authorize').authorize(req);

@@ -251,13 +251,15 @@ async function verifyDestructivePreflight() {
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
   assert.equal(grants.length, 62, 'Expected the full 62-grant baseline before cleanup.');
 
+  // History tables are only TRUNCATEd (migration 053 rejects DELETE), so they need no DELETE privilege.
+  const historyTruncateTables = CLEANUP_TABLES.filter((table_name) => table_name.startsWith('kinesiology_') || HISTORY_ORAL_SURGERY_TABLES.includes(table_name));
   const checks = [
-    ...CLEANUP_TABLES.map((table_name) => ({ table_name, privilege: 'DELETE' })),
+    ...CLEANUP_TABLES.filter((table_name) => !historyTruncateTables.includes(table_name))
+      .map((table_name) => ({ table_name, privilege: 'DELETE' })),
     { table_name: 'role_permissions', privilege: 'DELETE' },
     ...REQUIRED_TABLES.map((table_name) => ({ table_name, privilege: 'SELECT' })),
     ...['users', 'subjects', 'academic_groups', 'subject_academic_groups', 'role_permissions', 'permissions'].map((table_name) => ({ table_name, privilege: 'INSERT' })),
-    ...CLEANUP_TABLES.filter((table_name) => table_name.startsWith('kinesiology_') || HISTORY_ORAL_SURGERY_TABLES.includes(table_name))
-      .map((table_name) => ({ table_name, privilege: 'TRUNCATE' })),
+    ...historyTruncateTables.map((table_name) => ({ table_name, privilege: 'TRUNCATE' })),
     ...['role_permissions', 'permissions'].map((table_name) => ({ table_name, privilege: 'TRUNCATE' })),
   ];
   const { rows: privilegeRows } = await pool.query(

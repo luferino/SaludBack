@@ -250,11 +250,12 @@ async function verifyDestructivePreflight() {
   // Check every privilege used by cleanup and this fixture before its first
   // DELETE/TRUNCATE, reducing known failures for restricted roles without
   // guaranteeing atomicity or successful cleanup.
-  const deleteTables = CLEANUP_TABLES;
+  // History tables are only TRUNCATEd (migration 053 rejects DELETE), so they need no DELETE privilege.
+  const historyTruncateTables = CLEANUP_TABLES.filter((table_name) => table_name.startsWith('kinesiology_') || HISTORY_ORAL_SURGERY_TABLES.includes(table_name));
+  const deleteTables = CLEANUP_TABLES.filter((table_name) => !historyTruncateTables.includes(table_name));
   const readTables = REQUIRED_TABLES;
   const insertTables = ['users', 'subjects', 'academic_groups', 'subject_academic_groups', 'role_permissions', 'permissions'];
   const deleteAdditionalTables = ['role_permissions'];
-  const historyTruncateTables = CLEANUP_TABLES.filter((table_name) => table_name.startsWith('kinesiology_') || HISTORY_ORAL_SURGERY_TABLES.includes(table_name));
   const truncateTables = [...historyTruncateTables, 'role_permissions', 'permissions'];
   const checks = [
     ...deleteTables.map((table_name) => ({ table_name, privilege: 'DELETE' })),

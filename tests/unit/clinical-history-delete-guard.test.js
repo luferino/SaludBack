@@ -28,7 +28,7 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
   const calls = [];
   await cleanDb({ async query(text) {
     calls.push(text);
-    return text.includes('has_column_privilege') ? { rows: [{ allowed: true }] } : { rows: [] };
+    return { rows: [] };
   } });
   const truncates = calls.filter(sql => sql.startsWith('TRUNCATE ') && !sql.includes('role_permissions'));
   assert.equal(truncates.length, 1);
@@ -36,8 +36,8 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
   assert.deepEqual([...truncated].sort(), [...TRUNCATE_CLOSURE].sort());
   for (const table of TRUNCATE_CLOSURE) assert.equal(calls.includes(`DELETE FROM ${table}`), false, table);
   const truncateAt = calls.indexOf(truncates[0]);
-  assert.ok(truncateAt > calls.indexOf('UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL'));
+  assert.equal(truncateAt, 0);
   assert.ok(truncateAt < calls.indexOf('DELETE FROM oral_surgery_drafts'));
   assert.ok(truncateAt < calls.indexOf('DELETE FROM patient_assignments'));
-  assert.equal(calls.length, 45);
+  assert.equal(calls.length, 43);
 });

@@ -1,5 +1,5 @@
 # Oral Surgery I practical evaluation
-Objective: let origin-context teachers grade the closed Oral Surgery encounter with the paper form's fixed 20-point rubric, with audited corrections. Branch: feat/oral-surgery-practical-evaluation, stacked on feat/oral-surgery-operative-report (PR #86, unmerged); base 5742055ca89d703faedb474f462aa42bbd0d3689.
+Status: complete (local, unpublished). Objective: let origin-context teachers grade the closed Oral Surgery encounter with the paper form's fixed 20-point rubric, with audited corrections. Branch: feat/oral-surgery-practical-evaluation, stacked on feat/oral-surgery-operative-report (PR #86, unmerged); base 5742055ca89d703faedb474f462aa42bbd0d3689.
 Delivery: feature-branch-chain stacked on PR #86 (its PR must merge after #86); forecast 600–900 authored lines in one cohesive unit. Checks: database-free public HTTP units, full units, TypeScript, independent verification; disposable PostgreSQL needs fresh specific authorization.
 
 ## Specs
@@ -14,13 +14,14 @@ Delivery: feature-branch-chain stacked on PR #86 (its PR must merge after #86); 
 
 ## Tasks
 
-- T1 [S1-S6] done; route gentle-ai-worker (runtime context backstop already fired in this session; one dependent unit); commit pending. Test-first schema, permission, grade/correct/read API, rubric validation, visibility split, docs and integration inventories. Risk: item 2 (teacher-only grading permission and student visibility), item 4 (concurrent grade/correction serialization).
-- T2 [S1-S7] done; route gentle-ai-verify after parent spot checks; commit pending. Full units, TypeScript, independent verification, disposable PostgreSQL only with fresh authorization. Risk: item 2, item 4.
-- T3 [S7] in_progress; route inline; commit pending. Cohesive work-unit commit, native assessment/review when due, evidence and mirror. No publishing.
+- T1 [S1-S6] done; route gentle-ai-worker (runtime context backstop already fired in this session; one dependent unit); commit 2bd279d1bbd3b0306441e94c90e9ff648059e3a9. Test-first schema, permission, grade/correct/read API, rubric validation, visibility split, docs and integration inventories. Risk: item 2 (teacher-only grading permission and student visibility), item 4 (concurrent grade/correction serialization).
+- T2 [S1-S7] done; route gentle-ai-verify after parent spot checks; commit 2bd279d1bbd3b0306441e94c90e9ff648059e3a9. Full units, TypeScript, independent verification, disposable PostgreSQL only with fresh authorization. Risk: item 2, item 4.
+- T3 [S7] done; route inline; feature commit 2bd279d plus this closing tracker commit. Cohesive work-unit commit, native assessment/review when due, evidence and mirror. No publishing.
 
 ## Log
 
 - L1: User request chain: «ok» to start the practical evaluation after the operative report; decisions S1–S6 chosen through single-choice questions; «si» to stack on PR #86 (S7).
+- L10: Committed 2bd279d (32 files, +763/-65) on feat/oral-surgery-practical-evaluation, stacked on PR #86 head 5742055. Native ASSESS 5742055..2bd279d: nativeRisk medium, 828 changed lines, reviewDue false (under_budget); item 2 escalation satisfied by the independent verifier (S1–S6 PASS, B1 resolved). Push, issue/PR (must merge after #86), merge, frontend for grading and applying migrations 051/052 to real databases remain the user's decisions.
 - L9: Final disposable job-10 passed 188/188, 0 skipped; CLEANUP_OK salud_e2e_f0e68444a48fd396 oid157105 zero connections. Full units 694/694 (job-8) ran before the inventory-only B1/A1 test edits; the inventory units 27/27 and this PostgreSQL run cover those edits. Committing one cohesive unit on the stacked branch; no publishing.
 - L8: Limited recheck mwjz4b8t-a-5tnl: B1 RESOLVED (three inventories include the table in clean-db.js order; A1 comments match 60/33/24; node --check and diffcheck ok). Only final disposable job-10 pending before commit.
 - L7: Verifier mwjyvx23-9-j795: S1–S6 PASS (53/53, tsc0, diff0, router probe confirms student current-only view, admin history, admin/student cannot grade). Blocker B1: legacy inventories (groups/subject-groups CLEANUP_TABLES, student-habilitations REQUIRED_TABLES) lacked oral_surgery_practical_evaluations; advisory A1 stale cleanDb count comments; advisory A2 student grade visibility follows existing draft visibility (L2 choice, not a defect). Parent fixed B1 and A1 inline (table inserted before operative reports, comments 60/33/24); inventory units 27/27, node --check and diffcheck ok. Limited recheck mwjz4b8t-a-5tnl and final disposable rerun job-10 running.

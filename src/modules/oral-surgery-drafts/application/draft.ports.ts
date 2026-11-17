@@ -1,3 +1,4 @@
+import type { OperativeContent } from '../domain/operative-content.js';
 import type { DraftContent } from '../domain/content.js';
 
 export interface DraftActor { id: string; role: string }
@@ -26,7 +27,17 @@ export interface AuthorizationHistory {
   draft_version: string; current_authorization_id: string | null;
   authorizations: SurgeryAuthorization[];
 }
+export interface OperativeReport {
+  draft_id: string; draft_version: string; authorization_id: string;
+  content: OperativeContent; version: string; status: 'draft' | 'closed';
+  created_by: string; created_at: Date | string; updated_at: Date | string;
+  closed_by: string | null; closed_at: Date | string | null; teacher_habilitation_id: string | null;
+}
 export interface DraftRepositoryPort {
+  createOperativeReport(id: string, draftVersion: string, content: OperativeContent, actor: DraftActor): Promise<OperativeReport>;
+  editOperativeReport(id: string, version: string, draftVersion: string, content: OperativeContent, actor: DraftActor): Promise<OperativeReport>;
+  getOperativeReport(id: string, actor: DraftActor): Promise<OperativeReport>;
+  closeOperativeReport(id: string, version: string, draftVersion: string, actor: DraftActor): Promise<OperativeReport>;
   authorizeSurgery(id: string, version: string, consentId: string, actor: DraftActor): Promise<SurgeryAuthorization>;
   authorizationHistory(id: string, actor: DraftActor): Promise<AuthorizationHistory>;
   declareConsent(id: string, version: string, actor: DraftActor): Promise<ConsentDeclaration>;

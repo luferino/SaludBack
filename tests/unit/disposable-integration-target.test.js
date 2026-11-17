@@ -112,6 +112,7 @@ test('requires every known application table in the empty baseline', () => {
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('reception_career_grants'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('user_role_grants'));
   assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('reception_patient_enrollments'));
+  assert.ok(REQUIRED_EMPTY_BASELINE_TABLES.includes('oral_surgery_operative_reports'));
   rejectsSafely(cloneTarget({ emptyBaseline: { irrelevant: 0 } }), /complete disposable database empty baseline required/);
   const missing = { ...validTarget.emptyBaseline }; delete missing.patients;
   rejectsSafely(cloneTarget({ emptyBaseline: missing }), /complete disposable database empty baseline required/);
@@ -182,8 +183,8 @@ test('legacy integration preflights match the canonical permission/grant invento
 
   assert.match(habilitations,/assert\.deepEqual\(new Set\(required\.map\(\(\{ tablename \}\) => tablename\)\), new Set\(REQUIRED_TABLES\)/);
   assert.doesNotMatch(habilitations,/required\.length,\s*24/);
-  assert.match(assignments,/exact expected migration ledger 001-048 is required before fixture cleanup/);
-  assert.match(drafts,/exact migration ledger 001–048 required before cleanup/);
+  assert.match(assignments,/exact expected migration ledger 001-050 is required before fixture cleanup/);
+  assert.match(drafts,/exact migration ledger 001–050 required before cleanup/);
 });
 
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {

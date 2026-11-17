@@ -156,16 +156,74 @@ Content-Type: application/json
 - Reads require current access, but later habilitation revocation does not erase historical authorizations or retroactively change the recorded clinical version. The current ID means version applicability, not a guarantee of clinical completeness or consent-law compliance.
 - Migration 043 adds authorization history; migration 044 adds its enforced permission. The locks serialize instructor authorization with clinical edits and teacher revocation.
 
+## Operative report and teacher closure
+
+Each encounter may have one student-authored operative report, independent of preoperative content. Incomplete reports are valid; the teacher decides whether the report is ready to close. No clinical completeness rule or grading is applied by the API.
+
+Accepted `content` keys (all optional):
+
+| Key | Shape / fields |
+| --- | --- |
+| `narrative` | Text or `null` |
+| `asepsis` | Object with optional `extraoral`, `intraoral` text fields |
+| `anesthesia` | Object with optional `technique`, `drug`, `dose` text fields |
+| `extraction` | Object with optional `teeth`, `technique`, `suture` text fields |
+| `prescription` | Object with optional `medications`, `commercial_name`, `route`, `dose`, `frequency`, `duration` text fields |
+| `postoperative_instructions` | Text or `null` |
+| `operative_incident` | Text or `null` |
+
+Every listed leaf accepts a string or `null`; strings may contain at most 4000 Unicode characters and must not contain NUL (`\u0000`). Section objects may be empty or partial. Unknown keys, non-object sections, and other value types return 400. Omitted fields remain omitted; the server does not fill or score them.
+
+### Save and read
+
+```http
+POST /oral-surgery-drafts/1/operative-report
+Content-Type: application/json
+
+{"expected_draft_version":"1","content":{"asepsis":{"extraoral":"Recorded"}}}
+```
+
+```http
+PATCH /oral-surgery-drafts/1/operative-report
+Content-Type: application/json
+
+{"expected_version":"1","expected_draft_version":"1","content":{"narrative":null}}
+```
+
+- Both writes require `oral-surgery-drafts:write` and the original student author with the current origin-subject habilitation and active patient assignment. Create returns 201; update returns 200. Each request replaces the complete report content supplied.
+- A current instructor authorization for the exact current draft version is required on every create/save; the server stores that authorization ID. The response includes `draft_id`, `draft_version`, `authorization_id`, `content`, report `version`, `status`, `created_by`, `created_at`, and `updated_at`.
+- `expected_draft_version` is required on both writes. Update also requires `expected_version`. Stale clinical versions return 409 `draft version changed; reload before saving`; stale/missing/closed report versions return 409 `operative report changed or is closed; reload before saving`. A second create returns 409 `operative report already exists; reload before saving`.
+- Missing current authorization returns 409 `current instructor authorization is required`. An inactive/unknown author context is hidden as 404 `oral surgery draft was not found`.
+- `GET /oral-surgery-drafts/:id/operative-report` requires `oral-surgery-drafts:read` and follows original draft visibility: author with active assignment/context, active origin teacher, and administrator consultation. Unknown/inaccessible reports return 404 `oral surgery operative report was not found`.
+
+### Teacher closure
+
+```http
+POST /oral-surgery-drafts/1/operative-report/close
+Content-Type: application/json
+
+{"expected_version":"2","expected_draft_version":"1"}
+```
+
+- Requires `oral-surgery-drafts:close` and the `teacher` role, plus an active teacher habilitation in the encounter's original subject/group. Migration 050 grants this permission only to teachers.
+- Both exact versions are required. Closure returns 200 and increments the report version; server-owned `closed_by`, `closed_at`, and `teacher_habilitation_id` are returned. The teacher, not an automated completeness check, confirms readiness.
+- Stale draft versions return 409 `draft version changed; reload before saving`; stale/closed report versions return 409 `operative report changed or is closed; reload before saving`.
+- If the report was not resaved against the current draft version, or its stored authorization does not belong to that exact encounter/version, closure returns 409 `operative report does not match current clinical version; save it before closing`. A later authorization for the same unchanged draft version does not invalidate the report's already-bound valid authorization.
+- Missing reports and teachers without active original-context habilitation return 404 `oral surgery operative report was not found`. Wrong roles return 403 `teacher instructor role required`.
+- Closure is irreversible through this API. Closed report content and preoperative clinical content cannot be edited, including by direct SQL updates; consent and authorization histories remain. No delete or reopen endpoint is provided.
+- After closure, `PATCH /oral-surgery-drafts/:id`, `POST /oral-surgery-drafts/:id/consent` and `POST /oral-surgery-drafts/:id/authorizations` return 409 `closed oral surgery encounter is immutable` without writing; they still check access and the expected draft version first. Report writes return 409 as described above.
+- Migration 049 stores one report per encounter and enforces closed-content immutability.
+
 ## Scope
 
-Medical evaluation, clinical examination, treatment-plan drafts, signed-paper consent declarations and version-bound instructor authorization are included. Operative reports, grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
+Medical evaluation, clinical examination, treatment-plan drafts, signed-paper consent declarations, version-bound instructor authorization, operative reports and teacher closure are included. Grading, attachments, patient electronic signatures and shared critical-antecedent aggregation are not included.
 
 ## Verification
 
 Use database-free tests directly, never `pnpm test` (its pretest runs configured-database migrations):
 
 ```sh
-node --import tsx --test --test-concurrency=1 tests/unit/oral-surgery-subjects.test.js tests/unit/oral-surgery-drafts.test.js tests/unit/app-composition.test.js
+node --import tsx --test --test-concurrency=1 tests/unit/oral-surgery-operative-report.test.js tests/unit/oral-surgery-authorization.test.js tests/unit/oral-surgery-consent.test.js tests/unit/oral-surgery-drafts.test.js tests/unit/clean-db.test.js
 pnpm exec tsc --noEmit
 ```
 

@@ -44,7 +44,7 @@ the current application.
 
 ## Oral Surgery I
 
-See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student clinical drafts, permissions and delivery scope.
+See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student-authored preoperative and operative reports, teacher closure, permissions and delivery scope.
 
 ## Clinical list filters
 

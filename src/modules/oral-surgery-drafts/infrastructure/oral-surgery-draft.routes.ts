@@ -8,6 +8,8 @@ import { isCanonicalUuid } from '../../subject-groups/application/create-subject
 import { object, validateContent } from '../domain/content.js';
 import type { DraftActor, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
 
+import { validateOperativeContent } from '../domain/operative-content.js';
+
 const MAX_BIGINT = 9223372036854775807n;
 function decimal(value: unknown, name: string): string {
   if (typeof value !== 'string' || !/^[1-9]\d{0,18}$/.test(value) || BigInt(value) > MAX_BIGINT) {
@@ -57,6 +59,36 @@ function date(value: unknown, name: string): string {
 
 export function createOralSurgeryDraftRouter({ repository }: { repository: DraftRepositoryPort }): Router {
   const router = Router();
+  router.post('/:id/operative-report', async (req, res) => {
+    const who = await actor(req, true);
+    const body = object(req.body, 'body');
+    keys(body, ['expected_draft_version', 'content']);
+    res.status(201).json(await repository.createOperativeReport(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_draft_version, 'expected_draft_version'), validateOperativeContent(body.content), who));
+  });
+  router.patch('/:id/operative-report', async (req, res) => {
+    const who = await actor(req, true);
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version', 'expected_draft_version', 'content']);
+    res.json(await repository.editOperativeReport(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_version, 'expected_version'), decimal(body.expected_draft_version, 'expected_draft_version'),
+      validateOperativeContent(body.content), who));
+  });
+  router.get('/:id/operative-report', async (req, res) => {
+    const who = await actor(req, false);
+    res.json(await repository.getOperativeReport(decimal(req.params.id, 'draft id'), who));
+  });
+  router.post('/:id/operative-report/close', async (req, res) => {
+    await new PermissionGuard('oral-surgery-drafts:close').authorize(req);
+    const id = await defaultGetActor(req);
+    if (!isCanonicalUuid(id)) throw new UnauthorizedError('A verified UUID actor is required');
+    if ((req as AuthenticatedRequest).auth!.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version', 'expected_draft_version']);
+    res.json(await repository.closeOperativeReport(decimal(req.params.id, 'draft id'),
+      decimal(body.expected_version, 'expected_version'), decimal(body.expected_draft_version, 'expected_draft_version'),
+      { id, role: 'teacher' }));
+  });
   router.post('/:id/authorizations', async (req, res) => {
     await new PermissionGuard('oral-surgery-drafts:authorize').authorize(req);
     const id = await defaultGetActor(req);

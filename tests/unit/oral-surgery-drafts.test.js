@@ -142,6 +142,7 @@ function fakeDatabase({ inactive = false, assignment = true, conflict = false } 
     if (sql.includes('FROM patient_assignments a')) return { rows: assignment ? [{ id: '1', student_habilitation_id: period }] : [] };
     if (sql.includes('INSERT INTO clinical_records')) return { rows: [{ id: '10' }] };
     if (sql.includes('INSERT INTO oral_surgery_drafts')) return { rows: [{ ...row(JSON.parse(params[6])), id: String(++nextId) }] };
+    if (sql.includes("status = 'closed'")) return { rows: [] };
     if (sql.includes('UPDATE oral_surgery_drafts')) return { rows: conflict ? [] : [{ ...row(JSON.parse(params[2])), version: '2' }] };
     if (sql.includes('FROM oral_surgery_drafts')) return { rows: [row()] };
     throw new Error(`unexpected SQL ${sql}`);
@@ -208,6 +209,20 @@ test('oral surgery migrations never re-create a constraint or index name owned b
   for (const file of migrations.filter(name => name >= '038')) {
     for (const name of names(file)) assert.equal(earlier.has(name), false, `${file} re-creates ${name}`);
   }
+});
+
+test('S1/S3/S7: operative report schema enforces unique encounter, immutable closure and teacher-only permission', () => {
+  const schema = readFileSync('src/db/migrations/049_create_oral_surgery_operative_reports.sql', 'utf8');
+  const seed = readFileSync('src/db/migrations/050_seed_oral_surgery_operative_report_permissions.sql', 'utf8');
+  assert.match(schema, /draft_id BIGINT NOT NULL UNIQUE/);
+  assert.match(schema, /status IN \('draft', 'closed'\)/);
+  assert.match(schema, /BEFORE UPDATE ON oral_surgery_operative_reports/);
+  assert.match(schema, /OLD.status = 'closed'/);
+  assert.match(schema, /BEFORE UPDATE ON oral_surgery_drafts/);
+  assert.match(schema, /closed oral surgery encounter is immutable/);
+  assert.doesNotMatch(schema, /BEFORE DELETE/);
+  assert.match(seed, /\('teacher', 'oral-surgery-drafts:close'\)/);
+  assert.doesNotMatch(seed, /\('(admin|estudiante)', 'oral-surgery-drafts:close'\)/);
 });
 
 test('S1/S3/S7: schema enforces draft-only immutable provenance and permission seeds grant no admin clinical write', () => {

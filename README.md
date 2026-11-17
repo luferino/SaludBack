@@ -669,6 +669,23 @@ references remain UUIDs. There is no record status, endpoint, clinical content,
 or immutable event-audit claim; nullable `created_`/`updated_` columns follow the
 existing actor-bookkeeping convention.
 
+### Clinical history delete guard (migration 053)
+
+Migration `053_guard_clinical_history_deletes.sql` makes the append-only clinical
+history tables reject every `DELETE` statement with SQLSTATE `23514` and the
+message `clinical history rows cannot be deleted from <table>`. The guarded tables
+are `kinesiology_consent_attestations`, `kinesiology_evaluation_submissions`,
+`kinesiology_evaluation_submission_studies`, `kinesiology_evaluation_correction_requests`,
+`kinesiology_evaluation_validation_reviews`, `kinesiology_evaluation_amendment_links`,
+`kinesiology_evolution_submissions`, `kinesiology_evolution_correction_requests`,
+`kinesiology_evolution_validation_reviews`, `kinesiology_evolution_amendment_links`,
+`oral_surgery_consent_declarations`, `oral_surgery_authorizations` and
+`oral_surgery_practical_evaluations`. The triggers are statement-level, so the
+rejection happens even when no row matches. Mutable clinical records (kinesiology
+evaluations and evolutions, Oral Surgery drafts and operative reports, clinical
+records) are not guarded. `TRUNCATE` is not guarded; it remains an administrative
+operation, and the integration cleanup helper uses it.
+
 ### Academic catalog schema foundation
 
 Migration `009_create_academic_contexts.sql` adds subjects, academic groups and

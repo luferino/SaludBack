@@ -5,11 +5,11 @@
  * their parents and users, so no suite's beforeEach()/after() trips a FK
  * constraint on leftover rows. It first verifies the single column UPDATE privilege
  * needed to clear the correction FK cycle. The order below is the contract:
- * `clear correction_from_submission_id -> kinesiology_evaluation_correction_requests ->
- * kinesiology_evolution_correction_requests -> kinesiology_evolution_validation_reviews -> kinesiology_evolution_submissions ->
- * kinesiology_evaluation_validation_reviews -> kinesiology_evaluation_submission_studies -> kinesiology_evaluation_submissions ->
- * kinesiology_consent_attestations -> kinesiology_evaluation_amendment_links -> kinesiology_evolution_amendment_links ->
- * kinesiology_evolutions -> kinesiology_evaluations -> patient_assignments -> patient_context_availabilities ->
+ * `clear correction_from_submission_id -> one TRUNCATE of the clinical history closure
+ * (every kinesiology_* table plus oral_surgery_practical_evaluations, oral_surgery_operative_reports,
+ * oral_surgery_authorizations and oral_surgery_consent_declarations; migration 053 rejects DELETE on the
+ * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
+ * oral_surgery_drafts -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
  * reception_patient_enrollments -> patients -> reception_career_grants -> password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
@@ -130,22 +130,7 @@ export async function cleanDb(pool) {
     throw new Error('Database role lacks UPDATE privilege on public.kinesiology_evaluations.correction_from_submission_id required to clear correction links before cleanup');
   }
   await pool.query('UPDATE kinesiology_evaluations SET correction_from_submission_id = NULL WHERE correction_from_submission_id IS NOT NULL');
-  await pool.query('DELETE FROM kinesiology_evolution_correction_requests');
-  await pool.query('DELETE FROM kinesiology_evolution_validation_reviews');
-  await pool.query('DELETE FROM kinesiology_evolution_submissions');
-  await pool.query('DELETE FROM kinesiology_evaluation_correction_requests');
-  await pool.query('DELETE FROM kinesiology_evaluation_validation_reviews');
-  await pool.query('DELETE FROM kinesiology_evaluation_amendment_links');
-  await pool.query('DELETE FROM kinesiology_evaluation_submission_studies');
-  await pool.query('DELETE FROM kinesiology_evaluation_submissions');
-  await pool.query('DELETE FROM kinesiology_consent_attestations');
-  await pool.query('DELETE FROM kinesiology_evolution_amendment_links');
-  await pool.query('DELETE FROM kinesiology_evolutions');
-  await pool.query('DELETE FROM kinesiology_evaluations');
-  await pool.query('DELETE FROM oral_surgery_practical_evaluations');
-  await pool.query('DELETE FROM oral_surgery_operative_reports');
-  await pool.query('DELETE FROM oral_surgery_authorizations');
-  await pool.query('DELETE FROM oral_surgery_consent_declarations');
+  await pool.query('TRUNCATE kinesiology_evolution_correction_requests, kinesiology_evolution_validation_reviews, kinesiology_evolution_submissions, kinesiology_evaluation_correction_requests, kinesiology_evaluation_validation_reviews, kinesiology_evaluation_amendment_links, kinesiology_evaluation_submission_studies, kinesiology_evaluation_submissions, kinesiology_consent_attestations, kinesiology_evolution_amendment_links, kinesiology_evolutions, kinesiology_evaluations, oral_surgery_practical_evaluations, oral_surgery_operative_reports, oral_surgery_authorizations, oral_surgery_consent_declarations');
   await pool.query('DELETE FROM oral_surgery_drafts');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');

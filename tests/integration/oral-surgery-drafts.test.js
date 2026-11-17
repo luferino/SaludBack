@@ -508,4 +508,9 @@ test('S1-S6: practical evaluation is graded only after closure, corrected with h
     assert.equal(draft.body.version, '1');
     assert.deepEqual(draft.body.content, encounter.body.content);
     assert.equal((await request('GET', `${url}/operative-report`, author)).body.status, 'closed');
+
+    // Migration 053: a direct DELETE on the graded history is rejected and every revision stays readable.
+    await assert.rejects(pool.query('DELETE FROM oral_surgery_practical_evaluations WHERE draft_id = $1', [encounter.body.id]),
+      error => error.code === '23514' && error.message === 'clinical history rows cannot be deleted from oral_surgery_practical_evaluations');
+    assert.deepEqual(await request('GET', gradeUrl, teacher), instructor);
   });

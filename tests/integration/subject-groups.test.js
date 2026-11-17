@@ -34,7 +34,7 @@ const MIGRATIONS = [
   '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql',
   '048_create_user_role_grants.sql', '049_create_oral_surgery_operative_reports.sql',
   '050_seed_oral_surgery_operative_report_permissions.sql',
-  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql',
+  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
@@ -72,6 +72,8 @@ const CLEANUP_TABLES = [
   'subject_academic_groups', 'academic_groups', 'oral_surgery_practical_evaluations', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'reception_patient_enrollments', 'reception_career_grants', 'users',
 ];
+// cleanDb truncates these Oral Surgery tables together with every kinesiology_* table (migration 053 rejects DELETE on clinical history).
+const HISTORY_ORAL_SURGERY_TABLES = ['oral_surgery_practical_evaluations', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations'];
 const REQUIRED_TABLES = [...CLEANUP_TABLES, 'careers', 'permissions', 'role_permissions', 'schema_migrations'];
 const ADMIN_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const ACTOR_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
@@ -234,7 +236,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–052 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–053 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
@@ -254,6 +256,8 @@ async function verifyDestructivePreflight() {
     { table_name: 'role_permissions', privilege: 'DELETE' },
     ...REQUIRED_TABLES.map((table_name) => ({ table_name, privilege: 'SELECT' })),
     ...['users', 'subjects', 'academic_groups', 'subject_academic_groups', 'role_permissions', 'permissions'].map((table_name) => ({ table_name, privilege: 'INSERT' })),
+    ...CLEANUP_TABLES.filter((table_name) => table_name.startsWith('kinesiology_') || HISTORY_ORAL_SURGERY_TABLES.includes(table_name))
+      .map((table_name) => ({ table_name, privilege: 'TRUNCATE' })),
     ...['role_permissions', 'permissions'].map((table_name) => ({ table_name, privilege: 'TRUNCATE' })),
   ];
   const { rows: privilegeRows } = await pool.query(
@@ -364,8 +368,8 @@ before(async () => {
   await verifyDestructivePreflight();
   KINESIOLOGY_CAREER_ID = await kinesiologyCareerId(pool);
   cleanupAuthorized = true;
-  // cleanDb issues 60 non-transactional query calls:
-  // one privilege probe, one correction-link UPDATE, 33 ordered DELETEs, one TRUNCATE, and 24 permission-seed batches.
+  // cleanDb issues 45 non-transactional query calls:
+  // one privilege probe, one correction-link UPDATE, one clinical history TRUNCATE, 17 ordered DELETEs, one permission TRUNCATE, and 24 permission-seed batches.
   // Its destructive scope is not atomic; failed preflight never reaches cleanup.
   await cleanDb(pool);
   await seedUser(ADMIN_ID, 'SUBJECT_GROUPS_ADMIN', 'admin');

@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
 import { createOralSurgerySubjectRouter } from '../../modules/oral-surgery-subjects/index.js';
+import { createHygienePreventiveSubjectRouter } from '../../modules/hygiene-preventive-subjects/index.js';
 import { createCareerRouter } from '../../modules/careers/infrastructure/routes/career.routes.js';
 import { createSubjectRouter } from '../../modules/subjects/infrastructure/routes/subject.routes.js';
 import { createGroupRouter } from '../../modules/groups/infrastructure/routes/group.routes.js';
@@ -15,6 +16,9 @@ export function mountAcademicRoutes(app: Express, dependencies: AppDependencies[
 
   app.use('/oral-surgery-subjects', authenticate(tokenService, matrixReader, roleGrantRepository),
     createOralSurgerySubjectRouter({ repository: dependencies.oralSurgerySubjectRepository }));
+
+  app.use('/hygiene-preventive-subjects', authenticate(tokenService, matrixReader, roleGrantRepository),
+    createHygienePreventiveSubjectRouter({ repository: dependencies.hygienePreventiveSubjectRepository }));
 
   app.use(
     '/careers',

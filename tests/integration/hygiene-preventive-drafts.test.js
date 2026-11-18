@@ -9,6 +9,7 @@ let pool, server, base, config, JwtTokenService, cleanDb;
 let cleanupAuthorized = false;
 const name = prefix => `${prefix}${randomUUID().replaceAll('-', '')}`;
 const hidden = { status: 404, body: { error: { code: 'NOT_FOUND', message: 'hygiene preventive draft was not found' } } };
+const paperConsent = { paper_signed: true, signer: 'parent', signer_name: 'Madre Fixture', signer_document: '12345678' };
 async function request(method, path, token, body) {
   const response = await fetch(`${base}${path}`, { method,
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
@@ -168,6 +169,7 @@ test('S6: the student author logs, edits and deletes a pending procedure entry t
     assert.equal(draft.status, 201, JSON.stringify(draft.body));
     const procedures = `${endpoint}/${draft.body.id}/procedures`;
     const today = new Date().toISOString().slice(0, 10);
+    assert.equal((await request('POST', `${endpoint}/${draft.body.id}/consent`, author, paperConsent)).status, 201);
     const added = await request('POST', procedures, author, { procedure_date: today, description: 'Profilaxis y topicación con flúor' });
     assert.equal(added.status, 201, JSON.stringify(added.body));
     assert.equal(added.body.status, 'pending');
@@ -214,6 +216,7 @@ test('S5: the teacher of the draft context approves a pending procedure entry; a
     assert.equal(draft.status, 201, JSON.stringify(draft.body));
     const procedures = `${endpoint}/${draft.body.id}/procedures`;
     const today = new Date().toISOString().slice(0, 10);
+    assert.equal((await request('POST', `${endpoint}/${draft.body.id}/consent`, author, paperConsent)).status, 201);
     const added = await request('POST', procedures, author, { procedure_date: today, description: 'Profilaxis y topicación con flúor' });
     assert.equal(added.status, 201, JSON.stringify(added.body));
     const entry = `${procedures}/${added.body.id}`;
@@ -251,4 +254,68 @@ test('S5: the teacher of the draft context approves a pending procedure entry; a
     assert.equal(secondApproved.status, 200, JSON.stringify(secondApproved.body));
     assert.equal(secondApproved.body.status, 'approved');
     assert.equal((await request('GET', `${endpoint}/${draft.body.id}`, author)).body.version, '1');
+  });
+
+test('S7: the paper consent gates procedure entries; the parent or an adult patient declares it, the history keeps every declaration, and a minor patient cannot sign for themself',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, otherTeacher, author, otherStudent] = f.tokens;
+    const endpoint = '/hygiene-preventive-drafts';
+    const input = { patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group };
+    const today = new Date().toISOString().slice(0, 10);
+    const entry = { procedure_date: today, description: 'Profilaxis y topicación con flúor' };
+    const gate = { status: 409, body: { error: { code: 'CONFLICT', message: 'signed paper consent is required before logging procedures' } } };
+    const writeDenied = { status: 403, body: { error: { code: 'FORBIDDEN', message: "Permission 'hygiene-preventive-drafts:write' required" } } };
+    assert.equal((await request('POST', '/hygiene-preventive-subjects', admin, { subject_id: f.origin.subject })).status, 201);
+    const draft = await request('POST', endpoint, author, input);
+    assert.equal(draft.status, 201, JSON.stringify(draft.body));
+    const consent = `${endpoint}/${draft.body.id}/consent`;
+    const procedures = `${endpoint}/${draft.body.id}/procedures`;
+
+    // Entries are gated by a declaration; the rejected entry leaves no row behind.
+    assert.deepEqual(await request('POST', procedures, author, entry), gate);
+    assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [] } });
+    assert.deepEqual(await request('GET', consent, author), { status: 200, body: { current_declaration_id: null, declarations: [] } });
+    assert.deepEqual(await request('POST', consent, teacher, paperConsent), writeDenied);
+    assert.deepEqual(await request('POST', consent, otherStudent, paperConsent), hidden);
+    assert.deepEqual(await request('GET', consent, otherStudent), hidden);
+    assert.deepEqual(await request('GET', consent, otherTeacher), hidden);
+
+    const patient = (await pool.query('SELECT nombres, apellidos, documento FROM patients WHERE id = $1', [f.patient])).rows[0];
+    const first = await request('POST', consent, author, paperConsent);
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.deepEqual(Object.keys(first.body).sort(), ['declared_at', 'declared_by', 'draft_id', 'id', 'signer', 'signer_document', 'signer_name']);
+    assert.equal(first.body.signer, 'parent');
+    assert.equal(first.body.signer_name, 'Madre Fixture');
+    assert.equal(first.body.signer_document, '12345678');
+    assert.equal(first.body.declared_by, f.student.id);
+    assert.equal(first.body.draft_id, draft.body.id);
+    // Adult patient: the server copies the patient's name and documento; the request sends neither.
+    const second = await request('POST', consent, author, { paper_signed: true, signer: 'patient' });
+    assert.equal(second.status, 201, JSON.stringify(second.body));
+    assert.equal(second.body.signer, 'patient');
+    assert.equal(second.body.signer_name, `${patient.nombres} ${patient.apellidos}`);
+    assert.equal(second.body.signer_document, patient.documento);
+    assert.equal((await request('GET', `${endpoint}/${draft.body.id}`, author)).body.version, '1');
+
+    // Oldest first; the current declaration is the latest one, and every reader in the draft context sees the same history.
+    const history = { current_declaration_id: second.body.id, declarations: [first.body, second.body] };
+    for (const token of [author, teacher, admin]) assert.deepEqual(await request('GET', consent, token), { status: 200, body: history });
+    assert.equal((await request('POST', procedures, author, entry)).status, 201);
+
+    // A minor patient cannot be the signer; a parent may sign for them. The rejected request persists nothing.
+    const minor = (await pool.query(`INSERT INTO patients(documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion)
+      VALUES ($1,'Minor','Fixture',$2,$3,'00000000','F','Fixture') RETURNING id`,
+    [String(Math.floor(10000000 + Math.random() * 90000000)), `${new Date().getUTCFullYear() - 10}-01-01`, `${name('minor')}@example.test`])).rows[0].id;
+    await pool.query('INSERT INTO patient_assignments(patient_id,student_habilitation_id,subject_id,assigned_by) VALUES ($1,$2,$3,$4)',
+      [minor, f.periods[0].id, f.origin.subject, f.teacher.id]);
+    const minorDraft = await request('POST', endpoint, author, { ...input, patient_id: minor });
+    assert.equal(minorDraft.status, 201, JSON.stringify(minorDraft.body));
+    const minorConsent = `${endpoint}/${minorDraft.body.id}/consent`;
+    assert.deepEqual(await request('POST', minorConsent, author, { paper_signed: true, signer: 'patient' }),
+      { status: 400, body: { error: { code: 'BAD_REQUEST', message: 'a parent must sign for a patient under 18' } } });
+    assert.deepEqual(await request('GET', minorConsent, author), { status: 200, body: { current_declaration_id: null, declarations: [] } });
+    const minorParent = await request('POST', minorConsent, author, paperConsent);
+    assert.equal(minorParent.status, 201, JSON.stringify(minorParent.body));
+    assert.equal((await request('GET', minorConsent, author)).body.declarations.length, 1);
   });

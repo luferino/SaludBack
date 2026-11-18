@@ -690,6 +690,10 @@ evaluations and evolutions, Oral Surgery drafts and operative reports, clinical
 records) are not guarded. `TRUNCATE` is not guarded; it remains an administrative
 operation, and the integration cleanup helper uses it.
 
+Migration `060_create_hygiene_preventive_consent_declarations.sql` applies the same statement guard to
+`hygiene_preventive_consent_declarations`, the append-only paper-consent declarations of Hygiene and
+Preventive drafts.
+
 ### Academic catalog schema foundation
 
 Migration `009_create_academic_contexts.sql` adds subjects, academic groups and

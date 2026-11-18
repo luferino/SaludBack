@@ -44,7 +44,7 @@ test('Reception availability is career and enrollment scoped, preserves periods,
       address: norm(target.identity.serverAddress), port: target.identity.serverPort,
     });
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 59); assert.equal(ledger.rows.at(-1).name, '059_seed_hygiene_preventive_procedure_approval_permission.sql');
+    assert.equal(ledger.rowCount, 60); assert.equal(ledger.rows.at(-1).name, '060_create_hygiene_preventive_consent_declarations.sql');
     await cleanDb(pool);
     const usernames = [`admin_${suffix()}`, `reception_${suffix()}`];
     await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES($1,$2,'synthetic','admin'),($3,$4,'synthetic','reception')`, [adminId,usernames[0],receptionId,usernames[1]]);

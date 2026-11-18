@@ -15,6 +15,13 @@ export interface ProcedureRow {
   student_name: string | null; version: string; approved_by: string | null; teacher_name: string | null;
   approved_at: Date | string | null; created_at: Date | string; updated_at: Date | string;
 }
+// Patient signers leave both fields null; the repository copies them from the patient record.
+export interface ConsentInput { signer: 'patient' | 'parent'; signerName: string | null; signerDocument: string | null }
+export interface ConsentDeclarationRow {
+  id: string; draft_id: string; signer: 'patient' | 'parent'; signer_name: string; signer_document: string;
+  declared_by: string; declared_at: Date | string;
+}
+export interface ConsentHistoryRow { current_declaration_id: string | null; declarations: ConsentDeclarationRow[] }
 export interface DraftRepositoryPort {
   create(input: DraftInput, actor: DraftActor): Promise<DraftRow>;
   get(id: string, actor: DraftActor): Promise<DraftRow>;
@@ -26,4 +33,6 @@ export interface DraftRepositoryPort {
     actor: DraftActor): Promise<ProcedureRow>;
   deleteProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<void>;
   approveProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<ProcedureRow>;
+  declareConsent(draftId: string, input: ConsentInput, actor: DraftActor): Promise<ConsentDeclarationRow>;
+  consentHistory(draftId: string, actor: DraftActor): Promise<ConsentHistoryRow>;
 }

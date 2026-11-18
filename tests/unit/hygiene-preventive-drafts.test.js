@@ -114,10 +114,10 @@ test('S4: medical history rejects non-boolean answers, invalid text and Oral Sur
   assert.equal(calls.count, 0);
 });
 
-test('S1/S6: content exposes only odontogram, indices and medical history; no plaque, procedure, consent or personal-data fields', async () => {
+test('S1/S6: content exposes only odontogram, indices, plaque and medical history; no procedure, consent or personal-data fields', async () => {
   const calls = { count: 0 };
   await serve(countingRepository(calls), async base => {
-    for (const section of ['plaque', 'plaque_indices', 'procedures', 'procedure_log', 'consent', 'informed_consent',
+    for (const section of ['plaque_indices', 'procedures', 'procedure_log', 'consent', 'informed_consent',
       'marital_status', 'civil_status', 'medical_insurance', 'personal_data', 'teacher_signature']) {
       await assertRejected(base, { ...input, content: { [section]: {} } }, `unknown content section: ${section}`, calls);
     }
@@ -303,6 +303,154 @@ test('S3: an index may stay unloaded as null or omitted, and zero components are
     assert.equal(content.indices.ceo_d, null, 'explicit null stays unloaded');
     assert.equal(Object.hasOwn(content.indices, 'cpo_first_molars'), false, 'omitted index stays omitted');
     assert.deepEqual(content.indices.cpo_d, { c: 0, p: 0, o: 0, total: 0 });
+  });
+});
+
+const LOE_TEETH = ['16', '21', '24', '36', '41', '44'];
+const loeTooth = grade => ({ distal: grade, vestibular: grade, mesial: grade, lingual: grade });
+const olearyTooth = stained => ({ mesial: stained, distal: stained, vestibular: stained, lingual: stained });
+const savingRepository = saved => ({
+  async create(value) { const draft = { ...row(value.content), id: String(saved.length + 1) }; saved.push(draft); return draft; },
+  async get(id) { return saved.find(item => item.id === id); },
+});
+
+test('Plaque S2/S4: Löe-Silness averages recorded sites, excludes omitted teeth and sites, and classifies by the shown value', async () => {
+  const saved = [];
+  await serve(savingRepository(saved), async base => {
+    for (const [teeth, average, category] of [
+      [Object.fromEntries(LOE_TEETH.map(code => [code, loeTooth(0)])), 0, 'low'],
+      [Object.fromEntries(LOE_TEETH.map(code => [code, loeTooth(3)])), 3, 'abundant'],
+      // 12 sites: sum 6 -> 0.5 is still POCA; sum 7 -> 0.58 is MODERADA.
+      [{ 16: loeTooth(1), 21: { distal: 1, vestibular: 1, mesial: 0, lingual: 0 }, 24: loeTooth(0) }, 0.5, 'low'],
+      [{ 16: loeTooth(1), 21: { distal: 1, vestibular: 1, mesial: 1, lingual: 0 }, 24: loeTooth(0) }, 0.58, 'moderate'],
+      // 4 sites: sum 6 -> 1.5 is MODERADA; sum 7 -> 1.75 is ABUNDANTE (corrected range 1.6-3).
+      [{ 36: { distal: 2, vestibular: 2, mesial: 1, lingual: 1 } }, 1.5, 'moderate'],
+      [{ 36: { distal: 2, vestibular: 2, mesial: 2, lingual: 1 } }, 1.75, 'abundant'],
+      // Omitted sites are not present: 3 recorded sites with sum 1 -> 0.33.
+      [{ 41: { distal: 1, vestibular: 0, mesial: 0 }, 44: {} }, 0.33, 'low'],
+      [{}, null, null],
+    ]) {
+      const response = await post(base, { ...input, content: { plaque: { loe_silness: { teeth } } } });
+      assert.equal(response.status, 201);
+      const created = await response.json();
+      assert.deepEqual(created.content.plaque, { loe_silness: { teeth, average, category } });
+      const read = await fetch(`${base}/${created.id}`, { headers });
+      assert.deepEqual((await read.json()).content.plaque, created.content.plaque, 'reads return the same computed values');
+      assert.deepEqual(saved.at(-1).content.plaque, { loe_silness: { teeth } }, 'only the teeth are stored');
+    }
+  });
+});
+
+test('Plaque S3/S4: O\'Leary computes stained over present surfaces of recorded teeth and classifies by the shown percentage', async () => {
+  const saved = [];
+  await serve(savingRepository(saved), async base => {
+    const permanent = Object.fromEntries(FDI_PERMANENT.map(code => [code, olearyTooth(false)]));
+    // Ten teeth (40 surfaces) with the first `count` surfaces stained.
+    const withStained = count => Object.fromEntries(FDI_PERMANENT.slice(0, 10).map((code, i) => [code, {
+      mesial: i * 4 < count, distal: i * 4 + 1 < count, vestibular: i * 4 + 2 < count, lingual: i * 4 + 3 < count }]));
+    for (const [teeth, stained, present, percentage, category] of [
+      [permanent, 0, 128, 0, 'good'],
+      [Object.fromEntries(FDI_DECIDUOUS.map(code => [code, olearyTooth(true)])), 80, 80, 100, 'poor'],
+      // 40 surfaces: 12 -> 30% BUENO, 13 -> 32.5% REGULAR, 24 -> 60% REGULAR, 25 -> 62.5% MALO.
+      [withStained(12), 12, 40, 30, 'good'],
+      [withStained(13), 13, 40, 32.5, 'fair'],
+      [withStained(24), 24, 40, 60, 'fair'],
+      [withStained(25), 25, 40, 62.5, 'poor'],
+      // 3 teeth, 1 stained surface: 8.333 -> 8.3; mixed dentition is accepted.
+      [{ 11: { mesial: true, distal: false, vestibular: false, lingual: false }, 55: olearyTooth(false),
+        85: olearyTooth(false) }, 1, 12, 8.3, 'good'],
+      [{}, 0, 0, null, null],
+    ]) {
+      const response = await post(base, { ...input, content: { plaque: { oleary: { teeth } } } });
+      assert.equal(response.status, 201);
+      const created = await response.json();
+      assert.deepEqual(created.content.plaque, { oleary: { teeth, stained_surfaces: stained, present_surfaces: present,
+        percentage, category } });
+      const read = await fetch(`${base}/${created.id}`, { headers });
+      assert.deepEqual((await read.json()).content.plaque, created.content.plaque, 'reads return the same computed values');
+      assert.deepEqual(saved.at(-1).content.plaque, { oleary: { teeth } }, 'only the teeth are stored');
+    }
+  });
+});
+
+test('Plaque S4: a plaque section may be null or omitted and plaque coexists with the other sections', async () => {
+  const saved = [];
+  await serve(savingRepository(saved), async base => {
+    for (const plaque of [{}, { loe_silness: null }, { oleary: null, loe_silness: { teeth: { 16: loeTooth(2) } } }]) {
+      const content = { odontogram: { 16: { state: 'present' } }, indices: { cpo_d: { c: 1, p: 0, o: 0 } }, plaque };
+      const response = await post(base, { ...input, content });
+      assert.equal(response.status, 201);
+      const body = (await response.json()).content;
+      assert.deepEqual(body.odontogram, content.odontogram);
+      assert.deepEqual(body.indices, { cpo_d: { c: 1, p: 0, o: 0, total: 1 } });
+      assert.deepEqual(saved.at(-1).content, content, 'stored content keeps null and omitted sections as sent');
+    }
+    assert.deepEqual(saved[0].content.plaque, {});
+    assert.equal(saved[1].content.plaque.loe_silness, null);
+    assert.equal(Object.hasOwn(saved[1].content.plaque, 'oleary'), false, 'omitted section stays omitted');
+    assert.equal(saved[2].content.plaque.oleary, null, 'explicit null stays unloaded');
+  });
+});
+
+test('Plaque S2/S3/S4: invalid plaque input is rejected with exact messages before the repository', async () => {
+  const calls = { count: 0 };
+  await serve(countingRepository(calls), async base => {
+    const computed = (section, key) => `plaque.${section}.${key} is computed by the server and must not be sent`;
+    const grade = (code, site) => `plaque.loe_silness.teeth.${code}.${site} must be an integer grade from 0 to 3`;
+    for (const [plaque, message] of [
+      [[], 'plaque must be an object'],
+      [{ silness: null }, 'unknown content field: plaque.silness'],
+      [{ loe_silness: 2 }, 'plaque.loe_silness must be an object or null'],
+      [{ oleary: [] }, 'plaque.oleary must be an object or null'],
+      [{ loe_silness: {} }, 'plaque.loe_silness.teeth must be an object'],
+      [{ oleary: { teeth: [] } }, 'plaque.oleary.teeth must be an object'],
+      [{ loe_silness: { teeth: {}, average: 0 } }, computed('loe_silness', 'average')],
+      [{ loe_silness: { teeth: {}, category: 'low' } }, computed('loe_silness', 'category')],
+      [{ oleary: { teeth: {}, percentage: 0 } }, computed('oleary', 'percentage')],
+      [{ oleary: { teeth: {}, category: 'good' } }, computed('oleary', 'category')],
+      [{ oleary: { teeth: {}, stained_surfaces: 0 } }, computed('oleary', 'stained_surfaces')],
+      [{ oleary: { teeth: {}, present_surfaces: 0 } }, computed('oleary', 'present_surfaces')],
+      [{ loe_silness: { teeth: {}, notes: 'x' } }, 'unknown content field: plaque.loe_silness.notes'],
+      [{ loe_silness: { teeth: { 11: loeTooth(0) } } }, 'plaque.loe_silness.teeth.11 must be one of 16, 21, 24, 36, 41, 44'],
+      [{ loe_silness: { teeth: { 16: null } } }, 'plaque.loe_silness.teeth.16 must be an object'],
+      [{ loe_silness: { teeth: { 16: { occlusal: 0 } } } }, 'unknown content field: plaque.loe_silness.teeth.16.occlusal'],
+      [{ loe_silness: { teeth: { 16: { distal: 4 } } } }, grade(16, 'distal')],
+      [{ loe_silness: { teeth: { 21: { mesial: -1 } } } }, grade(21, 'mesial')],
+      [{ loe_silness: { teeth: { 24: { lingual: 1.5 } } } }, grade(24, 'lingual')],
+      [{ loe_silness: { teeth: { 36: { vestibular: '2' } } } }, grade(36, 'vestibular')],
+      [{ loe_silness: { teeth: { 44: { vestibular: null } } } }, grade(44, 'vestibular')],
+      [{ oleary: { teeth: { 19: olearyTooth(false) } } }, 'plaque.oleary.teeth.19 is not a valid FDI tooth code'],
+      [{ oleary: { teeth: { 86: olearyTooth(false) } } }, 'plaque.oleary.teeth.86 is not a valid FDI tooth code'],
+      [{ oleary: { teeth: { 11: true } } }, 'plaque.oleary.teeth.11 must be an object'],
+      [{ oleary: { teeth: { 11: { ...olearyTooth(false), occlusal: true } } } },
+        'unknown content field: plaque.oleary.teeth.11.occlusal'],
+      [{ oleary: { teeth: { 11: { mesial: true, distal: false, vestibular: false } } } },
+        'plaque.oleary.teeth.11.lingual must be boolean'],
+      [{ oleary: { teeth: { 75: { ...olearyTooth(false), mesial: 1 } } } }, 'plaque.oleary.teeth.75.mesial must be boolean'],
+      [{ oleary: { teeth: { 75: { ...olearyTooth(false), distal: null } } } }, 'plaque.oleary.teeth.75.distal must be boolean'],
+    ]) await assertRejected(base, { ...input, content: { plaque } }, message, calls);
+  });
+  assert.equal(calls.count, 0);
+});
+
+test('Plaque S4: PATCH validates plaque the same way and returns server-computed values', async () => {
+  const calls = { count: 0 };
+  const edited = [];
+  const repository = { ...countingRepository(calls),
+    async edit(id, version, content) { edited.push(content); return { ...row(content), id, version: '2' }; } };
+  await serve(repository, async base => {
+    const patch = content => fetch(`${base}/1`, { method: 'PATCH', headers,
+      body: JSON.stringify({ expected_version: '1', content }) });
+    const rejected = await patch({ plaque: { oleary: { teeth: {}, percentage: 10 } } });
+    assert.equal(rejected.status, 400);
+    assert.deepEqual(await rejected.json(), { error: { code: 'BAD_REQUEST',
+      message: 'plaque.oleary.percentage is computed by the server and must not be sent' } });
+    assert.equal(edited.length, 0, 'rejected PATCH must not reach the repository');
+    const response = await patch({ plaque: { loe_silness: { teeth: { 16: loeTooth(1) } } } });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).content.plaque,
+      { loe_silness: { teeth: { 16: loeTooth(1) }, average: 1, category: 'moderate' } });
+    assert.deepEqual(edited, [{ plaque: { loe_silness: { teeth: { 16: loeTooth(1) } } } }]);
   });
 });
 

@@ -191,7 +191,7 @@ test('S6: the student author logs, edits and deletes a pending procedure entry t
     const stale = await request('PATCH', entry, author, { expected_version: '1', procedure_date: today, description: 'Stale' });
     assert.deepEqual(stale, { status: 409, body: { error: { code: 'CONFLICT', message: 'procedure entry version changed; reload before saving' } } });
     assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [edited.body] } });
-    assert.deepEqual(await request('POST', procedures, otherStudent, input), hidden);
+    assert.deepEqual(await request('POST', procedures, otherStudent, { procedure_date: today, description: 'x' }), hidden);
     assert.deepEqual(await request('GET', procedures, otherStudent), hidden);
     assert.deepEqual(await request('PATCH', entry, otherStudent, { expected_version: '2', procedure_date: today, description: 'x' }), hidden);
     assert.deepEqual(await request('DELETE', `${entry}?expected_version=2`, otherStudent), hidden);

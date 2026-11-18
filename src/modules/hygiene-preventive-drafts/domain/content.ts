@@ -5,6 +5,8 @@ import { BadRequestError } from '../../shared/domain/errors.js';
 const MEDICAL_BOOLEANS = ['taking_medication', 'allergy_local_anesthetic', 'allergy_penicillin', 'allergy_other_medication',
   'dental_treatment_problem', 'cardiovascular_disease', 'diabetes', 'hypertension', 'renal_disease', 'tuberculosis',
   'venereal_disease', 'blood_disease', 'other_disease', 'pregnant'] as const;
+// In Unicode mode only unpaired surrogates match \p{Cs}; valid astral characters do not.
+const LONE_SURROGATE = /\p{Cs}/u;
 const MEDICAL_TEXT = [...MEDICAL_BOOLEANS.map(key => `${key}_detail`), 'treating_physician', 'observations'];
 
 const PERMANENT_TEETH = [1, 2, 3, 4].flatMap(quadrant => Array.from({ length: 8 }, (_, i) => `${quadrant}${i + 1}`));
@@ -56,8 +58,9 @@ function medicalHistory(entry: unknown): Record<string, boolean | string | null>
     if ((MEDICAL_BOOLEANS as readonly string[]).includes(key)) {
       if (answer !== null && typeof answer !== 'boolean') throw new BadRequestError(`medical_history.${key} must be boolean or null`);
     } else if ((MEDICAL_TEXT as readonly string[]).includes(key)) {
-      // Count Unicode characters, not UTF-16 units; PostgreSQL JSON text cannot hold NUL.
-      if (answer !== null && (typeof answer !== 'string' || [...answer].length > 4000 || answer.includes('\u0000'))) {
+      // Count Unicode characters, not UTF-16 units; PostgreSQL JSON text cannot hold NUL or lone surrogates.
+      if (answer !== null && (typeof answer !== 'string' || [...answer].length > 4000 || answer.includes('\u0000')
+          || LONE_SURROGATE.test(answer))) {
         throw new BadRequestError(`medical_history.${key} must be text of at most 4000 characters without NUL, or null`);
       }
     } else throw new BadRequestError(`unknown content field: medical_history.${key}`);

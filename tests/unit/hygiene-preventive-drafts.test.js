@@ -101,6 +101,9 @@ test('S4: medical history rejects non-boolean answers, invalid text and Oral Sur
         'medical_history.observations must be text of at most 4000 characters without NUL, or null'],
       [{ medical_history: { other_disease_detail: 'before\u0000after' } },
         'medical_history.other_disease_detail must be text of at most 4000 characters without NUL, or null'],
+      // A lone UTF-16 surrogate cannot be stored as PostgreSQL JSON text.
+      [{ medical_history: { observations: 'broken \uD800 text' } },
+        'medical_history.observations must be text of at most 4000 characters without NUL, or null'],
       [{ medical_history: { treating_physician: 7 } },
         'medical_history.treating_physician must be text of at most 4000 characters without NUL, or null'],
       [{ medical_history: { hospitalized: true } }, 'unknown content field: medical_history.hospitalized'],

@@ -93,7 +93,7 @@ All 400 responses use `BAD_REQUEST`. `<field>` names the offending key.
 | Unknown content section | `unknown content section: <name>` |
 | Unknown medical-history or nested field | `unknown content field: <path>` |
 | Non-boolean yes/no answer | `medical_history.<name> must be boolean or null` |
-| Invalid medical-history text | `medical_history.<name> must be text of at most 4000 characters without NUL, or null` |
+| Invalid medical-history text (not a string, over 4000 characters, NUL or a lone UTF-16 surrogate) | `medical_history.<name> must be text of at most 4000 characters without NUL, or null` |
 | Invalid FDI code | `odontogram.<code> is not a valid FDI tooth code` |
 | Invalid or missing tooth state | `odontogram.<code>.state must be present, absent or to_extract` |
 | Surfaces not an object | `odontogram.<code>.surfaces must be an object` |
@@ -105,6 +105,25 @@ All 400 responses use `BAD_REQUEST`. `<field>` names the offending key.
 | Invalid component | `indices.<index>.<component> must be a non-negative safe integer` |
 | Total above limit | `indices.<index> total must be at most <limit>` |
 | Invalid `expected_version` | `expected_version must be a positive BIGINT decimal string` |
+| Invalid draft ID in the path | `draft id must be a positive BIGINT decimal string` |
+| Invalid `patient_id`, `subject_id` or `academic_group_id` | `<field> must be a UUID` |
+| `limit` (1–100) or `offset` out of range | `limit is out of range` / `offset is out of range` |
+| Query parameters on `/hygiene-preventive-subjects/mine` | `query parameters are not supported` |
+
+Other draft and own-context errors:
+
+| Status | Condition | Message |
+| --- | --- | --- |
+| 401 | Token subject is not a UUID | `A verified UUID actor is required` |
+| 403 | Write with a role other than `estudiante` | `student author role required` |
+| 403 | Read with a role other than `admin`, `teacher` or `estudiante` | `clinical role required` |
+| 403 | `/mine` with a role other than `estudiante` or `teacher` | `estudiante or teacher role required` |
+| 403 | Create without an active habilitation in an enabled subject and group | `an active enabled student context is required` |
+| 404 | Create for an unknown patient or one without an active assignment in that subject | `patient was not found` |
+| 404 | Unknown draft or a draft outside the caller's access | `hygiene preventive draft was not found` |
+| 409 | Stale `expected_version` | `draft version changed; reload before saving` |
+
+`GET /hygiene-preventive-subjects/mine` responds with `Cache-Control: no-store`.
 
 ### Migrations
 

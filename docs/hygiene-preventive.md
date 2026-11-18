@@ -160,7 +160,7 @@ Other draft and own-context errors:
 
 ### Procedure log
 
-Each draft has its own procedure log, mirroring the paper sheet: free-text entries that the draft's student author records. An entry stays editable and deletable by its author until a teacher approves it; teacher approval is a later delivery and its endpoint is not part of this slice.
+Each draft has its own procedure log, mirroring the paper sheet: free-text entries that the draft's student author records. An entry stays editable and deletable by its author until a teacher approves it; after approval it is final (see Teacher approval below).
 
 #### Endpoints and permissions
 
@@ -170,13 +170,14 @@ Each draft has its own procedure log, mirroring the paper sheet: free-text entri
 | `POST /hygiene-preventive-drafts/:id/procedures` | `hygiene-preventive-drafts:write` | `estudiante` (author) |
 | `PATCH /hygiene-preventive-drafts/:id/procedures/:procedureId` | `hygiene-preventive-drafts:write` | `estudiante` (author) |
 | `DELETE /hygiene-preventive-drafts/:id/procedures/:procedureId` | `hygiene-preventive-drafts:write` | `estudiante` (author) |
+| `POST /hygiene-preventive-drafts/:id/procedures/:procedureId/approval` | `hygiene-preventive-drafts:approve` | `teacher` (active habilitation in the draft's subject and group) |
 
 - `POST` body: `procedure_date` (`YYYY-MM-DD`) and `description`. Returns 201 with the entry.
 - `PATCH` body: `expected_version` (mandatory positive BIGINT decimal string), `procedure_date` and `description`. Both date and text are replaced in full. Returns 200 with the entry and an incremented `version`.
 - `DELETE` takes `expected_version` in the query string (`?expected_version=<n>`) and returns 204 with no body.
 - `GET` list returns `{ items }` in creation order. It accepts no query parameters.
 - Adding, editing and deleting entries does not change the draft `version`.
-- Each entry carries `version` (string), `status` (`pending` while `approved_at` is null, otherwise `approved`), `student_name` (the author's `nombres apellidos`), and the approval fields `approved_by`, `teacher_name` and `approved_at`. Approval fields stay null until the teacher approval delivery.
+- Each entry carries `version` (string), `status` (`pending` while `approved_at` is null, otherwise `approved`), `student_name` (the author's `nombres apellidos`), and the approval fields `approved_by`, `teacher_name` and `approved_at`. Approval fields stay null until a teacher approves the entry.
 - Writes lock in the order student period, patient, assignment, draft, entry, matching draft edits.
 
 #### Exact messages
@@ -190,19 +191,34 @@ Each draft has its own procedure log, mirroring the paper sheet: free-text entri
 | 400 | Unknown field | `allowed fields: procedure_date, description` (POST); `allowed fields: expected_version, procedure_date, description` (PATCH); `allowed fields: expected_version` (DELETE) |
 | 400 | Any query on the list | `query parameters are not supported` |
 | 403 | Missing write permission, or a non-student caller | `Permission 'hygiene-preventive-drafts:write' required`, `student author role required` |
-| 404 | Draft unknown, not visible, or not editable by the caller | `hygiene preventive draft was not found` |
+| 404 | Draft unknown, not visible, or not editable by the caller; for approval, also no active teacher habilitation in the draft's subject and group | `hygiene preventive draft was not found` |
 | 404 | Entry unknown or belonging to another draft | `procedure entry was not found` |
 | 409 | Stale `expected_version` | `procedure entry version changed; reload before saving` |
-| 409 | Edit or delete of an approved entry (reachable once teacher approval exists) | `approved procedure entries cannot be changed` |
+| 409 | Edit or delete of an approved entry | `approved procedure entries cannot be changed` |
+| 400 | Approval body has any field other than `expected_version` | `allowed fields: expected_version` |
+| 403 | Approval without the approve permission | `Permission 'hygiene-preventive-drafts:approve' required` |
+| 403 | Approval by a caller that holds the permission but is not a teacher | `teacher instructor role required` |
+| 409 | Second approval of an entry | `procedure entry is already approved` |
 
 `description` is stored exactly as sent: surrounding whitespace is kept, and whitespace-only text is rejected. `procedure_date` uses the UTC convention of patient creation.
+
+#### Teacher approval
+
+`POST /hygiene-preventive-drafts/:id/procedures/:procedureId/approval` approves a pending entry. It needs `hygiene-preventive-drafts:approve`, which migration 059 grants to `teacher` only: admins and students never approve, even if the permission appears in their token. The teacher needs an active (not revoked) habilitation in the draft's origin subject and group; otherwise the draft is answered as not found.
+
+- Body: exactly `{"expected_version":"<n>"}`. Any other field is rejected.
+- Returns 200 with the entry: `status` is `approved`, `approved_by` is the teacher's user id, `teacher_name` is the teacher's `nombres apellidos`, `approved_at` is the server time, and `version` is incremented.
+- Approval is final. A second approval, and any student edit or delete of the entry, answers 409 and changes nothing.
+- Approval does not change the draft `version`.
+- Locks, in order: the teacher habilitation (`FOR UPDATE`, as in oral surgery authorization), the draft, then the entry.
 
 ### Migrations
 
 - `056_create_hygiene_preventive_drafts.sql` creates `hygiene_preventive_drafts`. Its origin subject references `hygiene_preventive_subjects`. It reuses `clinical_records_id_patient_unique` (031) and `student_habilitations_id_context_unique` (040) and does not re-create them. The origin is immutable.
 - `057_seed_hygiene_preventive_draft_permissions.sql` seeds `hygiene-preventive-drafts:read` and `hygiene-preventive-drafts:write`. Students get read and write; teachers and admins get read only.
 - `058_create_hygiene_preventive_procedures.sql` creates `hygiene_preventive_procedures` for the procedure log. It references the draft and the users. Its checks enforce a 1–1000 character description and approval columns that are all null (pending) or all set (approved). The origin columns (`id`, `draft_id`, `author_id`, `created_at`) are immutable; a row trigger rejects UPDATE and DELETE of an approved row. TRUNCATE is not a row event, so integration cleanup can still clear approved rows. The date-not-in-the-future and blank-text rules are application checks. No permission is added by this migration.
+- `059_seed_hygiene_preventive_procedure_approval_permission.sql` seeds `hygiene-preventive-drafts:approve` and grants it to `teacher` only. Admins and students do not receive it. Approval uses the approval columns that migration 058 already created; no table or column is added.
 
 Plaque indices live in the existing `content` JSONB column and need no migration.
 
-Not yet delivered: teacher approval of procedure entries, informed consent, marital status and medical insurance.
+Not yet delivered: informed consent, marital status and medical insurance.

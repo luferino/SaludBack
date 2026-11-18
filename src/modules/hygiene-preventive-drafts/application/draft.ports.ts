@@ -25,4 +25,5 @@ export interface DraftRepositoryPort {
   editProcedure(draftId: string, procedureId: string, version: string, input: ProcedureInput,
     actor: DraftActor): Promise<ProcedureRow>;
   deleteProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<void>;
+  approveProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<ProcedureRow>;
 }

@@ -122,5 +122,18 @@ export function createHygienePreventiveDraftRouter({ repository }: { repository:
       decimal(req.query.expected_version, 'expected_version'), who);
     res.status(204).end();
   });
+  router.post('/:id/procedures/:procedureId/approval', async (req, res) => {
+    await new PermissionGuard('hygiene-preventive-drafts:approve').authorize(req);
+    const id = await defaultGetActor(req);
+    if (!isCanonicalUuid(id)) throw new UnauthorizedError('A verified UUID actor is required');
+    const role = (req as AuthenticatedRequest).auth!.role;
+    if (role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    const draftId = decimal(req.params.id, 'draft id');
+    const procedureId = decimal(req.params.procedureId, 'procedure id');
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version']);
+    res.json(serializeProcedure(await repository.approveProcedure(draftId, procedureId,
+      decimal(body.expected_version, 'expected_version'), { id, role })));
+  });
   return router;
 }

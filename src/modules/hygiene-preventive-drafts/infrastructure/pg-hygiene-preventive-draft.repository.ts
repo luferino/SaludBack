@@ -12,6 +12,7 @@ const NOT_FOUND = 'hygiene preventive draft was not found';
 const ENTRY_NOT_FOUND = 'procedure entry was not found';
 const ENTRY_VERSION_CHANGED = 'procedure entry version changed; reload before saving';
 const APPROVED_ENTRY = 'approved procedure entries cannot be changed';
+const ENTRY_ALREADY_APPROVED = 'procedure entry is already approved';
 
 const PROCEDURE_COLUMNS = `p.id::text, p.draft_id::text, to_char(p.procedure_date, 'YYYY-MM-DD') AS procedure_date,
   p.description, p.author_id, s.nombres || ' ' || s.apellidos AS student_name, p.version::text,
@@ -188,6 +189,42 @@ export class PgHygienePreventiveDraftRepository implements DraftRepositoryPort {
         'DELETE FROM hygiene_preventive_procedures WHERE id = $1 AND version = $2 AND approved_at IS NULL AND author_id = $3',
         [procedureId, version, actor.id],
       );
+    });
+  }
+
+  // Teacher period -> draft -> entry, the same order as oral surgery authorization. Approval does not bump the draft version.
+  async approveProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<ProcedureRow> {
+    if (actor.role !== 'teacher') throw new ForbiddenError('teacher instructor role required');
+    return this.unitOfWork.withTransaction(async db => {
+      const hint = (await db.query<{ origin_subject_id: string; origin_group_id: string }>(
+        'SELECT origin_subject_id, origin_group_id FROM hygiene_preventive_drafts WHERE id = $1', [draftId],
+      )).rows[0];
+      if (!hint) throw new NotFoundError(NOT_FOUND);
+      // Teacher revocation and approval serialize on the same period before the draft and its entries.
+      const periods = await db.query<{ id: string }>(
+        `SELECT th.id FROM teacher_academic_habilitations th JOIN teachers t ON t.id = th.teacher_id
+         WHERE t.user_id = $1 AND th.subject_id = $2 AND th.academic_group_id = $3
+           AND th.revoked_at IS NULL ORDER BY th.id FOR UPDATE OF th`,
+        [actor.id, hint.origin_subject_id, hint.origin_group_id],
+      );
+      if (!periods.rows.length) throw new NotFoundError(NOT_FOUND);
+      await db.query('SELECT id FROM hygiene_preventive_drafts WHERE id = $1 FOR KEY SHARE', [draftId]);
+      const entry = (await db.query<{ version: string; approved_at: Date | null }>(
+        `SELECT version::text, approved_at FROM hygiene_preventive_procedures
+         WHERE id = $1 AND draft_id = $2 FOR UPDATE`,
+        [procedureId, draftId],
+      )).rows[0];
+      if (!entry) throw new NotFoundError(ENTRY_NOT_FOUND);
+      if (entry.approved_at !== null) throw new ConflictError(ENTRY_ALREADY_APPROVED);
+      if (entry.version !== version) throw new ConflictError(ENTRY_VERSION_CHANGED);
+      const result = await db.query<{ id: string }>(
+        `UPDATE hygiene_preventive_procedures SET approved_by = $3, teacher_habilitation_id = $4,
+           approved_at = clock_timestamp(), version = version + 1, updated_at = clock_timestamp()
+         WHERE id = $1 AND version = $2 AND approved_at IS NULL RETURNING id::text`,
+        [procedureId, version, actor.id, periods.rows[0].id],
+      );
+      if (!result.rows.length) throw new ConflictError(ENTRY_VERSION_CHANGED);
+      return this.procedureRow(db, procedureId);
     });
   }
 

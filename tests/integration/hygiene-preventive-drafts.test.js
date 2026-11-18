@@ -200,3 +200,55 @@ test('S6: the student author logs, edits and deletes a pending procedure entry t
     assert.deepEqual(await request('DELETE', `${entry}?expected_version=2`, author), { status: 204, body: null });
     assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [] } });
   });
+
+test('S5: the teacher of the draft context approves a pending procedure entry; approved entries are final',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, otherTeacher, author] = f.tokens;
+    const endpoint = '/hygiene-preventive-drafts';
+    const input = { patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group };
+    const permissionDenied = { status: 403, body: { error: { code: 'FORBIDDEN', message: "Permission 'hygiene-preventive-drafts:approve' required" } } };
+    const changedRejected = { status: 409, body: { error: { code: 'CONFLICT', message: 'approved procedure entries cannot be changed' } } };
+    assert.equal((await request('POST', '/hygiene-preventive-subjects', admin, { subject_id: f.origin.subject })).status, 201);
+    const draft = await request('POST', endpoint, author, input);
+    assert.equal(draft.status, 201, JSON.stringify(draft.body));
+    const procedures = `${endpoint}/${draft.body.id}/procedures`;
+    const today = new Date().toISOString().slice(0, 10);
+    const added = await request('POST', procedures, author, { procedure_date: today, description: 'Profilaxis y topicación con flúor' });
+    assert.equal(added.status, 201, JSON.stringify(added.body));
+    const entry = `${procedures}/${added.body.id}`;
+    const approval = `${entry}/approval`;
+    // Students and admins never approve, even when the approve permission is present in the request.
+    assert.deepEqual(await request('POST', approval, author, { expected_version: '1' }), permissionDenied);
+    assert.deepEqual(await request('POST', approval, admin, { expected_version: '1' }), permissionDenied);
+    // A teacher of another group cannot see the origin draft, so the answer is the draft-not-found body.
+    assert.deepEqual(await request('POST', approval, otherTeacher, { expected_version: '1' }), hidden);
+    assert.deepEqual(await request('POST', `${procedures}/999999999/approval`, teacher, { expected_version: '1' }),
+      { status: 404, body: { error: { code: 'NOT_FOUND', message: 'procedure entry was not found' } } });
+    assert.deepEqual(await request('POST', approval, teacher, { expected_version: '1', approved_by: f.teacher.id }),
+      { status: 400, body: { error: { code: 'BAD_REQUEST', message: 'allowed fields: expected_version' } } });
+    const approved = await request('POST', approval, teacher, { expected_version: '1' });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.equal(approved.body.status, 'approved');
+    assert.equal(approved.body.approved_by, f.teacher.id);
+    assert.equal(approved.body.teacher_name, 'Teacher Origin');
+    assert.equal(approved.body.version, '2');
+    assert.match(approved.body.approved_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(approved.body.student_name, 'Student Author');
+    // Approval is final: a second approval, or any student edit or delete, is rejected before any write.
+    assert.deepEqual(await request('POST', approval, teacher, { expected_version: '2' }),
+      { status: 409, body: { error: { code: 'CONFLICT', message: 'procedure entry is already approved' } } });
+    assert.deepEqual(await request('PATCH', entry, author, { expected_version: '2', procedure_date: today, description: 'Cambio' }), changedRejected);
+    assert.deepEqual(await request('DELETE', `${entry}?expected_version=2`, author), changedRejected);
+    assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [approved.body] } });
+    assert.deepEqual(await request('GET', procedures, teacher), { status: 200, body: { items: [approved.body] } });
+    // A pending entry with a stale version must reload before approval; approval does not bump the draft version.
+    const second = await request('POST', procedures, author, { procedure_date: today, description: 'Sellado de fosas y fisuras' });
+    assert.equal(second.status, 201, JSON.stringify(second.body));
+    assert.deepEqual(await request('POST', `${procedures}/${second.body.id}/approval`, teacher, { expected_version: '2' }),
+      { status: 409, body: { error: { code: 'CONFLICT', message: 'procedure entry version changed; reload before saving' } } });
+    const secondApproved = await request('POST', `${procedures}/${second.body.id}/approval`, teacher, { expected_version: '1' });
+    assert.equal(secondApproved.status, 200, JSON.stringify(secondApproved.body));
+    assert.equal(secondApproved.body.status, 'approved');
+    assert.equal((await request('GET', `${endpoint}/${draft.body.id}`, author)).body.version, '1');
+  });

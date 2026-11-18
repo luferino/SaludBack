@@ -2,7 +2,7 @@
 
 Hygiene and Preventive Dentistry II is an Odontology-specific form. Patient identity and the longitudinal clinical record remain shared; its clinical content is independent of the Oral Surgery and Kinesiology APIs.
 
-Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher signature, informed consent, marital status and medical insurance are later deliveries. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
+Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher approval and the paper-consent declarations are delivered too; marital status and medical insurance are later deliveries. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
 
 ## Enable a subject
 
@@ -212,13 +212,52 @@ Each draft has its own procedure log, mirroring the paper sheet: free-text entri
 - Approval does not change the draft `version`.
 - Locks, in order: the teacher habilitation (`FOR UPDATE`, as in oral surgery authorization), the draft, then the entry.
 
+### Paper consent
+
+Informed consent is recorded as a declaration that a signed paper exists. It is not an electronic signature and no document is uploaded. Only the draft's student author declares it, with the same context check as editing the draft. Admins and teachers can read the declarations.
+
+#### Endpoints and permissions
+
+| Endpoint | Permission | Role |
+|---|---|---|
+| `POST /hygiene-preventive-drafts/:id/consent` | `hygiene-preventive-drafts:write` | `estudiante` (author) |
+| `GET /hygiene-preventive-drafts/:id/consent` | `hygiene-preventive-drafts:read` | `admin`, `teacher`, `estudiante` (same access as the draft) |
+
+- `POST` body: `paper_signed` (must be `true`), `signer` (`patient` or `parent`), and for a parent only `signer_name` and `signer_document`. Returns 201 with `id`, `draft_id`, `signer`, `signer_name`, `signer_document`, `declared_by` and `declared_at`.
+- Patient signer: the server copies the patient's `nombres apellidos` and `documento` at declaration time. The request must not send `signer_name` or `signer_document`, even as null.
+- Parent signer: `signer_name` is stored exactly as sent. `signer_document` is 4–8 ASCII digits, the same format as the patient documento.
+- A patient under 18 on the UTC declaration date (a birthday counts as 18) can only be declared with `parent`.
+- `GET` returns 200 with `current_declaration_id` (the latest declaration, or `null`) and `declarations`, oldest first. Declarations are never edited or deleted; to correct a mistake, declare again.
+- Declaring does not change the draft `version`.
+
+#### Procedure gate
+
+Adding a procedure entry requires at least one declaration on the draft; without one, `POST .../procedures` answers 409. Editing, deleting and approving existing entries is not affected.
+
+#### Exact messages
+
+| Status | Condition | Message |
+|---|---|---|
+| 400 | `paper_signed` is not `true` | `paper_signed must be true` |
+| 400 | `signer` is not `patient` or `parent` | `signer must be patient or parent` |
+| 400 | Parent `signer_name` is blank, longer than 200 characters, or contains NUL or a lone surrogate | `signer_name must be non-empty text of at most 200 characters without NUL` |
+| 400 | Parent `signer_document` is not 4–8 digits | `signer_document must be 4-8 digits` |
+| 400 | Patient signer sends `signer_name` or `signer_document` | `signer_name and signer_document are only accepted for a parent signer` |
+| 400 | Patient under 18 with `signer: patient` | `a parent must sign for a patient under 18` |
+| 400 | Unknown field | `allowed fields: paper_signed, signer, signer_name, signer_document` |
+| 400 | Malformed draft ID, or any query string on `GET` | `draft id must be a positive BIGINT decimal string`; `query parameters are not supported` |
+| 403 | `POST` without write permission, or by a non-student role | `Permission 'hygiene-preventive-drafts:write' required`; `student author role required` |
+| 404 | Draft unknown, not visible, or not authored by the caller | `hygiene preventive draft was not found` |
+| 409 | Adding a procedure entry with no declaration | `signed paper consent is required before logging procedures` |
+
 ### Migrations
 
 - `056_create_hygiene_preventive_drafts.sql` creates `hygiene_preventive_drafts`. Its origin subject references `hygiene_preventive_subjects`. It reuses `clinical_records_id_patient_unique` (031) and `student_habilitations_id_context_unique` (040) and does not re-create them. The origin is immutable.
 - `057_seed_hygiene_preventive_draft_permissions.sql` seeds `hygiene-preventive-drafts:read` and `hygiene-preventive-drafts:write`. Students get read and write; teachers and admins get read only.
 - `058_create_hygiene_preventive_procedures.sql` creates `hygiene_preventive_procedures` for the procedure log. It references the draft and the users. Its checks enforce a 1–1000 character description and approval columns that are all null (pending) or all set (approved). The origin columns (`id`, `draft_id`, `author_id`, `created_at`) are immutable; a row trigger rejects UPDATE and DELETE of an approved row. TRUNCATE is not a row event, so integration cleanup can still clear approved rows. The date-not-in-the-future and blank-text rules are application checks. No permission is added by this migration.
 - `059_seed_hygiene_preventive_procedure_approval_permission.sql` seeds `hygiene-preventive-drafts:approve` and grants it to `teacher` only. Admins and students do not receive it. Approval uses the approval columns that migration 058 already created; no table or column is added.
+- `060_create_hygiene_preventive_consent_declarations.sql` creates `hygiene_preventive_consent_declarations` for the paper-consent declarations. It references the draft and the users. Rows are append-only: a row trigger rejects UPDATE and DELETE, and a statement trigger rejects DELETE as migration 053 does for the clinical history tables. Its checks cover the parent format rules (a non-empty name of at most 200 characters, a 4–8 digit documento) and the signer values. The patient snapshot is copied from the patient record, so only the non-empty and signer checks apply to it. The under-18 rule is an application check because it depends on the declaration date. No permission is added.
 
 Plaque indices live in the existing `content` JSONB column and need no migration.
 
-Not yet delivered: informed consent, marital status and medical insurance.
+Not yet delivered: marital status and medical insurance.

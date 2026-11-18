@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { Queryable, UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
-import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
-import type { DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
+import type { ConsentDeclarationRow, ConsentHistoryRow, ConsentInput, DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
 import type { DraftContent } from '../domain/content.js';
 
 const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_id,
@@ -13,10 +13,14 @@ const ENTRY_NOT_FOUND = 'procedure entry was not found';
 const ENTRY_VERSION_CHANGED = 'procedure entry version changed; reload before saving';
 const APPROVED_ENTRY = 'approved procedure entries cannot be changed';
 const ENTRY_ALREADY_APPROVED = 'procedure entry is already approved';
+const CONSENT_REQUIRED = 'signed paper consent is required before logging procedures';
+const PATIENT_MINOR = 'a parent must sign for a patient under 18';
 
 const PROCEDURE_COLUMNS = `p.id::text, p.draft_id::text, to_char(p.procedure_date, 'YYYY-MM-DD') AS procedure_date,
   p.description, p.author_id, s.nombres || ' ' || s.apellidos AS student_name, p.version::text,
   p.approved_by, t.nombres || ' ' || t.apellidos AS teacher_name, p.approved_at, p.created_at, p.updated_at`;
+const CONSENT_COLUMNS = `id::text, draft_id::text, signer, signer_name, signer_document, declared_by, declared_at`;
+
 const PROCEDURE_FROM = `FROM hygiene_preventive_procedures p
   LEFT JOIN students s ON s.user_id = p.author_id
   LEFT JOIN teachers t ON t.user_id = p.approved_by`;
@@ -156,6 +160,9 @@ export class PgHygienePreventiveDraftRepository implements DraftRepositoryPort {
     this.student(actor);
     return this.unitOfWork.withTransaction(async db => {
       await this.lockOwnDraft(db, draftId, actor);
+      // Declarations are append-only, so any row is the current consent.
+      const consent = await db.query('SELECT 1 FROM hygiene_preventive_consent_declarations WHERE draft_id = $1 LIMIT 1', [draftId]);
+      if (!consent.rows.length) throw new ConflictError(CONSENT_REQUIRED);
       const inserted = await db.query<{ id: string }>(
         `INSERT INTO hygiene_preventive_procedures (draft_id, procedure_date, description, author_id)
          VALUES ($1, $2, $3, $4) RETURNING id::text`,
@@ -226,6 +233,49 @@ export class PgHygienePreventiveDraftRepository implements DraftRepositoryPort {
       if (!result.rows.length) throw new ConflictError(ENTRY_VERSION_CHANGED);
       return this.procedureRow(db, procedureId);
     });
+  }
+
+  // Same lock order as draft writes: student period -> patient -> assignment -> draft. The patient snapshot is read
+  // after the patient lock; the under-18 rule uses the UTC declaration date (a birthday counts as 18).
+  async declareConsent(draftId: string, input: ConsentInput, actor: DraftActor): Promise<ConsentDeclarationRow> {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      const draft = await this.authorizeOwnDraft(db, draftId, actor);
+      await db.query('SELECT id FROM hygiene_preventive_drafts WHERE id = $1 FOR KEY SHARE', [draftId]);
+      let signerName = input.signerName;
+      let signerDocument = input.signerDocument;
+      if (input.signer === 'patient') {
+        const patient = (await db.query<{ name: string; documento: string; minor: boolean }>(
+          `SELECT p.nombres || ' ' || p.apellidos AS name, p.documento,
+             (p.fecha_nacimiento + INTERVAL '18 years')::date > (clock_timestamp() AT TIME ZONE 'UTC')::date AS minor
+           FROM patients p WHERE p.id = $1`, [draft.patient_id],
+        )).rows[0];
+        if (patient.minor) throw new BadRequestError(PATIENT_MINOR);
+        signerName = patient.name;
+        signerDocument = patient.documento;
+      }
+      return (await db.query<ConsentDeclarationRow>(
+        `INSERT INTO hygiene_preventive_consent_declarations (draft_id, signer, signer_name, signer_document, declared_by)
+         VALUES ($1, $2, $3, $4, $5) RETURNING ${CONSENT_COLUMNS}`,
+        [draftId, input.signer, signerName, signerDocument, actor.id],
+      )).rows[0];
+    });
+  }
+
+  // One statement keeps access, the current declaration and the history in the same snapshot.
+  async consentHistory(draftId: string, actor: DraftActor): Promise<ConsentHistoryRow> {
+    const result = await this.pool.query<ConsentHistoryRow>(
+      `SELECT (SELECT d.id::text FROM hygiene_preventive_consent_declarations d
+          WHERE d.draft_id = e.id ORDER BY d.id DESC LIMIT 1) AS current_declaration_id,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'id', d.id::text, 'draft_id', d.draft_id::text, 'signer', d.signer, 'signer_name', d.signer_name,
+           'signer_document', d.signer_document, 'declared_by', d.declared_by, 'declared_at', d.declared_at)
+           ORDER BY d.id)
+          FROM hygiene_preventive_consent_declarations d WHERE d.draft_id = e.id), '[]'::jsonb) AS declarations
+       FROM hygiene_preventive_drafts e WHERE e.id = $1 AND ${READ_ACCESS}`, [draftId, actor.id, actor.role],
+    );
+    if (!result.rows.length) throw new NotFoundError(NOT_FOUND);
+    return result.rows[0];
   }
 
   // Same order as writes to the draft: authorized student period -> patient -> assignment -> draft -> entry.

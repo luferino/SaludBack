@@ -34,7 +34,7 @@ const MIGRATIONS = [
   '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql',
   '048_create_user_role_grants.sql', '049_create_oral_surgery_operative_reports.sql',
   '050_seed_oral_surgery_operative_report_permissions.sql',
-  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql',
+  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
@@ -69,7 +69,7 @@ const CLEANUP_TABLES = [
   'kinesiology_evolution_correction_requests', 'kinesiology_evolution_validation_reviews', 'kinesiology_evolution_submissions',
   'kinesiology_evaluation_correction_requests', 'kinesiology_evaluation_validation_reviews', 'kinesiology_evaluation_submission_studies', 'kinesiology_evaluation_submissions',
   'kinesiology_consent_attestations', 'kinesiology_evaluation_amendment_links', 'kinesiology_evolution_amendment_links', 'kinesiology_evolutions', 'kinesiology_evaluations', 'patient_assignments', 'patient_context_availabilities', 'student_academic_habilitations', 'teacher_academic_habilitations', 'students', 'teachers',
-  'subject_academic_groups', 'academic_groups', 'oral_surgery_practical_evaluations', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'hygiene_preventive_procedures', 'hygiene_preventive_drafts', 'hygiene_preventive_subjects', 'subjects', 'clinical_records', 'patients',
+  'subject_academic_groups', 'academic_groups', 'oral_surgery_practical_evaluations', 'oral_surgery_operative_reports', 'oral_surgery_authorizations', 'oral_surgery_consent_declarations', 'oral_surgery_drafts', 'oral_surgery_subjects', 'hygiene_preventive_consent_declarations', 'hygiene_preventive_procedures', 'hygiene_preventive_drafts', 'hygiene_preventive_subjects', 'subjects', 'clinical_records', 'patients',
   'password_reset_tokens', 'reception_patient_enrollments', 'reception_career_grants', 'users',
 ];
 // cleanDb truncates these Oral Surgery tables together with every kinesiology_* table (migration 053 rejects DELETE on clinical history).
@@ -236,7 +236,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–059 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–060 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);

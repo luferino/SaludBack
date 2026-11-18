@@ -42,7 +42,7 @@ async function waitForLockWait(pool, queryPattern) {
   assert.fail(`expected PostgreSQL lock wait was not observed for ${queryPattern}`);
 }
 
-test('Reception account/grant HTTP paths and scope/revocation serialize on fresh migrated 001-059 database', { skip: !enabled }, async () => {
+test('Reception account/grant HTTP paths and scope/revocation serialize on fresh migrated 001-060 database', { skip: !enabled }, async () => {
   const target = await verifyDisposableIntegrationTarget();
   const pool = new pg.Pool({ connectionString: process.env.DISPOSABLE_INTEGRATION_DATABASE_URL,
     connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 12000 });
@@ -65,8 +65,8 @@ test('Reception account/grant HTTP paths and scope/revocation serialize on fresh
     assert.equal(canonicalAddress(identity.rows[0].address), canonicalAddress(target.identity.serverAddress));
 
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 59);
-    assert.equal(ledger.rows.at(-1).name, '059_seed_hygiene_preventive_procedure_approval_permission.sql');
+    assert.equal(ledger.rowCount, 60);
+    assert.equal(ledger.rows.at(-1).name, '060_create_hygiene_preventive_consent_declarations.sql');
     const privileges = await pool.query("SELECT permission FROM role_permissions WHERE role='reception' ORDER BY permission");
     assert.deepEqual(privileges.rows, [{ permission: 'profile:read' }, { permission: 'reception:availability:manage' }, { permission: 'reception:careers:read' }, { permission: 'reception:patients:manage' }]);
 

@@ -7,7 +7,8 @@ import { defaultGetActor } from '../../shared/infrastructure/default-get-actor.j
 import { isCanonicalUuid } from '../../subject-groups/application/create-subject-group.usecase.js';
 import { object, validateContent, withComputedValues } from '../domain/content.js';
 import { procedureDate, procedureDescription } from '../domain/procedure.js';
-import type { DraftActor, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
+import { consentSignerDocument, consentSignerName } from '../domain/consent.js';
+import type { ConsentDeclarationRow, ConsentHistoryRow, ConsentInput, DraftActor, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
 
 const MAX_BIGINT = 9223372036854775807n;
 function decimal(value: unknown, name: string): string {
@@ -40,6 +41,25 @@ function serialize(row: DraftRow) {
 }
 function procedureFields(body: Record<string, unknown>): ProcedureInput {
   return { procedureDate: procedureDate(body.procedure_date), description: procedureDescription(body.description) };
+}
+// Paper-consent attestation: the body names the signer; patient signers never send name or documento.
+function consentFields(body: Record<string, unknown>): ConsentInput {
+  if (body.paper_signed !== true) throw new BadRequestError('paper_signed must be true');
+  if (body.signer !== 'patient' && body.signer !== 'parent') throw new BadRequestError('signer must be patient or parent');
+  if (body.signer === 'patient') {
+    if (body.signer_name !== undefined || body.signer_document !== undefined) {
+      throw new BadRequestError('signer_name and signer_document are only accepted for a parent signer');
+    }
+    return { signer: 'patient', signerName: null, signerDocument: null };
+  }
+  return { signer: 'parent', signerName: consentSignerName(body.signer_name),
+    signerDocument: consentSignerDocument(body.signer_document) };
+}
+function serializeConsent(row: ConsentDeclarationRow) {
+  return { ...row, declared_at: new Date(row.declared_at).toISOString() };
+}
+function serializeConsentHistory(history: ConsentHistoryRow) {
+  return { ...history, declarations: history.declarations.map(serializeConsent) };
 }
 function serializeProcedure(row: ProcedureRow) {
   return {
@@ -134,6 +154,18 @@ export function createHygienePreventiveDraftRouter({ repository }: { repository:
     keys(body, ['expected_version']);
     res.json(serializeProcedure(await repository.approveProcedure(draftId, procedureId,
       decimal(body.expected_version, 'expected_version'), { id, role })));
+  });
+  router.get('/:id/consent', async (req, res) => {
+    const who = await actor(req, false);
+    if (Object.keys(req.query).length) throw new BadRequestError('query parameters are not supported');
+    res.json(serializeConsentHistory(await repository.consentHistory(decimal(req.params.id, 'draft id'), who)));
+  });
+  router.post('/:id/consent', async (req, res) => {
+    const who = await actor(req, true);
+    const draftId = decimal(req.params.id, 'draft id');
+    const body = object(req.body, 'body');
+    keys(body, ['paper_signed', 'signer', 'signer_name', 'signer_document']);
+    res.status(201).json(serializeConsent(await repository.declareConsent(draftId, consentFields(body), who)));
   });
   return router;
 }

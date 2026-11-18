@@ -2,7 +2,7 @@
 
 Hygiene and Preventive Dentistry II is an Odontology-specific form. Patient identity and the longitudinal clinical record remain shared; its clinical content is independent of the Oral Surgery and Kinesiology APIs.
 
-This first delivery covers subject configuration and clinical drafts (medical history, FDI odontogram and ceo-d/CPO-D indices). Plaque indices (Löe-Silness, O'Leary), the procedure log with teacher signature, informed consent, marital status and medical insurance are later deliveries. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
+Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher signature, informed consent, marital status and medical insurance are later deliveries. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
 
 ## Enable a subject
 
@@ -43,7 +43,7 @@ A draft is one encounter for one patient in one enabled subject and group. Each 
 - `POST` body: `patient_id`, `subject_id` and `academic_group_id` (canonical UUIDs) and optional `content` (defaults to `{}`). Returns 201 with the draft, `version` `"1"` and `status` `"draft"`.
 - `GET` list accepts only `patient_id`, `subject_id`, `academic_group_id` (UUIDs), `limit` (1–100, default 50) and `offset` (0 or more). Items are ordered by ID, newest first.
 - `PATCH` body: `expected_version` (mandatory positive BIGINT decimal string) and `content` (full replacement, not a merge). A stale version returns 409 `CONFLICT` with `draft version changed; reload before saving`.
-- Reads return `content` with server-computed index totals (see below). Provenance fields (`author_id`, `origin_student_habilitation_id`, `origin_subject_id`, `origin_group_id`, `clinical_record_id`, `created_at`) cannot be sent; they are fixed at creation.
+- Reads return `content` with server-computed index totals and plaque results (see below). Provenance fields (`author_id`, `origin_student_habilitation_id`, `origin_subject_id`, `origin_group_id`, `clinical_record_id`, `created_at`) cannot be sent; they are fixed at creation.
 - Unknown IDs and drafts the caller cannot see or edit return the same 404 `hygiene preventive draft was not found`.
 
 ### Visibility and access
@@ -57,7 +57,7 @@ A draft is one encounter for one patient in one enabled subject and group. Each 
 
 ### Content
 
-All content is optional and incomplete saves are allowed. Top-level keys are `medical_history`, `odontogram` and `indices`; any other key returns 400 `unknown content section: <name>`. Omitted, `null` and `false` answers are distinct.
+All content is optional and incomplete saves are allowed. Top-level keys are `medical_history`, `odontogram`, `indices` and `plaque`; any other key returns 400 `unknown content section: <name>`. Omitted, `null` and `false` answers are distinct.
 
 **Medical history** (`medical_history`). Each answer is `true`, `false` or `null` (unanswered); omitting a key means not captured. Each yes/no answer admits an optional `<name>_detail` text:
 
@@ -82,6 +82,31 @@ All content is optional and incomplete saves are allowed. Top-level keys are `me
 - The server computes `total` and returns it for each loaded index. Clients must not send `total`; a PATCH built from a read draft must remove it.
 - The server validates ranges and totals only. Clinical counting rules are not applied.
 
+**Plaque indices** (`plaque`). Keys `loe_silness` and `oleary`; each is an object with `teeth`, or `null` (not loaded); an omitted section is not loaded. Only `teeth` is sent and stored. The server computes the results on every read; clients must not send them, so a PATCH built from a read draft must remove them.
+
+Löe-Silness (`plaque.loe_silness.teeth`):
+
+- Teeth 16, 21, 24, 36, 41 and 44 only. Sites `distal`, `vestibular`, `mesial` and `lingual` (palatal/lingual), each an integer grade 0–3.
+- An omitted tooth or site is not present and is excluded. An empty tooth object is allowed.
+- `average` = sum of grades / recorded sites, rounded to 2 decimals; `null` with no recorded sites.
+- `category` from the rounded average: `low` (POCA, ≤ 0.5), `moderate` (MODERADA, ≤ 1.5), `abundant` (ABUNDANTE, > 1.5); `null` without an average. The form's printed ABUNDANTE range «1,3–3» overlaps MODERADA and is applied as 1.6–3.
+
+O'Leary (`plaque.oleary.teeth`):
+
+- Any FDI code valid in the odontogram (permanent and deciduous). A recorded tooth is present and must send all four surfaces `mesial`, `distal`, `vestibular`, `lingual` as booleans (`true` = stained). An omitted tooth is absent or not evaluated.
+- `stained_surfaces`, `present_surfaces` (4 × recorded teeth) and `percentage` = stained × 100 / present, rounded to 1 decimal; `percentage` is `null` with no recorded teeth.
+- `category` from the rounded percentage: `good` (BUENO, ≤ 30), `fair` (REGULAR, ≤ 60), `poor` (MALO, > 60); `null` without a percentage.
+
+Example read:
+
+```json
+"plaque": {
+  "loe_silness": { "teeth": { "16": { "distal": 2, "vestibular": 2, "mesial": 2, "lingual": 1 } }, "average": 1.75, "category": "abundant" },
+  "oleary": { "teeth": { "11": { "mesial": true, "distal": false, "vestibular": false, "lingual": false } },
+    "stained_surfaces": 1, "present_surfaces": 4, "percentage": 25, "category": "good" }
+}
+```
+
 ### Exact validation messages
 
 All 400 responses use `BAD_REQUEST`. `<field>` names the offending key.
@@ -104,6 +129,14 @@ All 400 responses use `BAD_REQUEST`. `<field>` names the offending key.
 | Client-sent total | `indices.<index>.total is computed by the server and must not be sent` |
 | Invalid component | `indices.<index>.<component> must be a non-negative safe integer` |
 | Total above limit | `indices.<index> total must be at most <limit>` |
+| Plaque section not an object or null | `plaque.<section> must be an object or null` |
+| Unknown plaque section, field, site or surface | `unknown content field: <path>` |
+| Client-sent plaque result | `plaque.<section>.<field> is computed by the server and must not be sent` |
+| Missing or non-object teeth / tooth | `plaque.<section>.teeth must be an object` / `plaque.<section>.teeth.<code> must be an object` |
+| Löe-Silness tooth outside the six index teeth | `plaque.loe_silness.teeth.<code> must be one of 16, 21, 24, 36, 41, 44` |
+| Invalid Löe-Silness grade | `plaque.loe_silness.teeth.<code>.<site> must be an integer grade from 0 to 3` |
+| Invalid O'Leary FDI code | `plaque.oleary.teeth.<code> is not a valid FDI tooth code` |
+| Missing or non-boolean O'Leary surface | `plaque.oleary.teeth.<code>.<surface> must be boolean` |
 | Invalid `expected_version` | `expected_version must be a positive BIGINT decimal string` |
 | Invalid draft ID in the path | `draft id must be a positive BIGINT decimal string` |
 | Invalid `patient_id`, `subject_id` or `academic_group_id` | `<field> must be a UUID` |
@@ -130,4 +163,6 @@ Other draft and own-context errors:
 - `056_create_hygiene_preventive_drafts.sql` creates `hygiene_preventive_drafts`. Its origin subject references `hygiene_preventive_subjects`. It reuses `clinical_records_id_patient_unique` (031) and `student_habilitations_id_context_unique` (040) and does not re-create them. The origin is immutable.
 - `057_seed_hygiene_preventive_draft_permissions.sql` seeds `hygiene-preventive-drafts:read` and `hygiene-preventive-drafts:write`. Students get read and write; teachers and admins get read only.
 
-Not in this delivery: plaque indices, the procedure log with teacher signature, informed consent, marital status and medical insurance.
+Plaque indices live in the existing `content` JSONB column and need no migration.
+
+Not yet delivered: the procedure log with teacher signature, informed consent, marital status and medical insurance.

@@ -5,7 +5,7 @@ import { BadRequestError, ForbiddenError, UnauthorizedError } from '../../shared
 import type { AuthenticatedRequest } from '../../shared/application/authenticated-request.js';
 import { defaultGetActor } from '../../shared/infrastructure/default-get-actor.js';
 import { isCanonicalUuid } from '../../subject-groups/application/create-subject-group.usecase.js';
-import { object, validateContent, withIndexTotals } from '../domain/content.js';
+import { object, validateContent, withComputedValues } from '../domain/content.js';
 import type { DraftActor, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
 
 const MAX_BIGINT = 9223372036854775807n;
@@ -33,7 +33,7 @@ async function actor(req: Request, write: boolean): Promise<DraftActor> {
 }
 function serialize(row: DraftRow) {
   return {
-    ...row, content: withIndexTotals(row.content),
+    ...row, content: withComputedValues(row.content),
     created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString(),
   };
 }

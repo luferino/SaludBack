@@ -48,7 +48,7 @@ See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-man
 
 ## Hygiene and Preventive Dentistry II
 
-See [Hygiene and Preventive Dentistry II clinical drafts](docs/hygiene-preventive.md) for administrator-managed Odontology subject links, clinical drafts (medical history, FDI odontogram and ceo-d/CPO-D indices), the draft endpoints and delivery scope.
+See [Hygiene and Preventive Dentistry II clinical drafts](docs/hygiene-preventive.md) for administrator-managed Odontology subject links, clinical drafts (medical history, FDI odontogram and ceo-d/CPO-D indices), the procedure log on each draft, the draft endpoints and delivery scope.
 
 ## Clinical list filters
 

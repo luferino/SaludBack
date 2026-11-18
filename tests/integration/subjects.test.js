@@ -40,7 +40,7 @@ const SUBJECT_IDS = [
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
-  'oral-surgery-subjects:read', 'oral-surgery-subjects:write', 'hygiene-preventive-subjects:read', 'hygiene-preventive-subjects:write', 'hygiene-preventive-drafts:read', 'hygiene-preventive-drafts:write',
+  'oral-surgery-subjects:read', 'oral-surgery-subjects:write', 'hygiene-preventive-subjects:read', 'hygiene-preventive-subjects:write', 'hygiene-preventive-drafts:approve', 'hygiene-preventive-drafts:read', 'hygiene-preventive-drafts:write',
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
   'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
@@ -52,7 +52,7 @@ const EXPECTED_PERMISSIONS = new Set([
 const EXPECTED_GRANTS = new Set([
   'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close', 'teacher:oral-surgery-drafts:grade',
   'estudiante:oral-surgery-drafts:read', 'estudiante:oral-surgery-drafts:write',
-  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write', 'admin:hygiene-preventive-subjects:read', 'admin:hygiene-preventive-subjects:write', 'admin:hygiene-preventive-drafts:read', 'teacher:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:write',
+  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write', 'admin:hygiene-preventive-subjects:read', 'admin:hygiene-preventive-subjects:write', 'admin:hygiene-preventive-drafts:read', 'teacher:hygiene-preventive-drafts:approve', 'teacher:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:write',
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
   'teacher:profile:read', 'teacher:materias:read', 'teacher:turnos:read',
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
@@ -219,7 +219,7 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('046_create_reception_patient_enrollments.sql'), 'migration 046 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('047_seed_reception_availability_permissions.sql'), 'migration 047 must already be applied; this suite never migrates');
   for (const name of ['054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql',
-    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql']) {
+    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql']) {
     assert.ok(ledgerNamesBefore.has(name), `migration ${name.slice(0, 3)} must already be applied; this suite never migrates`);
   }
 
@@ -307,10 +307,10 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 52);
+  assert.equal(permissions.length, 53);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 68);
+  assert.equal(grants.length, 69);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

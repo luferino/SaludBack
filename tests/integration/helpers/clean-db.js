@@ -10,7 +10,7 @@
  * (every kinesiology_* table plus oral_surgery_practical_evaluations, oral_surgery_operative_reports,
  * oral_surgery_authorizations and oral_surgery_consent_declarations; migration 053 rejects DELETE on the
  * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
- * oral_surgery_drafts -> hygiene_preventive_drafts -> patient_assignments -> patient_context_availabilities ->
+ * oral_surgery_drafts -> hygiene_preventive_procedures -> hygiene_preventive_drafts -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> oral_surgery_subjects -> hygiene_preventive_subjects ->
  * subjects -> clinical_records -> patients ->
@@ -18,7 +18,7 @@
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, 059, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +114,9 @@ const hygienePreventiveSubjectPermissionSeedSql = readFileSync(
 const hygienePreventiveDraftPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/057_seed_hygiene_preventive_draft_permissions.sql'), 'utf8',
 );
+const hygienePreventiveApprovalPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/059_seed_hygiene_preventive_procedure_approval_permission.sql'), 'utf8',
+);
 const receptionPermissionMigrationSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/045_create_reception_access.sql'), 'utf8',
 );
@@ -133,6 +136,7 @@ if (!receptionAvailabilityPermissionSeedSql) throw new Error('Reception availabi
 export async function cleanDb(pool) {
   await pool.query('TRUNCATE kinesiology_evolution_correction_requests, kinesiology_evolution_validation_reviews, kinesiology_evolution_submissions, kinesiology_evaluation_correction_requests, kinesiology_evaluation_validation_reviews, kinesiology_evaluation_amendment_links, kinesiology_evaluation_submission_studies, kinesiology_evaluation_submissions, kinesiology_consent_attestations, kinesiology_evolution_amendment_links, kinesiology_evolutions, kinesiology_evaluations, oral_surgery_practical_evaluations, oral_surgery_operative_reports, oral_surgery_authorizations, oral_surgery_consent_declarations');
   await pool.query('DELETE FROM oral_surgery_drafts');
+  await pool.query('TRUNCATE hygiene_preventive_procedures');
   await pool.query('DELETE FROM hygiene_preventive_drafts');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');
@@ -177,6 +181,7 @@ export async function cleanDb(pool) {
   await pool.query(oralSurgeryGradePermissionSeedSql);
   await pool.query(hygienePreventiveSubjectPermissionSeedSql);
   await pool.query(hygienePreventiveDraftPermissionSeedSql);
+  await pool.query(hygienePreventiveApprovalPermissionSeedSql);
   await pool.query(receptionPermissionSeedSql);
   await pool.query(receptionPatientPermissionSeedSql);
   await pool.query(receptionAvailabilityPermissionSeedSql);

@@ -12,6 +12,7 @@ import { PgStudentRepository } from '../modules/students/infrastructure/reposito
 import { PgTeacherRepository } from '../modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
 import { PgOralSurgeryDraftRepository } from '../modules/oral-surgery-drafts/index.js';
 import { PgOralSurgerySubjectRepository } from '../modules/oral-surgery-subjects/index.js';
+import { PgHygienePreventiveDraftRepository } from '../modules/hygiene-preventive-drafts/index.js';
 import { PgHygienePreventiveSubjectRepository } from '../modules/hygiene-preventive-subjects/index.js';
 import { PgCareerRepository } from '../modules/careers/infrastructure/repositories/pg-career.repository.js';
 import { PgSubjectRepository } from '../modules/subjects/infrastructure/repositories/pg-subject.repository.js';
@@ -52,6 +53,7 @@ export function createDependencies(pool: Pool) {
   const kinesiologyEvaluationRepository = new PgKinesiologyEvaluationRepository(unitOfWork, pool);
   const kinesiologyEvolutionRepository = new PgKinesiologyEvolutionRepository(unitOfWork, pool);
   const oralSurgeryDraftRepository = new PgOralSurgeryDraftRepository(unitOfWork, pool);
+  const hygienePreventiveDraftRepository = new PgHygienePreventiveDraftRepository(unitOfWork, pool);
   const hasher = new BcryptHasher(config.bcryptCost);
   const tokenService = new JwtTokenService({
     secret: config.jwtSecret,
@@ -81,7 +83,7 @@ export function createDependencies(pool: Pool) {
       tokenService, matrixReader, roleGrantRepository,
     },
     clinical: {
-      oralSurgeryDraftRepository,
+      oralSurgeryDraftRepository, hygienePreventiveDraftRepository,
       assignmentRepository: patientAssignmentRepository,
       availabilityRepository: patientAvailabilityRepository,
       assignmentOptionsRepository: patientAssignmentOptionsRepository,

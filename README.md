@@ -46,6 +46,10 @@ the current application.
 
 See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-managed Odontology subject links, student-authored preoperative and operative reports, teacher closure, practical evaluation grading with audited corrections, permissions and delivery scope.
 
+## Hygiene and Preventive Dentistry II
+
+See [Hygiene and Preventive Dentistry II clinical drafts](docs/hygiene-preventive.md) for administrator-managed Odontology subject links and delivery scope.
+
 ## Clinical list filters
 
 Kinesiology patient-scoped lists support optional visible `status` and inclusive

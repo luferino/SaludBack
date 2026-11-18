@@ -12,12 +12,13 @@
  * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
  * oral_surgery_drafts -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
- * subject_academic_groups -> academic_groups -> subjects -> clinical_records -> patients ->
+ * subject_academic_groups -> academic_groups -> oral_surgery_subjects -> hygiene_preventive_subjects ->
+ * subjects -> clinical_records -> patients ->
  * reception_patient_enrollments -> patients -> reception_career_grants -> password_reset_tokens -> users`. Every integration file runs this in per-test beforeEach() and after().
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, and the permission/grant INSERT section of 045 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +108,9 @@ const oralSurgeryOperativeReportPermissionSeedSql = readFileSync(
 const oralSurgeryGradePermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/052_seed_oral_surgery_grade_permission.sql'), 'utf8',
 );
+const hygienePreventiveSubjectPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/055_seed_hygiene_preventive_subject_permissions.sql'), 'utf8',
+);
 const receptionPermissionMigrationSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/045_create_reception_access.sql'), 'utf8',
 );
@@ -135,6 +139,7 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM subject_academic_groups');
   await pool.query('DELETE FROM academic_groups');
   await pool.query('DELETE FROM oral_surgery_subjects');
+  await pool.query('DELETE FROM hygiene_preventive_subjects');
   await pool.query('DELETE FROM subjects');
   await pool.query('DELETE FROM clinical_records');
   await pool.query('DELETE FROM reception_patient_enrollments');
@@ -166,6 +171,7 @@ export async function cleanDb(pool) {
   await pool.query(oralSurgeryAuthorizationPermissionSeedSql);
   await pool.query(oralSurgeryOperativeReportPermissionSeedSql);
   await pool.query(oralSurgeryGradePermissionSeedSql);
+  await pool.query(hygienePreventiveSubjectPermissionSeedSql);
   await pool.query(receptionPermissionSeedSql);
   await pool.query(receptionPatientPermissionSeedSql);
   await pool.query(receptionAvailabilityPermissionSeedSql);

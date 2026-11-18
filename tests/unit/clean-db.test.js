@@ -21,5 +21,8 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.match(calls.find(sql => sql.includes('oral-surgery-drafts:authorize')), /oral-surgery-drafts:authorize/);
   assert.match(calls.find(sql => sql.includes('oral-surgery-drafts:close')), /\('teacher', 'oral-surgery-drafts:close'\)/);
   assert.match(calls.find(sql => sql.includes('oral-surgery-drafts:grade')), /\('teacher', 'oral-surgery-drafts:grade'\)/);
-  assert.equal(calls.length, 43);
+  const hygieneLinks = calls.indexOf('DELETE FROM hygiene_preventive_subjects');
+  assert.ok(hygieneLinks > 0 && hygieneLinks < calls.indexOf('DELETE FROM subjects'));
+  assert.match(calls.find(sql => sql.includes('hygiene-preventive-subjects:write')), /\('admin', 'hygiene-preventive-subjects:write'\)/);
+  assert.equal(calls.length, 45);
 });

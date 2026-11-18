@@ -13,7 +13,8 @@ async function request(method, path, token, body) {
   const response = await fetch(`${base}${path}`, { method,
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(9000) });
-  return { status: response.status, body: await response.json() };
+  const text = await response.text();
+  return { status: response.status, body: text === '' ? null : JSON.parse(text) };
 }
 
 before(async () => {
@@ -154,4 +155,48 @@ test('Hygiene and Preventive draft policies round-trip through the real public A
     assert.equal(restored.body.origin_student_habilitation_id, f.periods[0].id);
     assert.deepEqual(restored.body.content, { odontogram: { 11: { state: 'to_extract' } } });
     assert.equal((await list(admin)).body.items.length, 2);
+  });
+
+test('S6: the student author logs, edits and deletes a pending procedure entry through the public API; others get the draft-not-found answer',
+  { skip: !selected, timeout: 120000 }, async () => {
+    const f = await fixture();
+    const [admin, teacher, , author, otherStudent] = f.tokens;
+    const endpoint = '/hygiene-preventive-drafts';
+    const input = { patient_id: f.patient, subject_id: f.origin.subject, academic_group_id: f.origin.group };
+    assert.equal((await request('POST', '/hygiene-preventive-subjects', admin, { subject_id: f.origin.subject })).status, 201);
+    const draft = await request('POST', endpoint, author, input);
+    assert.equal(draft.status, 201, JSON.stringify(draft.body));
+    const procedures = `${endpoint}/${draft.body.id}/procedures`;
+    const today = new Date().toISOString().slice(0, 10);
+    const added = await request('POST', procedures, author, { procedure_date: today, description: 'Profilaxis y topicación con flúor' });
+    assert.equal(added.status, 201, JSON.stringify(added.body));
+    assert.equal(added.body.status, 'pending');
+    assert.equal(added.body.draft_id, draft.body.id);
+    assert.equal(added.body.procedure_date, today);
+    assert.equal(added.body.student_name, 'Student Author');
+    assert.equal(added.body.version, '1');
+    assert.equal(added.body.approved_by, null);
+    assert.equal(added.body.teacher_name, null);
+    for (const token of [author, teacher, admin]) {
+      assert.deepEqual(await request('GET', procedures, token), { status: 200, body: { items: [added.body] } });
+    }
+    assert.deepEqual(await request('GET', `${procedures}?status=pending`, author),
+      { status: 400, body: { error: { code: 'BAD_REQUEST', message: 'query parameters are not supported' } } });
+    const entry = `${procedures}/${added.body.id}`;
+    const edited = await request('PATCH', entry, author, { expected_version: '1', procedure_date: today, description: 'Control de placa' });
+    assert.equal(edited.status, 200, JSON.stringify(edited.body));
+    assert.equal(edited.body.status, 'pending');
+    assert.equal(edited.body.version, '2');
+    assert.equal(edited.body.description, 'Control de placa');
+    const stale = await request('PATCH', entry, author, { expected_version: '1', procedure_date: today, description: 'Stale' });
+    assert.deepEqual(stale, { status: 409, body: { error: { code: 'CONFLICT', message: 'procedure entry version changed; reload before saving' } } });
+    assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [edited.body] } });
+    assert.deepEqual(await request('POST', procedures, otherStudent, input), hidden);
+    assert.deepEqual(await request('GET', procedures, otherStudent), hidden);
+    assert.deepEqual(await request('PATCH', entry, otherStudent, { expected_version: '2', procedure_date: today, description: 'x' }), hidden);
+    assert.deepEqual(await request('DELETE', `${entry}?expected_version=2`, otherStudent), hidden);
+    assert.equal((await request('POST', procedures, teacher, { procedure_date: today, description: 'x' })).status, 403);
+    assert.equal((await request('POST', procedures, author, { procedure_date: today, description: '   ' })).status, 400);
+    assert.deepEqual(await request('DELETE', `${entry}?expected_version=2`, author), { status: 204, body: null });
+    assert.deepEqual(await request('GET', procedures, author), { status: 200, body: { items: [] } });
   });

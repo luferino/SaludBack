@@ -6,7 +6,8 @@ import type { AuthenticatedRequest } from '../../shared/application/authenticate
 import { defaultGetActor } from '../../shared/infrastructure/default-get-actor.js';
 import { isCanonicalUuid } from '../../subject-groups/application/create-subject-group.usecase.js';
 import { object, validateContent, withComputedValues } from '../domain/content.js';
-import type { DraftActor, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
+import { procedureDate, procedureDescription } from '../domain/procedure.js';
+import type { DraftActor, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
 
 const MAX_BIGINT = 9223372036854775807n;
 function decimal(value: unknown, name: string): string {
@@ -34,6 +35,16 @@ async function actor(req: Request, write: boolean): Promise<DraftActor> {
 function serialize(row: DraftRow) {
   return {
     ...row, content: withComputedValues(row.content),
+    created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString(),
+  };
+}
+function procedureFields(body: Record<string, unknown>): ProcedureInput {
+  return { procedureDate: procedureDate(body.procedure_date), description: procedureDescription(body.description) };
+}
+function serializeProcedure(row: ProcedureRow) {
+  return {
+    ...row, status: row.approved_at === null ? 'pending' : 'approved',
+    approved_at: row.approved_at === null ? null : new Date(row.approved_at).toISOString(),
     created_at: new Date(row.created_at).toISOString(), updated_at: new Date(row.updated_at).toISOString(),
   };
 }
@@ -81,6 +92,35 @@ export function createHygienePreventiveDraftRouter({ repository }: { repository:
     keys(body, ['content', 'expected_version']);
     res.json(serialize(await repository.edit(decimal(req.params.id, 'draft id'),
       decimal(body.expected_version, 'expected_version'), validateContent(body.content), who)));
+  });
+  router.get('/:id/procedures', async (req, res) => {
+    const who = await actor(req, false);
+    if (Object.keys(req.query).length) throw new BadRequestError('query parameters are not supported');
+    const items = await repository.listProcedures(decimal(req.params.id, 'draft id'), who);
+    res.json({ items: items.map(serializeProcedure) });
+  });
+  router.post('/:id/procedures', async (req, res) => {
+    const who = await actor(req, true);
+    const draftId = decimal(req.params.id, 'draft id');
+    const body = object(req.body, 'body');
+    keys(body, ['procedure_date', 'description']);
+    res.status(201).json(serializeProcedure(await repository.addProcedure(draftId, procedureFields(body), who)));
+  });
+  router.patch('/:id/procedures/:procedureId', async (req, res) => {
+    const who = await actor(req, true);
+    const draftId = decimal(req.params.id, 'draft id');
+    const procedureId = decimal(req.params.procedureId, 'procedure id');
+    const body = object(req.body, 'body');
+    keys(body, ['expected_version', 'procedure_date', 'description']);
+    res.json(serializeProcedure(await repository.editProcedure(draftId, procedureId,
+      decimal(body.expected_version, 'expected_version'), procedureFields(body), who)));
+  });
+  router.delete('/:id/procedures/:procedureId', async (req, res) => {
+    const who = await actor(req, true);
+    keys(req.query, ['expected_version']);
+    await repository.deleteProcedure(decimal(req.params.id, 'draft id'), decimal(req.params.procedureId, 'procedure id'),
+      decimal(req.query.expected_version, 'expected_version'), who);
+    res.status(204).end();
   });
   return router;
 }

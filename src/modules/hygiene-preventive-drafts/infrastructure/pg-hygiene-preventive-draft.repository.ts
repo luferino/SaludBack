@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { Queryable, UnitOfWorkPort } from '../../shared/application/unit-of-work.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/domain/errors.js';
-import type { DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow } from '../application/draft.ports.js';
+import type { DraftActor, DraftFilter, DraftInput, DraftRepositoryPort, DraftRow, ProcedureInput, ProcedureRow } from '../application/draft.ports.js';
 import type { DraftContent } from '../domain/content.js';
 
 const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_id,
@@ -9,6 +9,16 @@ const COLUMNS = `e.id::text, e.clinical_record_id::text, e.patient_id, e.author_
   e.content, e.status, e.version::text, e.created_at, e.updated_at`;
 
 const NOT_FOUND = 'hygiene preventive draft was not found';
+const ENTRY_NOT_FOUND = 'procedure entry was not found';
+const ENTRY_VERSION_CHANGED = 'procedure entry version changed; reload before saving';
+const APPROVED_ENTRY = 'approved procedure entries cannot be changed';
+
+const PROCEDURE_COLUMNS = `p.id::text, p.draft_id::text, to_char(p.procedure_date, 'YYYY-MM-DD') AS procedure_date,
+  p.description, p.author_id, s.nombres || ' ' || s.apellidos AS student_name, p.version::text,
+  p.approved_by, t.nombres || ' ' || t.apellidos AS teacher_name, p.approved_at, p.created_at, p.updated_at`;
+const PROCEDURE_FROM = `FROM hygiene_preventive_procedures p
+  LEFT JOIN students s ON s.user_id = p.author_id
+  LEFT JOIN teachers t ON t.user_id = p.approved_by`;
 
 // Bound role prevents a secondary profile from broadening the selected role's access.
 const READ_ACCESS = `($3 = 'admin' OR ($3 = 'estudiante' AND e.author_id = $2 AND EXISTS (
@@ -131,5 +141,77 @@ export class PgHygienePreventiveDraftRepository implements DraftRepositoryPort {
       if (!result.rows.length) throw new ConflictError('draft version changed; reload before saving');
       return result.rows[0];
     });
+  }
+
+  async listProcedures(draftId: string, actor: DraftActor): Promise<ProcedureRow[]> {
+    await this.get(draftId, actor);
+    const result = await this.pool.query<ProcedureRow>(
+      `SELECT ${PROCEDURE_COLUMNS} ${PROCEDURE_FROM} WHERE p.draft_id = $1 ORDER BY p.id`, [draftId],
+    );
+    return result.rows;
+  }
+
+  async addProcedure(draftId: string, input: ProcedureInput, actor: DraftActor): Promise<ProcedureRow> {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      await this.lockOwnDraft(db, draftId, actor);
+      const inserted = await db.query<{ id: string }>(
+        `INSERT INTO hygiene_preventive_procedures (draft_id, procedure_date, description, author_id)
+         VALUES ($1, $2, $3, $4) RETURNING id::text`,
+        [draftId, input.procedureDate, input.description, actor.id],
+      );
+      return this.procedureRow(db, inserted.rows[0].id);
+    });
+  }
+
+  async editProcedure(draftId: string, procedureId: string, version: string, input: ProcedureInput,
+    actor: DraftActor): Promise<ProcedureRow> {
+    this.student(actor);
+    return this.unitOfWork.withTransaction(async db => {
+      await this.lockEditableEntry(db, draftId, procedureId, version, actor);
+      const result = await db.query<{ id: string }>(
+        `UPDATE hygiene_preventive_procedures SET procedure_date = $3, description = $4, version = version + 1,
+           updated_at = clock_timestamp()
+         WHERE id = $1 AND version = $2 AND approved_at IS NULL AND author_id = $5 RETURNING id::text`,
+        [procedureId, version, input.procedureDate, input.description, actor.id],
+      );
+      if (!result.rows.length) throw new ConflictError(ENTRY_VERSION_CHANGED);
+      return this.procedureRow(db, procedureId);
+    });
+  }
+
+  async deleteProcedure(draftId: string, procedureId: string, version: string, actor: DraftActor): Promise<void> {
+    this.student(actor);
+    await this.unitOfWork.withTransaction(async db => {
+      await this.lockEditableEntry(db, draftId, procedureId, version, actor);
+      await db.query(
+        'DELETE FROM hygiene_preventive_procedures WHERE id = $1 AND version = $2 AND approved_at IS NULL AND author_id = $3',
+        [procedureId, version, actor.id],
+      );
+    });
+  }
+
+  // Same order as writes to the draft: authorized student period -> patient -> assignment -> draft -> entry.
+  private async lockOwnDraft(db: Queryable, draftId: string, actor: DraftActor): Promise<void> {
+    await this.authorizeOwnDraft(db, draftId, actor);
+    await db.query('SELECT id FROM hygiene_preventive_drafts WHERE id = $1 FOR KEY SHARE', [draftId]);
+  }
+
+  // An approved entry is final, and a stale version must reload before any change.
+  private async lockEditableEntry(db: Queryable, draftId: string, procedureId: string, version: string,
+    actor: DraftActor): Promise<void> {
+    await this.lockOwnDraft(db, draftId, actor);
+    const entry = (await db.query<{ version: string; approved_at: Date | null }>(
+      `SELECT version::text, approved_at FROM hygiene_preventive_procedures
+       WHERE id = $1 AND draft_id = $2 AND author_id = $3 FOR UPDATE`,
+      [procedureId, draftId, actor.id],
+    )).rows[0];
+    if (!entry) throw new NotFoundError(ENTRY_NOT_FOUND);
+    if (entry.approved_at !== null) throw new ConflictError(APPROVED_ENTRY);
+    if (entry.version !== version) throw new ConflictError(ENTRY_VERSION_CHANGED);
+  }
+
+  private async procedureRow(db: Queryable, id: string): Promise<ProcedureRow> {
+    return (await db.query<ProcedureRow>(`SELECT ${PROCEDURE_COLUMNS} ${PROCEDURE_FROM} WHERE p.id = $1`, [id])).rows[0];
   }
 }

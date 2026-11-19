@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { CreatePatient } from '../../application/create-patient.usecase.js';
-import { AdminGuard, OpenGuard } from '../../../shared/application/guard.js';
+import { AdminGuard, OpenGuard, PermissionGuard } from '../../../shared/application/guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
-import type { PatientRepositoryPort, PatientListingRepositoryPort, PatientPersonalDataRepositoryPort } from '../../application/patient.ports.js';
+import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
+import type { PatientRepositoryPort, PatientListingRepositoryPort, PatientPersonalDataRepositoryPort, PatientPersonalDataAccessRepositoryPort, PersonalDataRecord } from '../../application/patient.ports.js';
 import { personalDataPatch } from '../../domain/personal-data.js';
-import { BadRequestError, NotFoundError, UnauthorizedError } from '../../../shared/domain/errors.js';
+import { BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from '../../../shared/domain/errors.js';
 import { listSearchQuery } from '../../../shared/infrastructure/list-search-query.js';
 import { defaultGetActor } from '../../../shared/infrastructure/default-get-actor.js';
 
@@ -22,17 +23,24 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
  * `PATCH /:id` is mounted only when `personalDataRepository` is given. It is
  * admin-only on top of `guard` (the `patients:write` permission) and changes
  * only marital status and medical insurance.
+ *
+ * `GET /:id/personal-data` and `PATCH /:id/personal-data` are mounted only when
+ * `personalDataAccessRepository` is given. They serve estudiante and teacher
+ * (read) and estudiante (write) under their own permissions; the repository
+ * decides access per patient, and every miss answers the same 404.
  */
 export function createPatientRouter({
   repository,
   listRepository,
   personalDataRepository,
+  personalDataAccessRepository,
   guard = new OpenGuard(),
   getActor = defaultGetActor,
 }: {
   repository: PatientRepositoryPort;
   listRepository?: PatientListingRepositoryPort;
   personalDataRepository?: PatientPersonalDataRepositoryPort;
+  personalDataAccessRepository?: PatientPersonalDataAccessRepositoryPort;
   guard?: Guard;
   getActor?: (req: Request) => Promise<string | null>;
 }): Router {
@@ -76,5 +84,46 @@ export function createPatientRouter({
     res.status(200).json(patient.toJSON());
   });
 
+  if (personalDataAccessRepository) {
+    router.get('/:id/personal-data', async (req: Request, res: Response) => {
+      await new PermissionGuard('patient-personal-data:read').authorize(req);
+      const role = (req as AuthenticatedRequest).auth!.role;
+      if (role !== 'estudiante' && role !== 'teacher') throw new ForbiddenError('estudiante or teacher role required');
+      const actor = await getActor(req);
+      if (!actor || !UUID.test(actor)) throw new UnauthorizedError('A verified UUID actor is required');
+      const id = req.params.id;
+      if (typeof id !== 'string' || !UUID.test(id)) throw new BadRequestError('id must be a UUID');
+      if (Object.keys(req.query).length > 0) throw new BadRequestError('query parameters are not supported');
+      const record = await personalDataAccessRepository.readPersonalData(id, { id: actor, role });
+      if (!record) throw new NotFoundError('patient was not found');
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json(personalDataView(record));
+    });
+
+    router.patch('/:id/personal-data', async (req: Request, res: Response) => {
+      await new PermissionGuard('patient-personal-data:write').authorize(req);
+      const role = (req as AuthenticatedRequest).auth!.role;
+      if (role !== 'estudiante') throw new ForbiddenError('student role required');
+      const actor = await getActor(req);
+      if (!actor || !UUID.test(actor)) throw new UnauthorizedError('A verified UUID actor is required');
+      const id = req.params.id;
+      if (typeof id !== 'string' || !UUID.test(id)) throw new BadRequestError('id must be a UUID');
+      const patch = personalDataPatch(req.body);
+      const record = await personalDataAccessRepository.updateAsStudent(id, patch, { id: actor, role });
+      if (!record) throw new NotFoundError('patient was not found');
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json(personalDataView(record));
+    });
+  }
+
   return router;
+}
+
+// The student and teacher projection: identity header plus the two personal-data fields, in this key order.
+function personalDataView(record: PersonalDataRecord) {
+  return {
+    id: record.id, documento: record.documento, nombres: record.nombres, apellidos: record.apellidos,
+    fecha_nacimiento: record.fechaNacimiento, sexo: record.sexo, direccion: record.direccion,
+    marital_status: record.maritalStatus, medical_insurance: record.medicalInsurance,
+  };
 }

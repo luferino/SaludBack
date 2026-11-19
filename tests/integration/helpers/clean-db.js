@@ -18,7 +18,7 @@
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, 059, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, 059, 062, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,9 @@ const hygienePreventiveDraftPermissionSeedSql = readFileSync(
 const hygienePreventiveApprovalPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/059_seed_hygiene_preventive_procedure_approval_permission.sql'), 'utf8',
 );
+const patientPersonalDataPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/062_seed_patient_personal_data_permissions.sql'), 'utf8',
+);
 const receptionPermissionMigrationSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/045_create_reception_access.sql'), 'utf8',
 );
@@ -183,6 +186,7 @@ export async function cleanDb(pool) {
   await pool.query(hygienePreventiveSubjectPermissionSeedSql);
   await pool.query(hygienePreventiveDraftPermissionSeedSql);
   await pool.query(hygienePreventiveApprovalPermissionSeedSql);
+  await pool.query(patientPersonalDataPermissionSeedSql);
   await pool.query(receptionPermissionSeedSql);
   await pool.query(receptionPatientPermissionSeedSql);
   await pool.query(receptionAvailabilityPermissionSeedSql);

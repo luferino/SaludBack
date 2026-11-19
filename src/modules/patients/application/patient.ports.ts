@@ -1,5 +1,5 @@
 import type { Patient } from '../domain/patient.entity.js';
-import type { PersonalDataPatch } from '../domain/personal-data.js';
+import type { MaritalStatus, MedicalInsurance, PersonalDataPatch } from '../domain/personal-data.js';
 
 /**
  * Ports for the patients module. Use cases depend on these interfaces
@@ -28,4 +28,32 @@ export interface PatientRepositoryPort {
  */
 export interface PatientPersonalDataRepositoryPort {
   updatePersonalData(id: string, patch: PersonalDataPatch, actorId: string): Promise<Patient | null>;
+}
+
+/** Verified caller for the student/teacher personal-data endpoints: the token subject and the selected role. */
+export interface PersonalDataActor {
+  id: string;
+  role: string;
+}
+
+/** Identity header and the two personal-data fields, as the student and teacher endpoints expose them. */
+export interface PersonalDataRecord {
+  id: string;
+  documento: string;
+  nombres: string;
+  apellidos: string;
+  fechaNacimiento: string;
+  sexo: string;
+  direccion: string;
+  maritalStatus: MaritalStatus | null;
+  medicalInsurance: MedicalInsurance | null;
+}
+
+/**
+ * Access-checked reads and writes for the student and teacher endpoints. Each method resolves to null when the
+ * patient is unknown or the selected role has no access, so the two cases cannot be told apart.
+ */
+export interface PatientPersonalDataAccessRepositoryPort {
+  readPersonalData(id: string, actor: PersonalDataActor): Promise<PersonalDataRecord | null>;
+  updateAsStudent(id: string, patch: PersonalDataPatch, actor: PersonalDataActor): Promise<PersonalDataRecord | null>;
 }

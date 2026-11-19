@@ -7,7 +7,7 @@ import { authenticate } from '../../modules/auth/infrastructure/middleware/authe
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 
 export function mountProfileRoutes(app: Express, dependencies: AppDependencies['profiles']): void {
-  const { patientRepository, studentRepository, teacherRepository, userRepository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository } = dependencies;
+  const { patientRepository, patientPersonalDataAccessRepository, studentRepository, teacherRepository, userRepository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository } = dependencies;
 
   // Alta endpoints require their mapped write permission: authenticate runs
   // BEFORE the router so req.auth exists when PermissionGuard evaluates and
@@ -16,7 +16,7 @@ export function mountProfileRoutes(app: Express, dependencies: AppDependencies['
   app.use(
     '/patients',
     authenticate(tokenService, matrixReader, roleGrantRepository),
-    createPatientRouter({ repository: patientRepository, listRepository: patientRepository, personalDataRepository: patientRepository, guard: new PermissionGuard('patients:write') }),
+    createPatientRouter({ repository: patientRepository, listRepository: patientRepository, personalDataRepository: patientRepository, personalDataAccessRepository: patientPersonalDataAccessRepository, guard: new PermissionGuard('patients:write') }),
   );
   app.use(
     '/students',

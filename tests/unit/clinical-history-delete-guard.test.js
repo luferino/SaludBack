@@ -39,5 +39,5 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
   assert.equal(truncateAt, 0);
   assert.ok(truncateAt < calls.indexOf('DELETE FROM oral_surgery_drafts'));
   assert.ok(truncateAt < calls.indexOf('DELETE FROM patient_assignments'));
-  assert.equal(calls.length, 50);
+  assert.equal(calls.length, 51);
 });

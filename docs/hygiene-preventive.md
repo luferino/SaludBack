@@ -2,7 +2,7 @@
 
 Hygiene and Preventive Dentistry II is an Odontology-specific form. Patient identity and the longitudinal clinical record remain shared; its clinical content is independent of the Oral Surgery and Kinesiology APIs.
 
-Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher approval and the paper-consent declarations are delivered too. Marital status and medical insurance now live on the shared patient record, not on the hygiene drafts (see [patient API contracts](patients.md)).. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
+Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher approval and the paper-consent declarations are delivered too. Marital status and medical insurance live on the shared patient record, not on the hygiene drafts. The form header identity (given names, surnames, C.I., birth date, sex and residence) and both fields come from `GET /patients/:id/personal-data`; drafts store none of them (see [patient API contracts](patients.md)).
 
 ## Enable a subject
 
@@ -260,4 +260,4 @@ Adding a procedure entry requires at least one declaration on the draft; without
 
 Plaque indices live in the existing `content` JSONB column and need no migration.
 
-Not yet delivered: marital status and medical insurance.
+The form header and the two personal-data fields are read from `GET /patients/:id/personal-data`, which serves students with an active assignment to the patient and teachers with an active habilitation on the same subject and group. The assigned student edits the two fields through `PATCH /patients/:id/personal-data`. Drafts do not store them.

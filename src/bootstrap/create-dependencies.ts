@@ -8,6 +8,7 @@ import { BcryptHasher } from '../modules/auth/infrastructure/services/bcrypt-has
 import { JwtTokenService } from '../modules/auth/infrastructure/services/jwt-token.service.js';
 import { ConsoleMailer } from '../modules/auth/infrastructure/services/console-mailer.service.js';
 import { PgPatientRepository } from '../modules/patients/infrastructure/repositories/pg-patient.repository.js';
+import { PgPatientPersonalDataAccessRepository } from '../modules/patients/infrastructure/repositories/pg-patient-personal-data-access.repository.js';
 import { PgStudentRepository } from '../modules/students/infrastructure/repositories/pg-student.repository.js';
 import { PgTeacherRepository } from '../modules/teachers/infrastructure/repositories/pg-teacher.repository.js';
 import { PgOralSurgeryDraftRepository } from '../modules/oral-surgery-drafts/index.js';
@@ -46,6 +47,7 @@ export function createDependencies(pool: Pool) {
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
   const teacherHabilitationRepository = new PgTeacherHabilitationRepository(pool);
   const unitOfWork = new PgUnitOfWork(pool);
+  const patientPersonalDataAccessRepository = new PgPatientPersonalDataAccessRepository(unitOfWork, pool);
   const studentHabilitationRepository = new PgStudentHabilitationRepository(unitOfWork, pool);
   const patientAssignmentRepository = new PgPatientAssignmentRepository(unitOfWork, pool);
   const patientAvailabilityRepository = new PgPatientAvailabilityRepository(unitOfWork, pool);
@@ -74,7 +76,7 @@ export function createDependencies(pool: Pool) {
       receptionRepository, receptionPatientRepository, receptionAvailabilityRepository,
     },
     profiles: {
-      patientRepository, studentRepository, teacherRepository,
+      patientRepository, patientPersonalDataAccessRepository, studentRepository, teacherRepository,
       userRepository: repository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository,
     },
     academic: {

@@ -77,6 +77,8 @@ test('create inserts the patient and returns the persisted entity', async () => 
         null,
         null,
         null,
+        null,
+        null,
       ]);
       return { rows: [patientRow({ id: 'uuid-2', created_by: 'actor-1' })] };
     }),
@@ -101,7 +103,7 @@ test('create inserts the patient and returns the persisted entity', async () => 
   assert.equal(patient.createdAt, CREATED_AT);
 });
 
-test('toJSON returns exactly the 11 PAT-006 contract keys with a normalized date', () => {
+test('toJSON returns exactly the 13 contract keys (11 PAT-006 plus personal data) with a normalized date', () => {
   const patient = new Patient({
     id: 'uuid-3',
     documento: '00123456',
@@ -129,6 +131,8 @@ test('toJSON returns exactly the 11 PAT-006 contract keys with a normalized date
     'email',
     'fecha_nacimiento',
     'id',
+    'marital_status',
+    'medical_insurance',
     'nombres',
     'sexo',
   ]);

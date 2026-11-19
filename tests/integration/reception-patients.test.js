@@ -62,8 +62,8 @@ test('Reception patient HTTP operations isolate enrollment, atomically register 
       address: norm(target.identity.serverAddress), port: target.identity.serverPort,
     });
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 60);
-    assert.equal(ledger.rows.at(-1).name, '060_create_hygiene_preventive_consent_declarations.sql');
+    assert.equal(ledger.rowCount, 61);
+    assert.equal(ledger.rows.at(-1).name, '061_add_patient_personal_data.sql');
 
     await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES
       ($1,$2,'synthetic','admin'),($3,$4,'synthetic','reception'),($5,$6,'synthetic','reception')`,
@@ -162,7 +162,7 @@ test('Reception patient HTTP operations isolate enrollment, atomically register 
     const enrolledRead = await request(userA, `/${patientId}?career=kinesiology`);
     assert.equal(enrolledRead.status, 200);
     const enrolledBody = await enrolledRead.json();
-    assert.deepEqual(Object.keys(enrolledBody).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion'].sort());
+    assert.deepEqual(Object.keys(enrolledBody).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion','marital_status','medical_insurance'].sort());
     assert.equal(enrolledBody.nombres, 'Ana');
     const otherCareerRead = await request(userB, `/${patientId}?career=odontology`);
     assert.equal(otherCareerRead.status, 200);
@@ -185,7 +185,7 @@ test('Reception patient HTTP operations isolate enrollment, atomically register 
     assert.equal(registered.status, 201);
     const created = await registered.json();
     createdPatientId = created.id;
-    assert.deepEqual(Object.keys(created).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion'].sort());
+    assert.deepEqual(Object.keys(created).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion','marital_status','medical_insurance'].sort());
     const repeated = await request(userA, '/register', 'POST', { career: 'kinesiology', documento: '35123457', nombres: 'Overwritten', apellidos: 'Other', fecha_nacimiento: '1991-02-03', email: 'other@example.com', celular: '333', sexo: 'F', direccion: 'Other' });
     assert.equal(repeated.status, 409);
     const creationAudit = await pool.query('SELECT created_by,updated_by,updated_at FROM patients WHERE id=$1', [created.id]);

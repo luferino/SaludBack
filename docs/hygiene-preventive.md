@@ -2,7 +2,7 @@
 
 Hygiene and Preventive Dentistry II is an Odontology-specific form. Patient identity and the longitudinal clinical record remain shared; its clinical content is independent of the Oral Surgery and Kinesiology APIs.
 
-Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher approval and the paper-consent declarations are delivered too; marital status and medical insurance are later deliveries. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
+Delivered: subject configuration and clinical drafts (medical history, FDI odontogram, ceo-d/CPO-D indices and Löe-Silness/O'Leary plaque indices). The procedure log with teacher approval and the paper-consent declarations are delivered too. Marital status and medical insurance now live on the shared patient record, not on the hygiene drafts (see [patient API contracts](patients.md)).. Identity (name, C.I., birth date, age, sex and residence) comes from the shared patient record; marital status and medical insurance are not stored in drafts.
 
 ## Enable a subject
 

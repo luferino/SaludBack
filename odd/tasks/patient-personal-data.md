@@ -1,0 +1,32 @@
+# Patient personal data: marital status and medical insurance
+Objective: add marital status and medical insurance to the shared patient record (deferred from Hygiene S6), editable by reception, admin and the assigned student; readable by the teacher in context.
+Branch: feat/patient-personal-data (base f13d9e5). Source: .git/odonto-fichas/MODELO DE FICHA  Higiene y Preventiva II.txt lines 8 and 12 («Estado civil: ___», «Seguro Médico: IPS Sanidad Policial Sanidad Militar Ninguno»).
+
+## Specs
+
+- S1: Storage on the shared patient record, from Hygiene S6: «podemos dejar estado civil y seguro medico para la siguiente implementacion, y asi implementarlo en los datos personales». Only the current value is kept, selected «No, solo el valor actual» — «Con updated_by/updated_at alcanza. Más simple.» Both fields are optional; `null` means not recorded; existing patients start with `null`.
+- S2: Marital status selected «Lista cerrada» — «soltero/a, casado/a, divorciado/a, viudo/a, unión de hecho. Filtrable y consistente.» API tokens: `single`, `married`, `divorced`, `widowed`, `civil_union`, or `null`. Invalid value → 400 `marital_status must be single, married, divorced, widowed, civil_union or null`.
+- S3: Medical insurance selected «Exactamente los de la ficha» — «IPS, Sanidad Policial, Sanidad Militar, Ninguno.» API tokens: `ips`, `police_health`, `military_health`, `none`, or `null` (`none` = declared without insurance, distinct from `null` = not recorded). Invalid value → 400 `medical_insurance must be ips, police_health, military_health, none or null`.
+- S4: Who edits, selected «También el estudiante asignado» — «Recepción, admin y el estudiante con asignación activa al paciente (lo completa en la consulta).»
+  - Reception: optional on `POST /reception/patients/register`; editable through the existing `PATCH /reception/patients/:id?career=` (same career scope); returned by every reception patient projection.
+  - Admin: optional on `POST /patients`; returned by `GET /patients`; new `PATCH /patients/:id` (admin role + `patients:write`) accepting only these two fields.
+  - Student: new `PATCH /patients/:id/personal-data` accepting only these two fields, allowed only to an `estudiante` holding an active habilitation (`revoked_at IS NULL`) with an active assignment (`ended_at IS NULL`) to that patient, in any career.
+- S5: Student read selected «Identidad + los 2 campos» — «nombres, apellidos, documento, fecha_nacimiento, sexo, direccion + estado civil y seguro. Sirve como encabezado de la ficha (hoy falta). Sin email ni celular.» New `GET /patients/:id/personal-data` returns exactly `id`, `documento`, `nombres`, `apellidos`, `fecha_nacimiento`, `sexo`, `direccion`, `marital_status`, `medical_insurance`; the student PATCH returns the same projection.
+- S6: Teacher selected «Sí, solo lectura» — «Docente con habilitación activa en una materia donde el paciente tiene una asignación activa. Nunca edita.» Teacher GET allowed when an active teacher habilitation matches the subject and group of the student habilitation behind an active assignment of the patient. Access uses the selected role only. No access, unknown patient → 404 `patient was not found`.
+- S7: PATCH bodies for the new endpoints (`/patients/:id`, `/patients/:id/personal-data`) accept only `marital_status` and `medical_insurance`; other fields → 400 `allowed fields: marital_status, medical_insurance`; empty body → 400 `at least one of marital_status or medical_insurance is required`. An omitted field keeps its value; `null` clears it. Writes set `updated_by`/`updated_at`.
+
+Non-goals: history of changes; kinesiology demographic snapshots; email/celular for students or teachers; editing other identity fields outside existing endpoints.
+
+## Tasks
+
+- T1 [S1-S3, S4 reception/admin, S7] done pending T3 live proof; route gentle-ai-worker mwnbs0r7-1-qcft (context backstop fired in parent); commit: this T1 commit (see L5). Migration 061 (columns + checks), domain validation, reception register/PATCH/projections, admin POST/GET/PATCH, inventories, tests, docs.
+- T2 [S4 student, S5, S6, S7] pending; route inline; commit —. Migration 062 permissions, GET/PATCH /patients/:id/personal-data with student/teacher access, inventories, tests, docs.
+- T3 [S1-S7] pending; route independent gentle-ai-verify (Risk item 2: access to personal data); live disposable PostgreSQL (needs authorization); native assess; commit —.
+
+## Log
+
+- L1: «sigamos con Datos personales del paciente» (selected option «Datos personales del paciente» — «Estado civil y obra social: lo próximo con valor de producto. Arrancamos definiendo el modelo con preguntas antes de codear.»)
+- L2: Product decisions S2–S6 collected by structured questions on 2026-11-19. Exploration: patients table (002) has no marital/insurance columns; reception already has PATCH /reception/patients/:id for email/celular/direccion; no student/teacher patient read exists (assignments expose only nombres, apellidos, documento).
+- L3: API tokens, endpoint paths and exact messages in S2, S3, S4, S5 and S7 were proposed by the parent (not dictated by the user) and reported to the user for correction before implementation.
+- L4: T1 RED observed: tests/unit/patient-personal-data.test.js 0/8 pass (8 fail) before any source change. Parent context backstop fired at ~150k tokens; T1 GREEN, inventories and docs delegated to worker mwnbs0r7-1-qcft by reference.
+- L5: Worker report: RED file 8/8, units 763/763, tsc 0, node --check on 17 touched integration/helper files OK, inventory script .git/gentle-scratch/personal-data-t1-inventory.mjs 32 ops / 17 files (ledgers 001-061). Deviations accepted: shared personalDataFields helper; reception PATCH keeps its own unknown-key message; fixtures carry null personal data. Parent re-ran units 763/763 exit 0, tsc exit 0, git diff --check exit 0. Integration suite not run (needs authorized disposable DB, T3). Risk: item 2 (new admin write endpoint behind guard + admin role), item 3 (reception PATCH unknown-key message and patient projections change, requested).

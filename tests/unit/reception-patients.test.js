@@ -8,7 +8,7 @@ import { Patient } from '../../src/modules/patients/domain/patient.entity.ts';
 import { PgReceptionPatientRepository } from '../../src/modules/reception/infrastructure/repositories/pg-reception-patient.repository.ts';
 
 const actor = '40000000-0000-4000-8000-000000000001';
-const patient = { id: '50000000-0000-4000-8000-000000000001', documento: '35123456', nombres: 'Ana', apellidos: 'Perez', fechaNacimiento: '1990-01-02', fecha_nacimiento: '1990-01-02', email: 'ana@example.com', celular: '123', sexo: 'F', direccion: 'Calle 1', created_by: actor, created_at: '2020-01-01T00:00:00.000Z', updated_by: actor, updated_at: '2024-01-01T00:00:00.000Z', toJSON() { return { id: this.id, documento: this.documento, nombres: this.nombres, apellidos: this.apellidos, fecha_nacimiento: this.fecha_nacimiento, email: this.email, celular: this.celular, sexo: this.sexo, direccion: this.direccion, created_by: this.created_by, created_at: this.created_at }; } };
+const patient = { id: '50000000-0000-4000-8000-000000000001', documento: '35123456', nombres: 'Ana', apellidos: 'Perez', fechaNacimiento: '1990-01-02', fecha_nacimiento: '1990-01-02', email: 'ana@example.com', celular: '123', sexo: 'F', direccion: 'Calle 1', maritalStatus: null, medicalInsurance: null, created_by: actor, created_at: '2020-01-01T00:00:00.000Z', updated_by: actor, updated_at: '2024-01-01T00:00:00.000Z', toJSON() { return { id: this.id, documento: this.documento, nombres: this.nombres, apellidos: this.apellidos, fecha_nacimiento: this.fecha_nacimiento, email: this.email, celular: this.celular, sexo: this.sexo, direccion: this.direccion, created_by: this.created_by, created_at: this.created_at }; } };
 
 async function fixture(repository, authenticate) {
   const app = express();
@@ -96,7 +96,7 @@ test('registration reuses patient validation, binds creator to verified actor, a
       body: JSON.stringify({ career: 'kinesiology', documento: '35123456', nombres: 'Ana', apellidos: 'Perez', fecha_nacimiento: '1990-01-02', email: 'ana@example.com', celular: '123', sexo: 'F', direccion: 'Calle 1' }) });
     assert.equal(response.status, 201);
     const body = await response.json();
-    assert.deepEqual(Object.keys(body).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion'].sort());
+    assert.deepEqual(Object.keys(body).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion','marital_status','medical_insurance'].sort());
     assert.deepEqual(calls, [['scope', 'kinesiology'], ['create', actor, 'kinesiology', '35123456']]);
   } finally { await http.close(); }
 });
@@ -185,10 +185,10 @@ test('Reception list/read require persistent enrollment and contact updates cann
   try {
     const listed = await fetch(`${http.base}?career=kinesiology`);
     assert.equal(listed.status, 200);
-    assert.deepEqual(await listed.json(), { items: [{ id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion }], limit: 100, offset: 0 });
+    assert.deepEqual(await listed.json(), { items: [{ id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion, marital_status: null, medical_insurance: null }], limit: 100, offset: 0 });
     const read = await fetch(`${http.base}/${patient.id}?career=kinesiology`);
     assert.equal(read.status, 200);
-    assert.deepEqual(await read.json(), { id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion });
+    assert.deepEqual(await read.json(), { id: patient.id, documento: patient.documento, nombres: patient.nombres, apellidos: patient.apellidos, fecha_nacimiento: patient.fecha_nacimiento, email: patient.email, celular: patient.celular, sexo: patient.sexo, direccion: patient.direccion, marital_status: null, medical_insurance: null });
     const rejected = await fetch(`${http.base}/${patient.id}?career=kinesiology`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nombres: 'Changed', celular: '999' }) });
     assert.equal(rejected.status, 400);
     const invalidContact = await fetch(`${http.base}/${patient.id}?career=kinesiology`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'not-email' }) });
@@ -197,6 +197,6 @@ test('Reception list/read require persistent enrollment and contact updates cann
     assert.equal(blankContact.status, 400);
     const validContact = await fetch(`${http.base}/${patient.id}?career=kinesiology`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ celular: '456' }) });
     assert.equal(validContact.status, 200);
-    assert.deepEqual(calls.filter(call => call[0] === 'update'), [['update', patient.id, 'kinesiology', { email: patient.email, celular: '456', direccion: patient.direccion }]]);
+    assert.deepEqual(calls.filter(call => call[0] === 'update'), [['update', patient.id, 'kinesiology', { email: patient.email, celular: '456', direccion: patient.direccion, maritalStatus: null, medicalInsurance: null }]]);
   } finally { await http.close(); }
 });

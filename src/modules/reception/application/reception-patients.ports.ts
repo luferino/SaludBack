@@ -1,5 +1,6 @@
 import type { Queryable } from '../../shared/application/unit-of-work.js';
 import type { Patient } from '../../patients/domain/patient.entity.js';
+import type { MaritalStatus, MedicalInsurance } from '../../patients/domain/personal-data.js';
 
 export interface ReceptionPatientRepository {
   withActiveCareerScope<T>(userId: string, career: string, work: (client: Queryable) => Promise<T>, roleGrantId?: string): Promise<T>;
@@ -9,5 +10,5 @@ export interface ReceptionPatientRepository {
   createAndEnroll(db: Queryable, patient: Patient, career: string): Promise<Patient>;
   list(db: Queryable, career: string, limit: number, offset: number, q?: string): Promise<Patient[]>;
   findEnrolled(db: Queryable, id: string, career: string): Promise<Patient | null>;
-  updateContact(db: Queryable, id: string, career: string, input: { email: string; celular: string; direccion: string }, actorId: string): Promise<Patient | null>;
+  updateContact(db: Queryable, id: string, career: string, input: { email: string; celular: string; direccion: string; maritalStatus: MaritalStatus | null; medicalInsurance: MedicalInsurance | null }, actorId: string): Promise<Patient | null>;
 }

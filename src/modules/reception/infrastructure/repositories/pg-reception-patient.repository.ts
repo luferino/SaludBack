@@ -1,15 +1,18 @@
 import type { Pool } from 'pg';
 import { Patient } from '../../../patients/domain/patient.entity.js';
+import type { MaritalStatus, MedicalInsurance } from '../../../patients/domain/personal-data.js';
 import type { ReceptionPatientRepository } from '../../application/reception-patients.ports.js';
 import type { Queryable } from '../../../shared/application/unit-of-work.js';
 import { PgReceptionAccessRepository } from './pg-reception-access.repository.js';
 
 interface PatientRow {
   id: string; documento: string; nombres: string; apellidos: string; fecha_nacimiento: Date | string;
-  email: string; celular: string; sexo: string; direccion: string; created_by: string | null;
+  email: string; celular: string; sexo: string; direccion: string;
+  marital_status: MaritalStatus | null; medical_insurance: MedicalInsurance | null;
+  created_by: string | null;
   created_at: Date | string; updated_by: string | null; updated_at: Date | string | null;
 }
-const COLUMNS = 'p.id, p.documento, p.nombres, p.apellidos, p.fecha_nacimiento, p.email, p.celular, p.sexo, p.direccion, p.created_by, p.created_at, p.updated_by, p.updated_at';
+const COLUMNS = 'p.id, p.documento, p.nombres, p.apellidos, p.fecha_nacimiento, p.email, p.celular, p.sexo, p.direccion, p.marital_status, p.medical_insurance, p.created_by, p.created_at, p.updated_by, p.updated_at';
 
 export class PgReceptionPatientRepository implements ReceptionPatientRepository {
   private readonly access: PgReceptionAccessRepository;
@@ -30,9 +33,9 @@ export class PgReceptionPatientRepository implements ReceptionPatientRepository 
       SELECT $1, c.id FROM careers c WHERE c.code = $2 ON CONFLICT (patient_id, career_id) DO NOTHING`, [id, career]);
   }
   async createAndEnroll(db: Queryable, patient: Patient, career: string): Promise<Patient> {
-    const { rows } = await db.query<PatientRow>(`INSERT INTO patients (documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion,created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion,created_by,created_at,updated_by,updated_at`,
-    [patient.documento, patient.nombres, patient.apellidos, patient.fechaNacimiento, patient.email, patient.celular, patient.sexo, patient.direccion, patient.createdBy]);
+    const { rows } = await db.query<PatientRow>(`INSERT INTO patients (documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion,created_by,marital_status,medical_insurance)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,documento,nombres,apellidos,fecha_nacimiento,email,celular,sexo,direccion,marital_status,medical_insurance,created_by,created_at,updated_by,updated_at`,
+    [patient.documento, patient.nombres, patient.apellidos, patient.fechaNacimiento, patient.email, patient.celular, patient.sexo, patient.direccion, patient.createdBy, patient.maritalStatus, patient.medicalInsurance]);
     await this.enrollExisting(db, rows[0].id, career);
     return mapPatient(rows[0]);
   }
@@ -44,10 +47,10 @@ export class PgReceptionPatientRepository implements ReceptionPatientRepository 
     const { rows } = await db.query<PatientRow>(`SELECT ${COLUMNS} FROM patients p JOIN reception_patient_enrollments e ON e.patient_id=p.id JOIN careers c ON c.id=e.career_id WHERE p.id=$1 AND c.code=$2 FOR UPDATE OF p`, [id, career]);
     return rows.length ? mapPatient(rows[0]) : null;
   }
-  async updateContact(db: Queryable, id: string, career: string, input: { email: string; celular: string; direccion: string }, actorId: string): Promise<Patient | null> {
-    const { rows } = await db.query<PatientRow>(`UPDATE patients p SET email=$3,celular=$4,direccion=$5,updated_by=$6,updated_at=clock_timestamp()
+  async updateContact(db: Queryable, id: string, career: string, input: { email: string; celular: string; direccion: string; maritalStatus: MaritalStatus | null; medicalInsurance: MedicalInsurance | null }, actorId: string): Promise<Patient | null> {
+    const { rows } = await db.query<PatientRow>(`UPDATE patients p SET email=$3,celular=$4,direccion=$5,marital_status=$6,medical_insurance=$7,updated_by=$8,updated_at=clock_timestamp()
       WHERE p.id=$1 AND EXISTS (SELECT 1 FROM reception_patient_enrollments e JOIN careers c ON c.id=e.career_id WHERE e.patient_id=p.id AND c.code=$2)
-      RETURNING ${COLUMNS}`, [id, career, input.email, input.celular, input.direccion, actorId]);
+      RETURNING ${COLUMNS}`, [id, career, input.email, input.celular, input.direccion, input.maritalStatus, input.medicalInsurance, actorId]);
     if (!rows.length) return null;
     return mapPatient(rows[0]);
   }
@@ -56,5 +59,5 @@ function mapPatient(row: PatientRow): Patient {
   const date = row.fecha_nacimiento instanceof Date
     ? `${row.fecha_nacimiento.getFullYear()}-${String(row.fecha_nacimiento.getMonth() + 1).padStart(2, '0')}-${String(row.fecha_nacimiento.getDate()).padStart(2, '0')}`
     : String(row.fecha_nacimiento).slice(0, 10);
-  return new Patient({ id: row.id, documento: row.documento, nombres: row.nombres, apellidos: row.apellidos, fechaNacimiento: date, email: row.email, celular: row.celular, sexo: row.sexo, direccion: row.direccion, createdBy: row.created_by, createdAt: row.created_at, updatedBy: row.updated_by, updatedAt: row.updated_at });
+  return new Patient({ id: row.id, documento: row.documento, nombres: row.nombres, apellidos: row.apellidos, fechaNacimiento: date, email: row.email, celular: row.celular, sexo: row.sexo, direccion: row.direccion, maritalStatus: row.marital_status, medicalInsurance: row.medical_insurance, createdBy: row.created_by, createdAt: row.created_at, updatedBy: row.updated_by, updatedAt: row.updated_at });
 }

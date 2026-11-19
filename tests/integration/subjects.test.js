@@ -219,7 +219,7 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('046_create_reception_patient_enrollments.sql'), 'migration 046 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('047_seed_reception_availability_permissions.sql'), 'migration 047 must already be applied; this suite never migrates');
   for (const name of ['054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql',
-    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql']) {
+    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql']) {
     assert.ok(ledgerNamesBefore.has(name), `migration ${name.slice(0, 3)} must already be applied; this suite never migrates`);
   }
 

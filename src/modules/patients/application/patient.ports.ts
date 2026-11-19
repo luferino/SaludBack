@@ -1,4 +1,5 @@
 import type { Patient } from '../domain/patient.entity.js';
+import type { PersonalDataPatch } from '../domain/personal-data.js';
 
 /**
  * Ports for the patients module. Use cases depend on these interfaces
@@ -19,4 +20,12 @@ export interface PatientListingRepositoryPort {
 export interface PatientRepositoryPort {
   findByDocumento(documento: string): Promise<Patient | null>;
   create(patient: Patient): Promise<Patient>;
+}
+
+/**
+ * Updates only the personal-data fields present in `patch` and sets the audit columns. Resolves to null
+ * when no patient has the id.
+ */
+export interface PatientPersonalDataRepositoryPort {
+  updatePersonalData(id: string, patch: PersonalDataPatch, actorId: string): Promise<Patient | null>;
 }

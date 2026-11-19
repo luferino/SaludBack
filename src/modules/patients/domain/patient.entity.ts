@@ -1,3 +1,5 @@
+import type { MaritalStatus, MedicalInsurance } from './personal-data.js';
+
 /**
  * Patient aggregate root. Plain entity with no dependencies so it stays
  * trivially testable; repositories map rows to and from this shape.
@@ -12,6 +14,8 @@ export class Patient {
   celular: string;
   sexo: string;
   direccion: string;
+  maritalStatus: MaritalStatus | null;
+  medicalInsurance: MedicalInsurance | null;
   createdBy: string | null;
   createdAt: Date | string | null;
   updatedBy: string | null;
@@ -27,6 +31,8 @@ export class Patient {
     celular,
     sexo,
     direccion,
+    maritalStatus = null,
+    medicalInsurance = null,
     createdBy = null,
     createdAt = null,
     updatedBy = null,
@@ -41,6 +47,8 @@ export class Patient {
     celular: string;
     sexo: string;
     direccion: string;
+    maritalStatus?: MaritalStatus | null;
+    medicalInsurance?: MedicalInsurance | null;
     createdBy?: string | null;
     createdAt?: Date | string | null;
     updatedBy?: string | null;
@@ -55,6 +63,8 @@ export class Patient {
     celular: string;
     sexo: string;
     direccion: string;
+    maritalStatus?: MaritalStatus | null;
+    medicalInsurance?: MedicalInsurance | null;
     createdBy?: string | null;
     createdAt?: Date | string | null;
     updatedBy?: string | null;
@@ -69,13 +79,15 @@ export class Patient {
     this.celular = celular;
     this.sexo = sexo;
     this.direccion = direccion;
+    this.maritalStatus = maritalStatus;
+    this.medicalInsurance = medicalInsurance;
     this.createdBy = createdBy;
     this.createdAt = createdAt;
     this.updatedBy = updatedBy;
     this.updatedAt = updatedAt;
   }
 
-  /** Builds a new (not yet persisted) patient. */
+  /** Builds a new (not yet persisted) patient. Personal data defaults to not recorded (`null`). */
   static create({
     documento,
     nombres,
@@ -85,6 +97,8 @@ export class Patient {
     celular,
     sexo,
     direccion,
+    maritalStatus = null,
+    medicalInsurance = null,
     createdBy = null,
   }: {
     documento: string;
@@ -95,6 +109,8 @@ export class Patient {
     celular: string;
     sexo: string;
     direccion: string;
+    maritalStatus?: MaritalStatus | null;
+    medicalInsurance?: MedicalInsurance | null;
     createdBy?: string | null;
   }): Patient {
     return new Patient({
@@ -106,17 +122,20 @@ export class Patient {
       celular,
       sexo,
       direccion,
+      maritalStatus,
+      medicalInsurance,
       createdBy,
     });
   }
 
   /**
    * Serializes the patient for API responses. Explicit whitelist with
-   * exactly the 11 PAT-006 contract keys; `created_by` is always present,
-   * `null` when no actor recorded it. `fecha_nacimiento` serializes as
-   * `YYYY-MM-DD` without a time component. The update audit columns
-   * (`updated_by`/`updated_at`, PAT-007) are internal bookkeeping and are
-   * never serialized (AUD-002).
+   * exactly the 13 contract keys: the 11 PAT-006 keys plus `marital_status`
+   * and `medical_insurance` (personal data, `null` when not recorded).
+   * `created_by` is always present, `null` when no actor recorded it.
+   * `fecha_nacimiento` serializes as `YYYY-MM-DD` without a time component.
+   * The update audit columns (`updated_by`/`updated_at`, PAT-007) are
+   * internal bookkeeping and are never serialized (AUD-002).
    */
   toJSON(): {
     id: string | null;
@@ -128,6 +147,8 @@ export class Patient {
     celular: string;
     sexo: string;
     direccion: string;
+    marital_status: MaritalStatus | null;
+    medical_insurance: MedicalInsurance | null;
     created_by: string | null;
     created_at: Date | string | null;
   } {
@@ -141,6 +162,8 @@ export class Patient {
       celular: this.celular,
       sexo: this.sexo,
       direccion: this.direccion,
+      marital_status: this.maritalStatus,
+      medical_insurance: this.medicalInsurance,
       created_by: this.createdBy ?? null,
       created_at: this.createdAt,
     };

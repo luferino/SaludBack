@@ -11,9 +11,9 @@ import { Patient } from '../../src/modules/patients/domain/patient.entity.ts';
 
 const actor = '40000000-0000-4000-8000-000000000001';
 const grant = '40000000-0000-4000-8000-000000000002';
-const row = { id: actor, documento: '35123456', nombres: 'Ana', apellidos: 'Perez', fecha_nacimiento: '1990-01-02', email: 'ana@example.invalid', celular: '123', sexo: 'F', direccion: 'Calle 1', created_by: actor, created_at: '2020-01-01', updated_by: actor, updated_at: '2020-01-02' };
+const row = { id: actor, documento: '35123456', nombres: 'Ana', apellidos: 'Perez', fecha_nacimiento: '1990-01-02', email: 'ana@example.invalid', celular: '123', sexo: 'F', direccion: 'Calle 1', marital_status: null, medical_insurance: null, created_by: actor, created_at: '2020-01-01', updated_by: actor, updated_at: '2020-01-02' };
 const publicRow = Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('created_') && !key.startsWith('updated_')));
-const entity = { ...row, fechaNacimiento: row.fecha_nacimiento };
+const entity = { ...row, fechaNacimiento: row.fecha_nacimiento, maritalStatus: row.marital_status, medicalInsurance: row.medical_insurance };
 
 async function fixture(surface, run, auth, deniedScope = false) {
   const calls = [];
@@ -183,7 +183,7 @@ test('profile mount separates admin list authorization from patient write permis
     const write = await fetch(base, { method: 'POST', headers: { ...headers('teacher'), 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(write.status, 201);
     const result = await write.json();
-    assert.deepEqual(Object.keys(result).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion','created_by','created_at'].sort());
+    assert.deepEqual(Object.keys(result).sort(), ['id','documento','nombres','apellidos','fecha_nacimiento','email','celular','sexo','direccion','marital_status','medical_insurance','created_by','created_at'].sort());
     assert.equal(result.created_by, actor);
     assert.equal(result.created_at, '2020-01-01T00:00:00.000Z');
     assert.equal(created[0].createdBy, actor);

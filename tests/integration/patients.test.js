@@ -25,6 +25,8 @@ const CONTRACT_KEYS = [
   'celular',
   'sexo',
   'direccion',
+  'marital_status',
+  'medical_insurance',
   'created_by',
   'created_at',
 ];

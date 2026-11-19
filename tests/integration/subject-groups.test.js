@@ -34,7 +34,7 @@ const MIGRATIONS = [
   '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql',
   '048_create_user_role_grants.sql', '049_create_oral_surgery_operative_reports.sql',
   '050_seed_oral_surgery_operative_report_permissions.sql',
-  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql',
+  '051_create_oral_surgery_practical_evaluations.sql', '052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql',
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
@@ -236,7 +236,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: ledger } = await pool.query('SELECT name FROM public.schema_migrations ORDER BY name');
   assert.deepEqual(ledger.map(({ name }) => name), MIGRATIONS,
-    'Migrations 001–060 must already be applied exactly; this suite never migrates.');
+    'Migrations 001–061 must already be applied exactly; this suite never migrates.');
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);

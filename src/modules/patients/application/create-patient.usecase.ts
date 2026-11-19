@@ -1,4 +1,5 @@
 import { Patient } from '../domain/patient.entity.js';
+import { maritalStatus, medicalInsurance } from '../domain/personal-data.js';
 import { BadRequestError, ConflictError } from '../../shared/domain/errors.js';
 import { normalizeEmail } from '../../shared/domain/validation.js';
 import { isUniqueViolation } from '../../auth/application/unique-violation.js';
@@ -13,6 +14,8 @@ export interface CreatePatientInput {
   celular: string;
   sexo: string;
   direccion: string;
+  marital_status?: unknown;
+  medical_insurance?: unknown;
   createdBy?: string | null;
 }
 
@@ -30,7 +33,8 @@ const REQUIRED_FIELDS = [
 /**
  * Create Patient use case.
  * Staff-originated alta of personal data: validate the eight required
- * fields, reject duplicate documentos, persist. The repository port is
+ * fields and the optional personal data (marital status, medical insurance),
+ * reject duplicate documentos, persist. The repository port is
  * injected; the policy guard in front of it lives at route wiring.
  */
 export class CreatePatient {
@@ -68,6 +72,13 @@ export class CreatePatient {
       throw new BadRequestError('email is required');
     }
 
+    // Optional personal data: an omitted field is stored as not recorded (null). Validation runs before the
+    // duplicate lookup so an invalid token never reaches the repository.
+    const personal = {
+      maritalStatus: input.marital_status === undefined ? null : maritalStatus(input.marital_status),
+      medicalInsurance: input.medical_insurance === undefined ? null : medicalInsurance(input.medical_insurance),
+    };
+
     const existing = await this.repository.findByDocumento(documento);
     if (existing) {
       throw new ConflictError(`documento already exists: ${documento}`);
@@ -82,6 +93,8 @@ export class CreatePatient {
       celular: input.celular,
       sexo: input.sexo,
       direccion: input.direccion,
+      maritalStatus: personal.maritalStatus,
+      medicalInsurance: personal.medicalInsurance,
       createdBy: input.createdBy ?? null,
     });
 

@@ -12,6 +12,7 @@ import { defaultGetActor } from '../../../shared/infrastructure/default-get-acto
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import type { Queryable } from '../../../shared/application/unit-of-work.js';
 import type { Patient } from '../../../patients/domain/patient.entity.js';
+import { personalDataFields } from '../../../patients/domain/personal-data.js';
 
 const CAREERS = new Set(['kinesiology', 'odontology']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -63,13 +64,15 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
     const userId = await actor(req);
     const body = registrationBody(req.body);
     const scope = career(body.career);
+    // Optional personal data is validated before the scope work; an omitted field stays undefined and CreatePatient stores null.
+    const personal = personalDataFields(body);
     const patient = await inScope<Patient>(req, userId, scope, async db => {
       const input = validateRegistrationInput(body);
       const useCase = new CreatePatient({ repository: {
         findByDocumento: documento => repository.findPatientByDocumento(db, documento),
         create: value => repository.createAndEnroll(db, value, scope),
       } });
-      return useCase.execute({ ...input, createdBy: userId });
+      return useCase.execute({ ...input, marital_status: personal.maritalStatus, medical_insurance: personal.medicalInsurance, createdBy: userId });
     });
     res.status(201).json(serializePatient(patient));
   });
@@ -89,18 +92,24 @@ export function createReceptionPatientRouter({ repository, guard = new Permissio
   router.patch('/:id', ...authentication, async (req: Request, res: Response) => {
     const userId = await actor(req), scope = career(req.query.career);
     const id = pathId(req.params.id);
-    const body = req.body ?? {}, allowed = new Set(['email', 'celular', 'direccion']);
-    if (Object.keys(body).some(key => !allowed.has(key))) throw new BadRequestError('only email, celular and direccion may be updated');
-    if (!Object.keys(body).length || Object.values(body).some(value => typeof value !== 'string')) throw new BadRequestError('contact fields must be strings');
+    const body = req.body ?? {}, allowed = new Set(['email', 'celular', 'direccion', 'marital_status', 'medical_insurance']), contact = new Set(['email', 'celular', 'direccion']);
+    if (Object.keys(body).some(key => !allowed.has(key))) throw new BadRequestError('only email, celular, direccion, marital_status and medical_insurance may be updated');
+    if (!Object.keys(body).length || Object.entries(body).some(([key, value]) => contact.has(key) && typeof value !== 'string')) throw new BadRequestError('contact fields must be strings');
     for (const field of ['celular', 'direccion'] as const) {
       if (body[field] !== undefined && !(body[field] as string).trim()) throw new BadRequestError(`${field} is required`);
     }
+    // Personal data is validated before the scope work; an omitted field keeps the current stored value below.
+    const personal = personalDataFields(body);
     const updated = await inScope<Patient | null>(req, userId, scope, async db => {
       const current = await repository.findEnrolled(db, id, scope);
       if (!current) throw new NotFoundError('enrolled patient was not found');
       const email = body.email === undefined ? current.email : normalizeEmail(body.email);
       if (email === null) throw new BadRequestError('email is required');
-      return repository.updateContact(db, id, scope, { email, celular: body.celular ?? current.celular, direccion: body.direccion ?? current.direccion }, userId);
+      return repository.updateContact(db, id, scope, {
+        email, celular: body.celular ?? current.celular, direccion: body.direccion ?? current.direccion,
+        maritalStatus: personal.maritalStatus === undefined ? current.maritalStatus : personal.maritalStatus,
+        medicalInsurance: personal.medicalInsurance === undefined ? current.medicalInsurance : personal.medicalInsurance,
+      }, userId);
     });
     if (!updated) throw new NotFoundError('enrolled patient was not found');
     res.status(200).json(serializePatient(updated));
@@ -154,5 +163,7 @@ function serializePatient(patient: Patient) {
     celular: patient.celular,
     sexo: patient.sexo,
     direccion: patient.direccion,
+    marital_status: patient.maritalStatus,
+    medical_insurance: patient.medicalInsurance,
   };
 }

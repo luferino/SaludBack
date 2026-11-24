@@ -54,3 +54,43 @@ test('permissionsForRole propagates pool failures unchanged (fail closed)', asyn
 
   await assert.rejects(() => repo.permissionsForRole('admin'), dbError);
 });
+
+test('readSnapshot issues one ordered, projected catalog-assignment query and maps roles and explicit flags', async () => {
+  let queryCount = 0;
+  const repo = new PgPermissionMatrixRepository(createFakePool(async (text, params) => {
+    queryCount++;
+    assert.equal(params, undefined);
+    assert.match(text, /SELECT\s+p\.permission, p\.enforced, rp\.role/);
+    assert.match(text, /LEFT JOIN role_permissions/);
+    assert.match(text, /ORDER BY p\.permission, rp\.role/);
+    assert.doesNotMatch(text, /SELECT \*|users|user_role_grants/i);
+    return { rows: [
+      { permission: 'accounts:read', enforced: false, role: null },
+      { permission: 'careers:read', enforced: true, role: 'teacher' },
+      { permission: 'profile:read', enforced: true, role: 'admin' },
+      { permission: 'profile:read', enforced: true, role: 'teacher' },
+    ] };
+  }));
+
+  assert.deepEqual(await repo.readSnapshot(), {
+    permissions: [
+      { permission: 'accounts:read', enforced: false },
+      { permission: 'careers:read', enforced: true },
+      { permission: 'profile:read', enforced: true },
+    ],
+    roles: [
+      { role: 'admin', permissions: ['profile:read'] },
+      { role: 'teacher', permissions: ['careers:read', 'profile:read'] },
+    ],
+  });
+  assert.equal(queryCount, 1);
+});
+
+test('readSnapshot maps an empty assignment query to empty arrays and propagates failures', async () => {
+  const empty = new PgPermissionMatrixRepository(createFakePool(async () => ({ rows: [] })));
+  assert.deepEqual(await empty.readSnapshot(), { permissions: [], roles: [] });
+
+  const dbError = new Error('snapshot unavailable');
+  const failing = new PgPermissionMatrixRepository(createFakePool(async () => { throw dbError; }));
+  await assert.rejects(() => failing.readSnapshot(), error => error === dbError);
+});

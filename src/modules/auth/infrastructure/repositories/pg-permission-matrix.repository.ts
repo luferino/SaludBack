@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { PermissionMatrixReader } from '../../application/auth.ports.js';
+import type { PermissionMatrixSnapshot, PermissionMatrixSnapshotReader } from '../../application/permission-matrix-snapshot.ports.js';
 
 /**
  * PostgreSQL implementation of the PermissionMatrixReader port: a PK-prefix
@@ -11,7 +12,7 @@ import type { PermissionMatrixReader } from '../../application/auth.ports.js';
  * injection so tests can pass a fake pool (house pattern from
  * PgUserRepository).
  */
-export class PgPermissionMatrixRepository implements PermissionMatrixReader {
+export class PgPermissionMatrixRepository implements PermissionMatrixReader, PermissionMatrixSnapshotReader {
   private readonly pool: Pool;
 
   constructor(pool: Pool) {
@@ -24,5 +25,30 @@ export class PgPermissionMatrixRepository implements PermissionMatrixReader {
       [role],
     );
     return rows.map((row) => row.permission);
+  }
+
+  async readSnapshot(): Promise<PermissionMatrixSnapshot> {
+    const { rows } = await this.pool.query<{ permission: string; enforced: boolean; role: string | null }>(
+      `SELECT p.permission, p.enforced, rp.role
+       FROM permissions p
+       LEFT JOIN role_permissions rp ON rp.permission = p.permission
+       ORDER BY p.permission, rp.role`,
+    );
+    const permissions = new Map<string, { permission: string; enforced: boolean }>();
+    const roles = new Map<string, string[]>();
+    for (const row of rows) {
+      permissions.set(row.permission, { permission: row.permission, enforced: row.enforced });
+      if (row.role !== null) {
+        const assigned = roles.get(row.role) ?? [];
+        assigned.push(row.permission);
+        roles.set(row.role, assigned);
+      }
+    }
+    return {
+      permissions: [...permissions.values()],
+      roles: [...roles]
+        .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+        .map(([role, assigned]) => ({ role, permissions: assigned })),
+    };
   }
 }

@@ -6,15 +6,18 @@ import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { ConflictError, NotFoundError } from '../../src/modules/shared/domain/errors.ts';
 import { createActiveRoleAdminRouter } from '../../src/modules/auth/infrastructure/routes/active-role.routes.ts';
 
+import { createReceptionPilotAdminGuard } from '../../src/modules/auth/application/reception-pilot-admin-guard.ts';
+
 const ADMIN = '40000000-0000-4000-8000-000000000001';
 const STUDENT = '40000000-0000-4000-8000-000000000002';
 const GRANT = '50000000-0000-4000-8000-000000000001';
 
-async function withServer(repository, run, { role = 'admin', permissions = ['reception:accounts:write'] } = {}) {
+async function withServer(repository, run, { role = 'admin', permissions = [], enabled = true } = {}) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.auth = { userId: ADMIN, role, permissions }; next(); });
-  app.use('/auth', createActiveRoleAdminRouter({ repository }));
+  const guard = createReceptionPilotAdminGuard(enabled ? ADMIN : undefined, { async isValidActiveRole() { return true; } });
+  app.use('/auth', createActiveRoleAdminRouter({ repository, guard }));
   app.use(errorHandler);
   const server = createServer(app);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -70,7 +73,7 @@ test('student candidates are bounded, literal, private, and reject invalid query
     const response = await fetch(`${base}/reception-role-candidates?q=student`);
     assert.equal(response.status, 403);
     assert.equal(repo.calls.length, callsBeforeDenied);
-  }, { permissions: [] });
+  }, { enabled: false, permissions: ['reception:accounts:write', 'reception:careers:write'] });
 });
 
 test('role history, audited grant and exact-grant idempotent revoke preserve response keys and reject invalid input without mutation', async () => {

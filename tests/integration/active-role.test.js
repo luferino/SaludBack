@@ -75,7 +75,14 @@ test('real JWT active-role grant, career isolation, exact revocation, replay and
       ($1,$2,'synthetic-admin','admin',NULL),($3,$4,$5,'estudiante',$6),($7,$8,'synthetic-primary-reception','reception',NULL)`,
     [adminId, adminName, studentId, studentName, hash, `${studentName.toLowerCase()}@example.invalid`, legacyReceptionId, legacyReceptionName]);
     const adminToken = await tokenService.sign({ sub: adminId, username: adminName, role: 'admin', permissions: [] });
-    server = createServer(createApp(pool));
+    const previousPilotAdmins = process.env.RECEPTION_PILOT_ADMIN_IDS;
+    process.env.RECEPTION_PILOT_ADMIN_IDS = adminId;
+    try {
+      server = createServer(createApp(pool));
+    } finally {
+      if (previousPilotAdmins === undefined) delete process.env.RECEPTION_PILOT_ADMIN_IDS;
+      else process.env.RECEPTION_PILOT_ADMIN_IDS = previousPilotAdmins;
+    }
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
 

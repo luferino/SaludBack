@@ -17,7 +17,7 @@ An additional-Reception token carries `role: "reception"` and the exact `role_gr
 
 ## Admin API
 
-Every route requires a verified active `admin` token and the existing `reception:accounts:write` permission. Responses use the shared `{ "error": { "code", "message" } }` envelope. Mutations attribute audit fields to the verified token subject; clients cannot supply audit values.
+The routes below require a verified active `admin` token, current Admin membership, and individual pilot authorization through `RECEPTION_PILOT_ADMIN_IDS` (comma-separated account UUIDs read when the API starts). An unset or empty list authorizes nobody; invalid IDs reject startup. Set the list before rollout to retain access for selected existing administrators. The panel cannot manage this list. Responses use the shared `{ "error": { "code", "message" } }` envelope. Mutations attribute audit fields to the verified token subject; clients cannot supply audit values.
 
 | Method and path | Contract |
 |---|---|
@@ -35,5 +35,7 @@ Migration `048_create_user_role_grants.sql` adds audited grant periods with one-
 Every Reception scoped operation uses the selected career and a transaction with this lock order: user, exact additional-role grant when present, career grant, then patient rows. This revalidates the token's grant instance inside the transaction; a role revoked while a request waits cannot authorize a later patient write. Primary Reception uses the stored primary role and existing career grant without an additional-role row.
 
 The existing `GET /auth/accounts` lists primary Reception accounts and Students with an active additional Reception grant, with the same response shape. Pre-existing error responses keep their status and text: an ineligible career-grant target returns 404 `career was not found`, and a missing or non-Reception account without a grant-carrying token returns 404 `Reception account was not found`. A grant-carrying token whose grant is revoked, absent, or held by a non-Student account returns 401.
+
+The same individual authorization permits career history, grant and revoke for Student-primary accounts through the existing career endpoints. `reception:careers:write` continues to authorize those endpoints for primary Reception accounts only. Account creation and search keep their existing `reception:accounts:write` gate.
 
 No role grant implicitly adds a career, assignment, or clinical permission. Reception remains limited to its existing career-scoped patient and availability tasks. Patient assignment remains teacher-owned; role switching does not grant clinical access. The additive role table is runtime authority only through the live membership checks and exact-instance transactional revalidation described above.

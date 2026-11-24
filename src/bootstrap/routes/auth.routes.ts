@@ -3,6 +3,7 @@ import type { AppDependencies } from '../create-dependencies.js';
 import { createAuthRouter } from '../../modules/auth/infrastructure/routes/auth.routes.js';
 import { createActiveRoleAdminRouter } from '../../modules/auth/infrastructure/routes/active-role.routes.js';
 import { authenticate } from '../../modules/auth/infrastructure/middleware/authenticate.js';
+import { createReceptionPilotAdminGuard } from '../../modules/auth/application/reception-pilot-admin-guard.js';
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
 import { createReceptionRouter } from '../../modules/reception/infrastructure/routes/reception.routes.js';
 import { createReceptionPatientRouter } from '../../modules/reception/infrastructure/routes/reception-patient.routes.js';
@@ -36,8 +37,9 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
   );
 
   const receptionMiddleware = authenticate(tokenService, matrixReader, roleGrantRepository);
-  app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware, tokenService, matrixReader }));
-  app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware }));
+  const pilotGuard = createReceptionPilotAdminGuard(process.env.RECEPTION_PILOT_ADMIN_IDS, roleGrantRepository);
+  app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware, guard: pilotGuard, tokenService, matrixReader }));
+  app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware, pilotGuard }));
   app.use('/reception', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'self', authenticate: receptionMiddleware }));
   app.use('/reception/patients', createReceptionPatientRouter({ repository: receptionPatientRepository, authenticate: receptionMiddleware }));
   app.use('/reception/availability', createReceptionAvailabilityRouter({ repository: receptionAvailabilityRepository, authenticate: receptionMiddleware }));

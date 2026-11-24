@@ -10,7 +10,7 @@ Risk: item 2 (dedicated authorization and aggregate patient data).
 - S5: «Implementar primero la API (recomendado)» — «Dejar el contrato, permiso y conteos probados en SaludBack; la pantalla de SaludFrond llega aparte.»
 
 ## Tasks
-- T1 [S1-S5] functionally verified; inline; work unit `feat(reports): add administrative assignment report`. Add admin-only read-only aggregate endpoint, permission seed and public checks; no frontend, deployment or existing database writes.
+- T1 [S1-S5] functionally verified; inline; work unit `7d9b4e2` (`feat(reports): add administrative assignment report`). Add admin-only read-only aggregate endpoint, permission seed and public checks; no frontend, deployment or existing database writes.
 
 ## Log
 - L1: «okey, definamos el alcance»

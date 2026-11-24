@@ -37,6 +37,19 @@ export function createReceptionAvailabilityRouter({ repository, guard = new Perm
     if ((req as AuthenticatedRequest).auth?.role !== 'reception') throw new ForbiddenError('Reception role required');
     const id = await getActor(req); if (!id || !UUID.test(id)) throw new UnauthorizedError('verified Reception actor is required'); return id;
   };
+  router.get('/assignment-status', ...auth, async (req: Request, res: Response) => {
+    const allowed = new Set(['career', 'subject_id', 'academic_group_id', 'status', 'limit', 'offset']);
+    for (const [key, value] of Object.entries(req.query)) {
+      if (!allowed.has(key) || Array.isArray(value)) throw new BadRequestError('unknown or repeated query parameter');
+    }
+    const user = await actor(req), selected = career(req.query.career);
+    const subjectId = uuid(req.query.subject_id, 'subject_id'), groupId = uuid(req.query.academic_group_id, 'academic_group_id');
+    const status = req.query.status === undefined ? 'unassigned' : req.query.status;
+    if (status !== 'unassigned' && status !== 'assigned' && status !== 'all') throw new BadRequestError('status must be unassigned, assigned, or all');
+    const page = pagination(req.query);
+    const items = await inScope(req, user, selected, db => repository.assignmentStatus(db, selected, subjectId, groupId, status, page.limit, page.offset));
+    res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items, ...page });
+  });
   router.get('/contexts', ...auth, async (req: Request, res: Response) => {
     const user = await actor(req), selected = career(req.query.career), page = pagination(req.query);
     const items = await inScope(req, user, selected, db => repository.contextChoices(db, selected, page.limit, page.offset));

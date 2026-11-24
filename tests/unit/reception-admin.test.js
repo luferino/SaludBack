@@ -6,15 +6,18 @@ import { ConflictError } from '../../src/modules/shared/domain/errors.ts';
 import { errorHandler } from '../../src/middleware/error-handler.ts';
 import { createReceptionRouter } from '../../src/modules/reception/infrastructure/routes/reception.routes.ts';
 
+import { createReceptionPilotAdminGuard } from '../../src/modules/auth/application/reception-pilot-admin-guard.ts';
+
 const ADMIN = '40000000-0000-4000-8000-000000000001';
 const USER = '40000000-0000-4000-8000-000000000002';
 const initial = { username: ' Reception1 ', password: 'healthy1234', email: ' frontdesk@example.com ' };
 
-async function withServer(repository, run, { role = 'admin', permissions = ['reception:accounts:write', 'reception:careers:write', 'reception:careers:read'] } = {}) {
+async function withServer(repository, run, { role = 'admin', permissions = ['reception:accounts:write', 'reception:careers:write', 'reception:careers:read'], enabled = false } = {}) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.auth = { userId: ADMIN, role, permissions }; next(); });
-  app.use('/auth', createReceptionRouter({ repository, hasher: { async hash(value) { repository.hashes++; return `hash:${value}`; } } }));
+  const pilotGuard = createReceptionPilotAdminGuard(enabled ? ADMIN : undefined, { async isValidActiveRole() { return true; } });
+  app.use('/auth', createReceptionRouter({ repository, pilotGuard, hasher: { async hash(value) { repository.hashes++; return `hash:${value}`; } } }));
   app.use(errorHandler);
   const server = createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -68,6 +71,29 @@ test('admin-only Reception account creation normalizes identity, hashes password
   await withServer(repo, async (base) => {
     assert.equal((await fetch(`${base}/accounts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(initial) })).status, 403);
   }, { role: 'teacher' });
+});
+
+test('pilot and legacy career permissions select different target roles on every admin operation', async () => {
+  const grant = { id: USER, userId: USER, careerCode: 'kinesiology', grantedBy: ADMIN, grantedAt: '2026-06-01T12:00:00Z', revokedBy: null, revokedAt: null };
+  for (const [auth, roles] of [
+    [{ enabled: true, permissions: [] }, ['estudiante', 'student']],
+    [{ permissions: ['reception:careers:write'] }, ['reception']],
+  ]) {
+    const calls = [];
+    const repo = {
+      async listGrants(...args) { calls.push(args); return [grant]; },
+      async grantCareer(...args) { calls.push(args); return grant; },
+      async revokeGrant(...args) { calls.push(args); return grant; },
+    };
+    await withServer(repo, async base => {
+      const url = `${base}/accounts/${USER}/careers`;
+      assert.equal((await fetch(url)).status, 200);
+      assert.equal((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology' }) })).status, 201);
+      assert.equal((await fetch(`${base}/career-grants/${USER}/revoke`, { method: 'POST' })).status, 200);
+      if (auth.enabled) assert.equal((await fetch(`${base}/accounts`, { method: 'POST' })).status, 403);
+    }, auth);
+    assert.deepEqual(calls, [[USER, false, roles], [USER, 'kinesiology', ADMIN, roles], [USER, ADMIN, roles]]);
+  }
 });
 
 test('both admin role and dedicated permission protect grants; active duplicate, two-career grant, listing, and idempotent audited revoke', async () => {

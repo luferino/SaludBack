@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, RequestHandler } from 'express';
 import { BadRequestError, ForbiddenError, UnauthorizedError } from '../../../shared/domain/errors.js';
-import { PermissionGuard } from '../../../shared/application/guard.js';
+import { createReceptionPilotAdminGuard } from '../../application/reception-pilot-admin-guard.js';
 import type { Guard } from '../../../shared/application/guard.js';
 import type { AuthenticatedRequest } from '../../../shared/application/authenticated-request.js';
 import type { RoleGrantRepository, UserRoleGrant } from '../../application/active-role.ports.js';
@@ -10,7 +10,7 @@ import type { TokenServicePort, PermissionMatrixReader } from '../../application
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Admin-only management of the predefined additional Reception membership. */
-export function createActiveRoleAdminRouter({ repository, authenticate, guard = new PermissionGuard('reception:accounts:write'), tokenService, matrixReader }: {
+export function createActiveRoleAdminRouter({ repository, authenticate, guard = createReceptionPilotAdminGuard(undefined, repository), tokenService, matrixReader }: {
   repository: RoleGrantRepository; authenticate?: RequestHandler; guard?: Guard;
   tokenService?: TokenServicePort; matrixReader?: PermissionMatrixReader;
 }): Router {

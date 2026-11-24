@@ -13,7 +13,7 @@ import { defaultGetActor } from '../../../shared/infrastructure/default-get-acto
 
 const CAREERS = new Set(['kinesiology', 'odontology']);
 
-export function createReceptionRouter({ repository, hasher, surface = 'admin', adminGuard = new PermissionGuard('reception:accounts:write'), grantGuard = new PermissionGuard('reception:careers:write'), readGuard = new PermissionGuard('reception:careers:read'), getActor = defaultGetActor, authenticate }: {
+export function createReceptionRouter({ repository, hasher, surface = 'admin', adminGuard = new PermissionGuard('reception:accounts:write'), grantGuard = new PermissionGuard('reception:careers:write'), readGuard = new PermissionGuard('reception:careers:read'), pilotGuard, getActor = defaultGetActor, authenticate }: {
   authenticate?: RequestHandler;
   repository: ReceptionAccessRepository;
   hasher: PasswordHasherPort;
@@ -21,10 +21,23 @@ export function createReceptionRouter({ repository, hasher, surface = 'admin', a
   adminGuard?: Guard;
   grantGuard?: Guard;
   readGuard?: Guard;
+  pilotGuard?: { allows(req: Request): Promise<boolean> };
   getActor?: (req: Request) => Promise<string | null>;
 }): Router {
   const router = Router();
   const authentication = authenticate ? [authenticate] : [];
+  async function allowedCareerRoles(req: Request): Promise<string[]> {
+    const allowedRoles: string[] = [];
+    try {
+      await authorizeAdmin(grantGuard, req);
+      allowedRoles.push('reception');
+    } catch (error) {
+      if (!(error instanceof ForbiddenError) || !await pilotGuard?.allows(req)) throw error;
+      return ['estudiante', 'student'];
+    }
+    if (await pilotGuard?.allows(req)) allowedRoles.push('estudiante', 'student');
+    return allowedRoles;
+  }
   if (surface === 'admin') {
   router.get('/accounts', ...authentication, async (req: Request, res: Response) => {
     await authorizeAdmin(adminGuard, req);
@@ -78,22 +91,22 @@ export function createReceptionRouter({ repository, hasher, surface = 'admin', a
   });
 
   router.get('/accounts/:userId/careers', ...authentication, async (req: Request, res: Response) => {
-    await authorizeAdmin(grantGuard, req);
-    const grants = await repository.listGrants(pathUuid(req.params.userId, 'userId'));
+    const allowedRoles = await allowedCareerRoles(req);
+    const grants = await repository.listGrants(pathUuid(req.params.userId, 'userId'), false, allowedRoles);
     res.status(200).json({ items: grants.map(serializeGrant) });
   });
 
   router.post('/accounts/:userId/careers', ...authentication, async (req: Request, res: Response) => {
-    await authorizeAdmin(grantGuard, req);
+    const allowedRoles = await allowedCareerRoles(req);
     const careerCode = req.body?.career;
     if (typeof careerCode !== 'string' || !CAREERS.has(careerCode)) throw new BadRequestError('career must be kinesiology or odontology');
-    const grant = await repository.grantCareer(pathUuid(req.params.userId, 'userId'), careerCode, await verifiedActor(req, getActor));
+    const grant = await repository.grantCareer(pathUuid(req.params.userId, 'userId'), careerCode, await verifiedActor(req, getActor), allowedRoles);
     res.status(201).json(serializeGrant(grant));
   });
 
   router.post('/career-grants/:grantId/revoke', ...authentication, async (req: Request, res: Response) => {
-    await authorizeAdmin(grantGuard, req);
-    const grant = await repository.revokeGrant(pathUuid(req.params.grantId, 'grantId'), await verifiedActor(req, getActor));
+    const allowedRoles = await allowedCareerRoles(req);
+    const grant = await repository.revokeGrant(pathUuid(req.params.grantId, 'grantId'), await verifiedActor(req, getActor), allowedRoles);
     res.status(200).json(serializeGrant(grant));
   });
 

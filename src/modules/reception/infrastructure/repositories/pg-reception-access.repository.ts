@@ -34,19 +34,22 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
     return rows;
   }
 
-  async listGrants(userId: string, activeOnly = false): Promise<ReceptionCareerGrant[]> {
+  async listGrants(userId: string, activeOnly = false, allowedRoles?: readonly string[]): Promise<ReceptionCareerGrant[]> {
     const { rows } = await this.pool.query<GrantRow>(
       `SELECT ${GRANT_COLUMNS} FROM reception_career_grants g JOIN careers c ON c.id = g.career_id
-       WHERE g.user_id = $1 ${activeOnly ? 'AND g.revoked_at IS NULL' : ''}
-       ORDER BY g.granted_at, g.id`, [userId]);
+       JOIN users u ON u.id = g.user_id
+       WHERE g.user_id = $1 AND ($2::text[] IS NULL OR u.role = ANY($2))
+       ${activeOnly ? 'AND g.revoked_at IS NULL' : ''}
+       ORDER BY g.granted_at, g.id`, [userId, allowedRoles ?? null]);
     return rows.map(mapGrant);
   }
 
-  async grantCareer(userId: string, careerCode: string, actorId: string): Promise<ReceptionCareerGrant> {
+  async grantCareer(userId: string, careerCode: string, actorId: string, allowedRoles?: readonly string[]): Promise<ReceptionCareerGrant> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
       const { rows: accounts } = await client.query<{ role: string }>('SELECT role FROM users WHERE id=$1 FOR UPDATE', [userId]);
+      if (allowedRoles && !allowedRoles.includes(accounts[0]?.role)) throw new NotFoundError('career was not found');
       // A missing or ineligible account matches no row in the baseline JOIN, so nothing is inserted.
       if (accounts[0]?.role !== 'reception') {
         if (!['estudiante', 'student'].includes(accounts[0]?.role ?? '')) throw new NotFoundError('career was not found');
@@ -70,14 +73,15 @@ export class PgReceptionAccessRepository implements ReceptionAccessRepository {
     } finally { client.release(); }
   }
 
-  async revokeGrant(grantId: string, actorId: string): Promise<ReceptionCareerGrant> {
+  async revokeGrant(grantId: string, actorId: string, allowedRoles?: readonly string[]): Promise<ReceptionCareerGrant> {
     const { rows } = await this.pool.query<GrantRow>(
       `UPDATE reception_career_grants
        SET revoked_by = CASE WHEN revoked_at IS NULL THEN $2 ELSE revoked_by END,
            revoked_at = CASE WHEN revoked_at IS NULL THEN GREATEST(clock_timestamp(), granted_at) ELSE revoked_at END
-       WHERE id = $1
+       WHERE id = $1 AND ($3::text[] IS NULL OR EXISTS (
+         SELECT 1 FROM users u WHERE u.id = reception_career_grants.user_id AND u.role = ANY($3)))
        RETURNING id, user_id, (SELECT code FROM careers WHERE id = career_id) AS career_code,
-                 granted_by, granted_at, revoked_by, revoked_at`, [grantId, actorId]);
+                 granted_by, granted_at, revoked_by, revoked_at`, [grantId, actorId, allowedRoles ?? null]);
     if (!rows.length) throw new NotFoundError('career grant was not found');
     return mapGrant(rows[0]);
   }

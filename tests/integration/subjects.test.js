@@ -47,7 +47,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'student-habilitations:revoke', 'patient-assignments:write', 'patient-assignments:read', 'patient-assignments:read-own',
   'kinesiology-evaluations:read', 'kinesiology-evaluations:write', 'kinesiology-evaluations:submit', 'kinesiology-evaluations:verify-consent', 'kinesiology-evaluations:review',
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
-  'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage',
+  'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage', 'reception:availability:read',
   'patient-personal-data:read', 'patient-personal-data:write',
   'assignment-reports:read',
 ]);
@@ -66,7 +66,7 @@ const EXPECTED_GRANTS = new Set([
   'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
   'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'estudiante:kinesiology-evolutions:submit', 'teacher:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:review',
   'admin:reception:accounts:write', 'admin:reception:careers:write', 'admin:reception:careers:read',
-  'reception:profile:read', 'reception:reception:careers:read', 'reception:reception:patients:manage', 'reception:reception:availability:manage',
+  'reception:profile:read', 'reception:reception:careers:read', 'reception:reception:patients:manage', 'reception:reception:availability:manage', 'reception:reception:availability:read',
   'estudiante:patient-personal-data:read', 'estudiante:patient-personal-data:write', 'teacher:patient-personal-data:read',
   'admin:assignment-reports:read',
 ]);
@@ -223,7 +223,7 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('046_create_reception_patient_enrollments.sql'), 'migration 046 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('047_seed_reception_availability_permissions.sql'), 'migration 047 must already be applied; this suite never migrates');
   for (const name of ['054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql',
-    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql']) {
+    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql']) {
     assert.ok(ledgerNamesBefore.has(name), `migration ${name.slice(0, 3)} must already be applied; this suite never migrates`);
   }
 
@@ -311,10 +311,10 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 56);
+  assert.equal(permissions.length, 57);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 73);
+  assert.equal(grants.length, 74);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

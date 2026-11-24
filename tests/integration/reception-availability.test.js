@@ -45,7 +45,7 @@ test('Reception availability is career and enrollment scoped, preserves periods,
       address: norm(target.identity.serverAddress), port: target.identity.serverPort,
     });
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 63); assert.equal(ledger.rows.at(-1).name, '063_seed_assignment_report_permission.sql');
+    assert.equal(ledger.rowCount, 64); assert.equal(ledger.rows.at(-1).name, '064_seed_reception_availability_read_permission.sql');
     await cleanDb(pool);
     const usernames = [`admin_${suffix()}`, `reception_${suffix()}`];
     await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES($1,$2,'synthetic','admin'),($3,$4,'synthetic','reception')`, [adminId,usernames[0],receptionId,usernames[1]]);
@@ -84,7 +84,7 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     assert.equal(otherCareerChoices.status, 200);
     assert.deepEqual((await otherCareerChoices.json()).items.map(item => [item.subject_id,item.academic_group_id]), [[subjectO,groupO]]);
     const perm = await pool.query("SELECT permission FROM role_permissions WHERE role='reception' ORDER BY permission");
-    assert.deepEqual(perm.rows.map(row => row.permission), ['profile:read','reception:availability:manage','reception:careers:read','reception:patients:manage']);
+    assert.deepEqual(perm.rows.map(row => row.permission), ['profile:read','reception:availability:manage','reception:availability:read','reception:careers:read','reception:patients:manage']);
 
     const beforePatient = await pool.query('SELECT documento,nombres,apellidos,email,celular,direccion FROM patients WHERE id=$1', [patientId]);
     const enableBody = { career: 'kinesiology', patient_id: patientId, subject_id: subjectK, academic_group_id: groupK };

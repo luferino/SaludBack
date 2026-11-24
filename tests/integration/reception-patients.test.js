@@ -62,8 +62,8 @@ test('Reception patient HTTP operations isolate enrollment, atomically register 
       address: norm(target.identity.serverAddress), port: target.identity.serverPort,
     });
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 63);
-    assert.equal(ledger.rows.at(-1).name, '063_seed_assignment_report_permission.sql');
+    assert.equal(ledger.rowCount, 64);
+    assert.equal(ledger.rows.at(-1).name, '064_seed_reception_availability_read_permission.sql');
 
     await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES
       ($1,$2,'synthetic','admin'),($3,$4,'synthetic','reception'),($5,$6,'synthetic','reception')`,

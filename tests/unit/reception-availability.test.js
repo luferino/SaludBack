@@ -11,7 +11,7 @@ const subject = '60000000-0000-4000-8000-000000000001';
 const group = '70000000-0000-4000-8000-000000000001';
 const availability = '80000000-0000-4000-8000-000000000001';
 
-async function serve(repository, { role = 'reception', permissions = ['reception:availability:manage'], authenticate } = {}) {
+async function serve(repository, { role = 'reception', permissions = ['reception:availability:read', 'reception:availability:manage'], authenticate } = {}) {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => { req.auth = { userId: actor, role, permissions }; next(); });
   app.use('/reception/availability', createReceptionAvailabilityRouter({ repository, getActor: async () => actor, authenticate }));
@@ -104,6 +104,40 @@ test('scoped history and search return minimal activity; withdraw is scoped and 
     assert.equal(withdrawn.status, 200); assert.equal((await withdrawn.json()).withdrawn_at, '2025-01-02T00:00:00.000Z');
     assert.deepEqual(calls.filter(x => x[0] !== 'scope').map(x => x[0]), ['history', 'search', 'withdraw']);
   } finally { await http.close(); }
+});
+
+test('availability read permission is independent from manage, which remains required for writes', async () => {
+  const repository = {
+    async withActiveCareerScope(_user, _career, work) { return work({}); },
+    async assignmentStatus() { return []; },
+    async contextChoices() { return []; },
+    async history() { return []; },
+    async search() { return []; },
+    async enable() { return row; },
+    async withdraw() { return row; },
+  };
+  const readOnly = await serve(repository, { permissions: ['reception:availability:read'] });
+  const manageOnly = await serve(repository, { permissions: ['reception:availability:manage'] });
+  try {
+    const reads = [
+      `/assignment-status?career=kinesiology&subject_id=${subject}&academic_group_id=${group}`,
+      '/contexts?career=kinesiology',
+      `/history?career=kinesiology&patient_id=${patient}`,
+      '/search?career=kinesiology&documento=35123456',
+    ];
+    for (const path of reads) {
+      assert.equal((await fetch(`${readOnly.base}${path}`)).status, 200, `read-only permission should allow ${path}`);
+      assert.equal((await fetch(`${manageOnly.base}${path}`)).status, 403, `manage-only permission should not allow ${path}`);
+    }
+    const create = await fetch(readOnly.base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology', patient_id: patient, subject_id: subject, academic_group_id: group }) });
+    assert.equal(create.status, 403);
+    const manageCreate = await fetch(manageOnly.base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology', patient_id: patient, subject_id: subject, academic_group_id: group }) });
+    assert.equal(manageCreate.status, 201);
+    const withdraw = await fetch(`${readOnly.base}/${availability}/withdraw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology' }) });
+    assert.equal(withdraw.status, 403);
+    const manageWithdraw = await fetch(`${manageOnly.base}/${availability}/withdraw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology' }) });
+    assert.equal(manageWithdraw.status, 200);
+  } finally { await readOnly.close(); await manageOnly.close(); }
 });
 
 test('wrong role, missing narrow permission, inactive scope and malformed identifiers reject before scoped work', async () => {

@@ -3,6 +3,7 @@ import type { AppDependencies } from '../create-dependencies.js';
 import { createOralSurgeryDraftRouter } from '../../modules/oral-surgery-drafts/index.js';
 import { createHygienePreventiveDraftRouter } from '../../modules/hygiene-preventive-drafts/index.js';
 import { createPatientAssignmentRouter } from '../../modules/patient-assignments/index.js';
+import { createAssignmentReportRouter } from '../../modules/assignment-report/routes.js';
 import { createPatientAvailabilityRouter } from '../../modules/patient-availabilities/index.js';
 import { createPatientAssignmentOptionsRouter } from '../../modules/patient-assignment-options/index.js';
 import { createKinesiologyEvaluationRouter } from '../../modules/kinesiology-evaluations/index.js';
@@ -29,6 +30,10 @@ export function mountClinicalRoutes(app: Express, dependencies: AppDependencies[
     authenticate(tokenService, matrixReader, roleGrantRepository),
     createPatientAssignmentOptionsRouter({ repository: assignmentOptionsRepository }),
   );
+
+  app.use('/reports/assignments', createAssignmentReportRouter(
+    dependencies.assignmentReportRepository, authenticate(tokenService, matrixReader, roleGrantRepository),
+  ));
 
   app.use(
     '/patient-assignments',

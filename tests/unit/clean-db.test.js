@@ -32,5 +32,9 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.match(calls.find(sql => sql.includes('patient-personal-data:write')), /\('estudiante', 'patient-personal-data:write'\)/);
   assert.ok(calls.indexOf('TRUNCATE hygiene_preventive_consent_declarations') > 0
     && calls.indexOf('TRUNCATE hygiene_preventive_consent_declarations') < calls.indexOf('DELETE FROM hygiene_preventive_drafts'));
-  assert.equal(calls.length, 51);
+  const reportSeeds = calls.filter(sql => sql.includes('assignment-reports:read'));
+  assert.equal(reportSeeds.length, 1);
+  assert.match(reportSeeds[0], /\('assignment-reports:read', true\)/);
+  assert.match(reportSeeds[0], /\('admin', 'assignment-reports:read'\)/);
+  assert.equal(calls.length, 52);
 });

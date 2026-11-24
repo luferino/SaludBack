@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
 import { createAuthRouter } from '../../modules/auth/infrastructure/routes/auth.routes.js';
 import { createActiveRoleAdminRouter } from '../../modules/auth/infrastructure/routes/active-role.routes.js';
+import { createPermissionMatrixAdminRouter } from '../../modules/auth/infrastructure/routes/permission-matrix-admin.routes.js';
 import { authenticate } from '../../modules/auth/infrastructure/middleware/authenticate.js';
 import { createReceptionPilotAdminGuard } from '../../modules/auth/application/reception-pilot-admin-guard.js';
 import { PermissionGuard } from '../../modules/shared/application/guard.js';
@@ -37,6 +38,7 @@ export function mountAuthRoutes(app: Express, dependencies: AppDependencies['aut
   );
 
   const receptionMiddleware = authenticate(tokenService, matrixReader, roleGrantRepository);
+  app.use('/auth', createPermissionMatrixAdminRouter({ reader: matrixReader, roleGrantRepository, authenticate: receptionMiddleware }));
   const pilotGuard = createReceptionPilotAdminGuard(process.env.RECEPTION_PILOT_ADMIN_IDS, roleGrantRepository);
   app.use('/auth', createActiveRoleAdminRouter({ repository: roleGrantRepository, authenticate: receptionMiddleware, guard: pilotGuard, tokenService, matrixReader }));
   app.use('/auth', createReceptionRouter({ repository: receptionRepository, hasher, surface: 'admin', authenticate: receptionMiddleware, pilotGuard }));

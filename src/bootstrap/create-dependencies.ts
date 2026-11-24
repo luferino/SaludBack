@@ -22,6 +22,7 @@ import { PgSubjectGroupRepository } from '../modules/subject-groups/infrastructu
 import { PgTeacherHabilitationRepository } from '../modules/teacher-habilitations/infrastructure/repositories/pg-teacher-habilitation.repository.js';
 import { PgStudentHabilitationRepository } from '../modules/student-habilitations/infrastructure/repositories/pg-student-habilitation.repository.js';
 import { PgPatientAssignmentRepository } from '../modules/patient-assignments/index.js';
+import { PgAssignmentReportRepository } from '../modules/assignment-report/repository.js';
 import { PgPatientAvailabilityRepository } from '../modules/patient-availabilities/index.js';
 import { PgPatientAssignmentOptionsRepository } from '../modules/patient-assignment-options/index.js';
 import { PgUnitOfWork } from '../modules/shared/infrastructure/pg-unit-of-work.js';
@@ -87,6 +88,7 @@ export function createDependencies(pool: Pool) {
     clinical: {
       oralSurgeryDraftRepository, hygienePreventiveDraftRepository,
       assignmentRepository: patientAssignmentRepository,
+      assignmentReportRepository: new PgAssignmentReportRepository(pool),
       availabilityRepository: patientAvailabilityRepository,
       assignmentOptionsRepository: patientAssignmentOptionsRepository,
       evaluationRepository: kinesiologyEvaluationRepository,

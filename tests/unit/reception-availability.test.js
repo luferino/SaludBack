@@ -24,7 +24,50 @@ const ctx = { career: 'kinesiology', subject_id: subject, academic_group_id: gro
 const row = { id: availability, subject_id: subject, academic_group_id: group, enabled_at: '2025-01-01T00:00:00.000Z', withdrawn_at: null };
 const safeActivity = { id: availability, subject_id: subject, academic_group_id: group, enabled_at: row.enabled_at, withdrawn_at: null };
 
- test('authorized Reception can list safe scoped context choices and enable availability with the explicit career', async () => {
+ test('assignment status lists only the strict safe DTO within the live career scope', async () => {
+  const calls = [];
+  const item = { patient_id: patient, nombres: 'Ana', apellidos: 'Perez', assignment_status: 'unassigned' };
+  const repository = {
+    async withActiveCareerScope(userId, career, work, grantId) { calls.push(['scope', userId, career, grantId]); return work({}); },
+    async assignmentStatus(_db, career, subjectId, groupId, status, limit, offset) {
+      calls.push(['assignmentStatus', career, subjectId, groupId, status, limit, offset]);
+      return [item];
+    },
+  };
+  const http = await serve(repository);
+  try {
+    const response = await fetch(`${http.base}/assignment-status?career=kinesiology&subject_id=${subject}&academic_group_id=${group}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { items: [item], limit: 50, offset: 0 });
+    assert.deepEqual(calls[0].slice(0, 3), ['scope', actor, 'kinesiology']);
+    assert.deepEqual(calls[1], ['assignmentStatus', 'kinesiology', subject, group, 'unassigned', 50, 0]);
+  } finally { await http.close(); }
+});
+
+test('assignment status validates filters and query shape before scoped repository work', async () => {
+  let scopes = 0, queries = 0;
+  const repository = {
+    async withActiveCareerScope(_user, _career, work) { scopes++; return work({}); },
+    async assignmentStatus() { queries++; return []; },
+  };
+  const http = await serve(repository);
+  try {
+    for (const query of [
+      `career=kinesiology&subject_id=${subject}&academic_group_id=${group}&status=unknown`,
+      `career=kinesiology&subject_id=${subject}&academic_group_id=${group}&limit=101`,
+      `career=kinesiology&subject_id=${subject}&academic_group_id=${group}&extra=x`,
+      `career=kinesiology&career=odontology&subject_id=${subject}&academic_group_id=${group}`,
+      `career=kinesiology&subject_id=${subject}&academic_group_id=bad`,
+    ]) assert.equal((await fetch(`${http.base}/assignment-status?${query}`)).status, 400);
+    assert.equal(scopes, 0); assert.equal(queries, 0);
+    const explicit = await fetch(`${http.base}/assignment-status?career=kinesiology&subject_id=${subject}&academic_group_id=${group}&status=all&limit=2&offset=3`);
+    assert.equal(explicit.status, 200);
+    assert.deepEqual(await explicit.json(), { items: [], limit: 2, offset: 3 });
+  } finally { await http.close(); }
+});
+
+test('authorized Reception can list safe scoped context choices and enable availability with the explicit career', async () => {
   const calls = [];
   const repository = {
     async withActiveCareerScope(userId, career, work) { calls.push(['scope', userId, career]); return work({}); },

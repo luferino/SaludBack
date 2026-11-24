@@ -77,4 +77,26 @@ export class PgReceptionAvailabilityRepository implements ReceptionAvailabilityR
       WHERE c.code=$1 AND p.documento=$2 ORDER BY p.apellidos,p.nombres,p.id LIMIT $3 OFFSET $4 FOR UPDATE OF p`, [career, documento, limit, offset]);
     return rows;
   }
+
+  async assignmentStatus(db: Queryable, career: string, subjectId: string, groupId: string,
+    status: 'unassigned' | 'assigned' | 'all', limit: number, offset: number) {
+    const context = await db.query(`SELECT 1 FROM subject_academic_groups sg JOIN careers c ON c.id=sg.career_id
+      WHERE c.code=$1 AND sg.subject_id=$2 AND sg.academic_group_id=$3`, [career, subjectId, groupId]);
+    if (!context.rows.length) throw new NotFoundError('subject or academic group was not found in career');
+
+    const { rows } = await db.query<{ patient_id: string; nombres: string; apellidos: string; assignment_status: 'unassigned' | 'assigned' }>(
+      `SELECT p.id::text AS patient_id,p.nombres,p.apellidos,
+        CASE WHEN EXISTS (SELECT 1 FROM patient_assignments pa WHERE pa.patient_id=p.id AND pa.subject_id=a.subject_id AND pa.ended_at IS NULL)
+          THEN 'assigned' ELSE 'unassigned' END AS assignment_status
+      FROM patient_context_availabilities a
+      JOIN subject_academic_groups sg ON sg.subject_id=a.subject_id AND sg.academic_group_id=a.academic_group_id
+      JOIN careers c ON c.id=sg.career_id
+      JOIN reception_patient_enrollments e ON e.patient_id=a.patient_id AND e.career_id=c.id
+      JOIN patients p ON p.id=a.patient_id
+      WHERE c.code=$1 AND a.subject_id=$2 AND a.academic_group_id=$3 AND a.withdrawn_at IS NULL
+        AND ($4='all' OR (CASE WHEN EXISTS (SELECT 1 FROM patient_assignments pa WHERE pa.patient_id=p.id AND pa.subject_id=a.subject_id AND pa.ended_at IS NULL)
+          THEN 'assigned' ELSE 'unassigned' END)=$4)
+      ORDER BY p.apellidos,p.nombres,p.id LIMIT $5 OFFSET $6`, [career, subjectId, groupId, status, limit, offset]);
+    return rows;
+  }
 }

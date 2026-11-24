@@ -34,6 +34,7 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 12000,
     options: '-c search_path=pg_catalog,public,pg_temp -c lock_timeout=5000 -c idle_in_transaction_session_timeout=10000' });
   const adminId = id(), receptionId = id(), patientId = id(), subjectK = id(), groupK = id(), subjectO = id(), groupO = id();
+  const groupK2 = id(), studentUserId = id(), studentId = id(), habilitationId = id();
   let server, primaryError;
   try {
     const identity = await pool.query(`SELECT current_database() AS name,(SELECT oid::text FROM pg_database WHERE datname=current_database()) AS oid,
@@ -90,6 +91,34 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     const enabled = await fetch(`${base}/reception/availability`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(enableBody) });
     assert.equal(enabled.status, 201); const enabledBody = await enabled.json();
     assert.deepEqual(Object.keys(enabledBody).sort(), ['id','subject_id','academic_group_id','enabled_at','withdrawn_at'].sort());
+    const assignmentList = `${base}/reception/availability/assignment-status?career=kinesiology&subject_id=${subjectK}&academic_group_id=${groupK}`;
+    const unassignedBefore = await fetch(assignmentList, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(unassignedBefore.status, 200); assert.equal(unassignedBefore.headers.get('cache-control'), 'no-store');
+    const unassignedPage = await unassignedBefore.json();
+    assert.deepEqual(unassignedPage.items, [{ patient_id: patientId, nombres: 'Synthetic', apellidos: 'Patient', assignment_status: 'unassigned' }]);
+    assert.deepEqual(Object.keys(unassignedPage.items[0]).sort(), ['patient_id','nombres','apellidos','assignment_status'].sort());
+    await pool.query(`INSERT INTO academic_groups(id,academic_year,curriculum_semester,name,career_id) SELECT $1::uuid,2098,2,'K assignment group',id FROM careers WHERE code='kinesiology'`, [groupK2]);
+    await pool.query(`INSERT INTO subject_academic_groups(subject_id,academic_group_id,career_id) SELECT $1::uuid,$2::uuid,id FROM careers WHERE code='kinesiology'`, [subjectK,groupK2]);
+    await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES($1,$2,'synthetic','estudiante')`, [studentUserId,`student_${suffix()}`]);
+    await pool.query(`INSERT INTO students(id,user_id,nombres,apellidos,codalumno,created_by) VALUES($1,$2,'Synthetic','Student',$3,$4)`, [studentId,studentUserId,`S${suffix()}`,adminId]);
+    await pool.query(`INSERT INTO student_academic_habilitations(id,student_id,subject_id,academic_group_id,activated_by,activated_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())`, [habilitationId,studentId,subjectK,groupK2,adminId]);
+    const assignmentId = (await pool.query(`INSERT INTO patient_assignments(patient_id,student_habilitation_id,subject_id,assigned_by) VALUES($1,$2,$3,$4) RETURNING id`, [patientId,habilitationId,subjectK,adminId])).rows[0].id;
+    const assignedOnly = await fetch(`${assignmentList}&status=assigned&limit=1&offset=0`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(assignedOnly.status, 200);
+    assert.deepEqual((await assignedOnly.json()).items, [{ patient_id: patientId, nombres: 'Synthetic', apellidos: 'Patient', assignment_status: 'assigned' }]);
+    const unassignedOnly = await fetch(assignmentList, { headers: { authorization: `Bearer ${token}` } });
+    assert.deepEqual((await unassignedOnly.json()).items, []);
+    const allStatuses = await fetch(`${assignmentList}&status=all`, { headers: { authorization: `Bearer ${token}` } });
+    assert.deepEqual((await allStatuses.json()).items.map(item => item.assignment_status), ['assigned']);
+    await pool.query(`UPDATE patient_assignments SET ended_by=$2,ended_at=clock_timestamp(),end_reason='synthetic' WHERE id=$1`, [assignmentId,adminId]);
+    const unassignedAgain = await fetch(assignmentList, { headers: { authorization: `Bearer ${token}` } });
+    assert.deepEqual((await unassignedAgain.json()).items.map(item => item.assignment_status), ['unassigned']);
+    const foreignContext = await fetch(`${base}/reception/availability/assignment-status?career=kinesiology&subject_id=${subjectO}&academic_group_id=${groupO}`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(foreignContext.status, 404);
+    for (const suffixQuery of [`&status=unknown`,`&status=all&extra=1`,`&status=all&status=assigned`]) {
+      const invalid = await fetch(`${assignmentList}${suffixQuery}`, { headers: { authorization: `Bearer ${token}` } });
+      assert.equal(invalid.status, 400);
+    }
     const duplicate = await fetch(`${base}/reception/availability`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(enableBody) });
     assert.equal(duplicate.status, 409);
     for (const [subject,group] of [[subjectO,groupO],[subjectK,groupO]]) {
@@ -114,12 +143,15 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     assert.equal(searchDenied.status, 200); assert.deepEqual((await searchDenied.json()).items, []);
     const searchAllowed = await fetch(`${base}/reception/availability/search?career=kinesiology&documento=35123456&limit=1`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(searchAllowed.status, 200); assert.deepEqual((await searchAllowed.json()).items, [{ patient_id: patientId, nombres: 'Synthetic', apellidos: 'Patient' }]);
-    for (const path of [`/reception/availability/contexts?career=kinesiology&limit=101`,`/reception/availability/history?career=kinesiology&patient_id=${patientId}&offset=10001`,`/reception/availability/search?career=kinesiology&documento=35123456&limit=0`]) {
+    for (const path of [`/reception/availability/contexts?career=kinesiology&limit=101`,`/reception/availability/history?career=kinesiology&patient_id=${patientId}&offset=10001`,`/reception/availability/search?career=kinesiology&documento=35123456&limit=0`,`/reception/availability/assignment-status?career=kinesiology&subject_id=${subjectK}&academic_group_id=${groupK}&offset=10001`]) {
       assert.equal((await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${token}` } })).status, 400);
     }
     const withdrawPath = `/reception/availability/${enabledBody.id}/withdraw`;
     const withdrawn = await fetch(`${base}${withdrawPath}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology' }) });
     assert.equal(withdrawn.status, 200); const withdrawnBody = await withdrawn.json(); assert.ok(withdrawnBody.withdrawn_at);
+    const afterWithdrawal = await fetch(`${assignmentList}&status=all`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(afterWithdrawal.status, 200);
+    assert.deepEqual(await afterWithdrawal.json(), { items: [], limit: 50, offset: 0 });
     const repeated = await fetch(`${base}${withdrawPath}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ career: 'kinesiology' }) });
     assert.equal(repeated.status, 200); assert.deepEqual(await repeated.json(), withdrawnBody);
     const reenabled = await fetch(`${base}/reception/availability`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(enableBody) });
@@ -152,6 +184,7 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     }
     const staleChecks = [
       ['GET', '/reception/availability/contexts?career=kinesiology'],
+      ['GET', `/reception/availability/assignment-status?career=kinesiology&subject_id=${subjectK}&academic_group_id=${groupK}`],
       ['POST', '/reception/availability', enableBody],
       ['POST', `/reception/availability/${reenabledBody.id}/withdraw`, { career: 'kinesiology' }],
       ['GET', `/reception/availability/history?career=kinesiology&patient_id=${patientId}`],
@@ -169,13 +202,16 @@ test('Reception availability is career and enrollment scoped, preserves periods,
     assert.equal(assignmentDenied.status, 403);
     const finalState = await pool.query(`SELECT a.id,a.withdrawn_by,a.withdrawn_at,
       (SELECT count(*)::int FROM reception_patient_enrollments WHERE patient_id=$1) AS enrollments,
-      (SELECT count(*)::int FROM patient_assignments WHERE patient_id=$1) AS assignments
+      (SELECT count(*)::int FROM patient_assignments WHERE patient_id=$1 AND ended_at IS NULL) AS active_assignments
       FROM patient_context_availabilities a WHERE a.id IN ($2,$3,$4) ORDER BY a.id`, [patientId,foreignPeriod,enabledBody.id,reenabledBody.id]);
     assert.equal(finalState.rows.length, 3); assert.equal(finalState.rows.find(a => a.id === foreignPeriod).withdrawn_at, null);
     const firstKPeriod = finalState.rows.find(a => a.id === enabledBody.id);
     assert.equal(firstKPeriod.withdrawn_by, receptionId); assert.ok(firstKPeriod.withdrawn_at);
     assert.equal(finalState.rows.find(a => a.id === reenabledBody.id).withdrawn_at, null);
-    assert.ok(finalState.rows.every(a => a.enrollments === 2 && a.assignments === 0));
+    assert.ok(finalState.rows.every(a => a.enrollments === 2 && a.active_assignments === 0));
+    const assignmentHistory = await pool.query(`SELECT id,ended_by,end_reason,ended_at IS NOT NULL AS ended
+      FROM patient_assignments WHERE patient_id=$1`, [patientId]);
+    assert.deepEqual(assignmentHistory.rows, [{ id: assignmentId, ended_by: adminId, end_reason: 'synthetic', ended: true }]);
   } catch (error) { primaryError = error; }
   const cleanupErrors = [];
   if (server) try { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); } catch (error) { cleanupErrors.push(error); }

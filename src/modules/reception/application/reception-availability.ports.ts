@@ -8,4 +8,5 @@ export interface ReceptionAvailabilityRepository {
   withdraw(db: Queryable, career: string, id: string, actorId: string): Promise<PatientAvailability>;
   history(db: Queryable, career: string, patientId: string, limit: number, offset: number): Promise<PatientAvailability[]>;
   search(db: Queryable, career: string, documento: string, limit: number, offset: number): Promise<Array<{ patient_id: string; nombres: string; apellidos: string }>>;
+  assignmentStatus(db: Queryable, career: string, subjectId: string, groupId: string, status: 'unassigned' | 'assigned' | 'all', limit: number, offset: number): Promise<Array<{ patient_id: string; nombres: string; apellidos: string; assignment_status: 'unassigned' | 'assigned' }>>;
 }

@@ -18,7 +18,7 @@ const MIGRATIONS = [
   '019_seed_student_habilitation_revocation_permission.sql','020_create_kinesiology_evaluations.sql','021_seed_kinesiology_evaluation_permissions.sql',
   '022_create_kinesiology_consent_attestations.sql','023_create_kinesiology_submissions.sql','024_create_kinesiology_correction_requests.sql','025_create_kinesiology_validation_reviews.sql','026_create_kinesiology_amendment_links.sql',
   '027_seed_profile_read_permissions.sql', '028_seed_habilitation_read_permissions.sql', '029_create_patient_context_availabilities.sql', '030_seed_patient_availability_permissions.sql','031_create_kinesiology_evolutions.sql','032_seed_kinesiology_evolution_permissions.sql',
-   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql','045_create_reception_access.sql','046_create_reception_patient_enrollments.sql','047_seed_reception_availability_permissions.sql','048_create_user_role_grants.sql','049_create_oral_surgery_operative_reports.sql','050_seed_oral_surgery_operative_report_permissions.sql','051_create_oral_surgery_practical_evaluations.sql','052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql',
+   '033_create_kinesiology_evolution_reviews.sql','034_seed_kinesiology_evolution_review_permissions.sql','035_create_kinesiology_evolution_amendment_links.sql', '036_create_careers.sql', '037_seed_career_permissions.sql', '038_create_oral_surgery_subjects.sql', '039_seed_oral_surgery_subject_permissions.sql', '040_create_oral_surgery_drafts.sql', '041_seed_oral_surgery_draft_permissions.sql', '042_create_oral_surgery_consent_declarations.sql', '043_create_oral_surgery_authorizations.sql', '044_seed_oral_surgery_authorization_permission.sql','045_create_reception_access.sql','046_create_reception_patient_enrollments.sql','047_seed_reception_availability_permissions.sql','048_create_user_role_grants.sql','049_create_oral_surgery_operative_reports.sql','050_seed_oral_surgery_operative_report_permissions.sql','051_create_oral_surgery_practical_evaluations.sql','052_seed_oral_surgery_grade_permission.sql', '053_guard_clinical_history_deletes.sql', '054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql',
 ];
 const EXPECTED_PERMISSIONS = [
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
@@ -30,7 +30,7 @@ const EXPECTED_PERMISSIONS = [
   'kinesiology-evaluations:read','kinesiology-evaluations:write','kinesiology-evaluations:submit',
   'kinesiology-evaluations:verify-consent','kinesiology-evaluations:review',
   'teachers:read', 'students:read', 'teacher-habilitations:read', 'student-habilitations:read', 'patient-availabilities:manage', 'patient-availabilities:read', 'kinesiology-evolutions:write', 'kinesiology-evolutions:read', 'kinesiology-evolutions:submit', 'kinesiology-evolutions:review',
-  'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage',
+  'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage', 'reception:availability:read',
   'patient-personal-data:read', 'patient-personal-data:write',
   'assignment-reports:read',
 ];
@@ -48,7 +48,7 @@ const EXPECTED_GRANTS = [
   'admin:teachers:read', 'admin:students:read', 'teacher:students:read', 'admin:teacher-habilitations:read', 'admin:student-habilitations:read', 'teacher:student-habilitations:read', 'admin:patient-availabilities:manage', 'teacher:patient-availabilities:read',
   'estudiante:kinesiology-evolutions:write', 'estudiante:kinesiology-evolutions:read', 'estudiante:kinesiology-evolutions:submit', 'teacher:kinesiology-evolutions:read', 'teacher:kinesiology-evolutions:review',
   'admin:reception:accounts:write', 'admin:reception:careers:write', 'admin:reception:careers:read',
-  'reception:profile:read', 'reception:reception:careers:read', 'reception:reception:patients:manage', 'reception:reception:availability:manage',
+  'reception:profile:read', 'reception:reception:careers:read', 'reception:reception:patients:manage', 'reception:reception:availability:manage', 'reception:reception:availability:read',
   'estudiante:patient-personal-data:read', 'estudiante:patient-personal-data:write', 'teacher:patient-personal-data:read',
   'admin:assignment-reports:read',
 ];
@@ -115,14 +115,14 @@ async function readonlyPreflight() {
     assert.equal(ip(client.connection.stream.remoteAddress), ip(rows[0].server));
     await client.query('ROLLBACK');
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
-    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–063 required before cleanup');
+    assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–064 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
-    assert.equal(permissions.length, 56, 'exact 56-permission canonical baseline required');
+    assert.equal(permissions.length, 57, 'exact 57-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
     assert.ok(permissions.every(row => row.enforced === true || ['materias:read','turnos:read'].includes(row.permission)));
     assert.deepEqual(permissions.filter(row => CLINICAL_PERMISSIONS.includes(row.permission)), CLINICAL_PERMISSIONS.map(permission => ({ permission, enforced:true })).sort((a,b) => a.permission.localeCompare(b.permission)));
     const { rows: grants } = await client.query('SELECT role,permission FROM public.role_permissions ORDER BY role,permission');
-    assert.equal(grants.length, 73, 'exact 73-grant canonical baseline required');
+    assert.equal(grants.length, 74, 'exact 74-grant canonical baseline required');
     assert.deepEqual(grants.map(row=>`${row.role}:${row.permission}`),[...EXPECTED_GRANTS].sort(),'unknown or missing grants are unsafe');
     assert.deepEqual(grants.filter(row => row.permission.startsWith('kinesiology-evaluations:')).map(row => `${row.role}:${row.permission}`).sort(), [...CLINICAL_GRANTS].sort());
     assert.deepEqual(grants.filter(row => row.permission.startsWith('patient-assignments:')).map(row => `${row.role}:${row.permission}`).sort(), [
@@ -132,7 +132,7 @@ async function readonlyPreflight() {
       ['admin:teacher-habilitations:revoke','admin:teacher-habilitations:write']);
     const { rows: baseline } = await client.query(`SELECT (SELECT count(*)::int FROM public.permissions) permissions,
       (SELECT count(*)::int FROM public.role_permissions) grants`);
-    assert.deepEqual(baseline[0], { permissions: 56, grants: 73 });
+    assert.deepEqual(baseline[0], { permissions: 57, grants: 74 });
   } finally { await client.end(); }
   return value;
 }
@@ -1043,5 +1043,5 @@ test('cleanDb clears clinical child rows and leaves all twenty-eight fixture tab
     (SELECT count(*)::int FROM reception_career_grants) reception_career_grants,
     (SELECT count(*)::int FROM reception_patient_enrollments) reception_patient_enrollments,
     (SELECT count(*)::int FROM password_reset_tokens) reset_tokens,(SELECT count(*)::int FROM permissions) permissions,(SELECT count(*)::int FROM role_permissions) grants`);
-  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,evolutions:0,evolution_submissions:0,evolution_validation_reviews:0,evolution_correction_requests:0,evolution_amendment_links:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,amendment_links:0,consents:0,assignments:0,availabilities:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,oral_surgery_subjects:0,hygiene_preventive_subjects:0,hygiene_preventive_consent_declarations:0,hygiene_preventive_procedures:0,hygiene_preventive_drafts:0,oral_surgery_drafts:0,oral_surgery_consents:0,oral_surgery_authorizations:0,oral_surgery_operative_reports:0,oral_surgery_practical_evaluations:0,reception_career_grants:0,reception_patient_enrollments:0,reset_tokens:0,permissions:56,grants:73});
+  assert.deepEqual(counts[0],{users:0,patients:0,clinical_records:0,evaluations:0,evolutions:0,evolution_submissions:0,evolution_validation_reviews:0,evolution_correction_requests:0,evolution_amendment_links:0,submissions:0,studies:0,correction_requests:0,validation_reviews:0,amendment_links:0,consents:0,assignments:0,availabilities:0,student_periods:0,teacher_periods:0,students:0,teachers:0,subject_groups:0,groups:0,subjects:0,oral_surgery_subjects:0,hygiene_preventive_subjects:0,hygiene_preventive_consent_declarations:0,hygiene_preventive_procedures:0,hygiene_preventive_drafts:0,oral_surgery_drafts:0,oral_surgery_consents:0,oral_surgery_authorizations:0,oral_surgery_operative_reports:0,oral_surgery_practical_evaluations:0,reception_career_grants:0,reception_patient_enrollments:0,reset_tokens:0,permissions:57,grants:74});
 });

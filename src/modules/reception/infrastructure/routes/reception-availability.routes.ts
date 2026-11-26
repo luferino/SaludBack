@@ -30,10 +30,11 @@ export function createReceptionAvailabilityRouter({ repository, guard = new Perm
   repository: ReceptionAvailabilityRepository; guard?: Guard; getActor?: (req: Request) => Promise<string | null>; authenticate?: RequestHandler;
 }): Router {
   const router = Router(), auth = authenticate ? [authenticate] : [];
+  const readGuard = new PermissionGuard('reception:availability:read');
   const inScope = <T>(req: Request, userId: string, selected: string, work: (db: import('../../../shared/application/unit-of-work.js').Queryable) => Promise<T>) =>
     repository.withActiveCareerScope(userId, selected, work, (req as AuthenticatedRequest).auth?.roleGrantId);
-  const actor = async (req: Request) => {
-    await guard.authorize(req);
+  const actor = async (req: Request, permissionGuard: Guard = guard) => {
+    await permissionGuard.authorize(req);
     if ((req as AuthenticatedRequest).auth?.role !== 'reception') throw new ForbiddenError('Reception role required');
     const id = await getActor(req); if (!id || !UUID.test(id)) throw new UnauthorizedError('verified Reception actor is required'); return id;
   };
@@ -42,7 +43,7 @@ export function createReceptionAvailabilityRouter({ repository, guard = new Perm
     for (const [key, value] of Object.entries(req.query)) {
       if (!allowed.has(key) || Array.isArray(value)) throw new BadRequestError('unknown or repeated query parameter');
     }
-    const user = await actor(req), selected = career(req.query.career);
+    const user = await actor(req, readGuard), selected = career(req.query.career);
     const subjectId = uuid(req.query.subject_id, 'subject_id'), groupId = uuid(req.query.academic_group_id, 'academic_group_id');
     const status = req.query.status === undefined ? 'unassigned' : req.query.status;
     if (status !== 'unassigned' && status !== 'assigned' && status !== 'all') throw new BadRequestError('status must be unassigned, assigned, or all');
@@ -51,7 +52,7 @@ export function createReceptionAvailabilityRouter({ repository, guard = new Perm
     res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items, ...page });
   });
   router.get('/contexts', ...auth, async (req: Request, res: Response) => {
-    const user = await actor(req), selected = career(req.query.career), page = pagination(req.query);
+    const user = await actor(req, readGuard), selected = career(req.query.career), page = pagination(req.query);
     const items = await inScope(req, user, selected, db => repository.contextChoices(db, selected, page.limit, page.offset));
     res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items, ...page });
   });
@@ -62,12 +63,12 @@ export function createReceptionAvailabilityRouter({ repository, guard = new Perm
     res.status(201).json(activity(result));
   });
   router.get('/history', ...auth, async (req: Request, res: Response) => {
-    const user = await actor(req), selected = career(req.query.career), patientId = uuid(req.query.patient_id, 'patient_id'), page = pagination(req.query);
+    const user = await actor(req, readGuard), selected = career(req.query.career), patientId = uuid(req.query.patient_id, 'patient_id'), page = pagination(req.query);
     const rows = await inScope(req, user, selected, db => repository.history(db, selected, patientId, page.limit, page.offset));
     res.setHeader('Cache-Control', 'no-store'); res.status(200).json({ items: rows.map(activity), ...page });
   });
   router.get('/search', ...auth, async (req: Request, res: Response) => {
-    const user = await actor(req), selected = career(req.query.career), documento = req.query.documento;
+    const user = await actor(req, readGuard), selected = career(req.query.career), documento = req.query.documento;
     if (typeof documento !== 'string' || !/^\d{4,8}$/.test(documento.trim())) throw new BadRequestError('documento must be 4-8 digits');
     const page = pagination(req.query);
     const items = await inScope(req, user, selected, db => repository.search(db, selected, documento.trim(), page.limit, page.offset));

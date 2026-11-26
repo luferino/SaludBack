@@ -170,6 +170,9 @@ test('legacy integration preflights match the canonical permission/grant invento
     for (const [, permission] of sql.matchAll(/\('([^']+:[^']+)',\s*(?:true|false)\)/g)) permissions.add(permission);
     for (const [, role, permission] of sql.matchAll(/\('(admin|teacher|estudiante|reception)',\s*'([^']+)'\)/g)) grants.add(`${role}:${permission}`);
   }
+  for (const grant of [...grants].filter(value => value.endsWith(':reception:availability:manage'))) {
+    grants.add(grant.replace(':reception:availability:manage', ':reception:availability:read'));
+  }
   const assertCanonicalCounts = (source, expectedPermissions, expectedGrants) => {
     const counts = source.match(/permissions\s*:\s*(\d+),\s*grants\s*:\s*(\d+)/);
     assert.ok(counts, 'integration source must declare its permission/grant baseline');
@@ -184,8 +187,8 @@ test('legacy integration preflights match the canonical permission/grant invento
 
   assert.match(habilitations,/assert\.deepEqual\(new Set\(required\.map\(\(\{ tablename \}\) => tablename\)\), new Set\(REQUIRED_TABLES\)/);
   assert.doesNotMatch(habilitations,/required\.length,\s*24/);
-  assert.match(assignments,/exact expected migration ledger 001-063 is required before fixture cleanup/);
-  assert.match(drafts,/exact migration ledger 001–063 required before cleanup/);
+  assert.match(assignments,/exact expected migration ledger 001-064 is required before fixture cleanup/);
+  assert.match(drafts,/exact migration ledger 001–064 required before cleanup/);
 });
 
 test('rejects changed live identity, schema fingerprint, and nonempty baselines', () => {

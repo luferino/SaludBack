@@ -28,8 +28,12 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.ok(endodonticsLinks > 0 && endodonticsLinks < calls.indexOf('DELETE FROM subjects'));
   assert.match(calls.find(sql => sql.includes('endodontics-subjects:write')), /\('admin', 'endodontics-subjects:write'\)/);
   assert.ok(calls.find(sql => sql.includes('endodontics-subjects:read')));
+  assert.ok(calls.indexOf('DELETE FROM endodontics_drafts') < calls.indexOf('DELETE FROM patient_assignments'));
+  assert.match(calls.find(sql => sql.includes('endodontics-drafts:write')), /\('estudiante', 'endodontics-drafts:write'\)/);
   const hygieneDrafts = calls.indexOf('DELETE FROM hygiene_preventive_drafts');
-  assert.ok(hygieneDrafts > calls.indexOf('DELETE FROM oral_surgery_drafts') && hygieneDrafts < calls.indexOf('DELETE FROM student_academic_habilitations'));
+  const endodonticsDrafts = calls.indexOf('DELETE FROM endodontics_drafts');
+  assert.ok(hygieneDrafts > calls.indexOf('DELETE FROM oral_surgery_drafts') && hygieneDrafts < endodonticsDrafts);
+  assert.ok(endodonticsDrafts < calls.indexOf('DELETE FROM student_academic_habilitations'));
   assert.ok(hygieneDrafts < calls.indexOf('DELETE FROM clinical_records') && hygieneDrafts < calls.indexOf('DELETE FROM hygiene_preventive_subjects'));
   assert.match(calls.find(sql => sql.includes('hygiene-preventive-drafts:write')), /\('estudiante', 'hygiene-preventive-drafts:write'\)/);
   assert.match(calls.find(sql => sql.includes('hygiene-preventive-drafts:approve')), /\('teacher', 'hygiene-preventive-drafts:approve'\)/);
@@ -45,5 +49,5 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.match(manageSeed, /\('reception', 'reception:availability:manage'\)/);
   assert.match(readSeed, /\('reception:availability:read', true\)/);
   assert.match(readSeed, /WHERE permission = 'reception:availability:manage'/);
-  assert.equal(calls.length, 55);
+  assert.equal(calls.length, 57);
 });

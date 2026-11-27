@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import type { AppDependencies } from '../create-dependencies.js';
 import { createOralSurgeryDraftRouter } from '../../modules/oral-surgery-drafts/index.js';
 import { createHygienePreventiveDraftRouter } from '../../modules/hygiene-preventive-drafts/index.js';
+import { createEndodonticsDraftRouter } from '../../modules/endodontics-drafts/index.js';
 import { createPatientAssignmentRouter } from '../../modules/patient-assignments/index.js';
 import { createAssignmentReportRouter } from '../../modules/assignment-report/routes.js';
 import { createPatientAvailabilityRouter } from '../../modules/patient-availabilities/index.js';
@@ -18,6 +19,9 @@ export function mountClinicalRoutes(app: Express, dependencies: AppDependencies[
 
   app.use('/hygiene-preventive-drafts', authenticate(tokenService, matrixReader, roleGrantRepository),
     createHygienePreventiveDraftRouter({ repository: dependencies.hygienePreventiveDraftRepository }));
+
+  app.use('/endodontics-drafts', authenticate(tokenService, matrixReader, roleGrantRepository),
+    createEndodonticsDraftRouter({ repository: dependencies.endodonticsDraftRepository }));
 
   app.use(
     '/patient-availabilities',

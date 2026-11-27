@@ -5,7 +5,10 @@ export interface EndodonticsSubjectLink {
   created_at: Date | string;
 }
 
+export interface EndodonticsSubjectContext { subject_id: string; academic_group_id: string }
+
 export interface EndodonticsSubjectRepositoryPort {
   add(subjectId: string, actorId: string): Promise<EndodonticsSubjectLink>;
   list(): Promise<EndodonticsSubjectLink[]>;
+  listMine(actorId: string, role: 'estudiante' | 'teacher'): Promise<EndodonticsSubjectContext[]>;
 }

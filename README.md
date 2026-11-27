@@ -52,7 +52,7 @@ See [Hygiene and Preventive Dentistry II clinical drafts](docs/hygiene-preventiv
 
 ## Endodontics
 
-See [Endodontics subject configuration](docs/endodontics.md) for the administrator-only explicit subject-link API delivered in T1. Clinical drafts remain a later scope.
+See [Endodontics subject configuration and diagnostic drafts](docs/endodontics.md) for explicit subject links, incomplete context-bound draft endpoints, content fields, permissions, and deferred workflow.
 
 ## Clinical list filters
 

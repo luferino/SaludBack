@@ -50,6 +50,10 @@ See [Oral Surgery I clinical drafts](docs/oral-surgery.md) for administrator-man
 
 See [Hygiene and Preventive Dentistry II clinical drafts](docs/hygiene-preventive.md) for administrator-managed Odontology subject links, clinical drafts (medical history, FDI odontogram and ceo-d/CPO-D indices), the procedure log on each draft, the draft endpoints and delivery scope.
 
+## Endodontics
+
+See [Endodontics subject configuration](docs/endodontics.md) for the administrator-only explicit subject-link API delivered in T1. Clinical drafts remain a later scope.
+
 ## Clinical list filters
 
 Kinesiology patient-scoped lists support optional visible `status` and inclusive

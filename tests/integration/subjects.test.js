@@ -40,7 +40,7 @@ const SUBJECT_IDS = [
 ];
 const EXPECTED_PERMISSIONS = new Set([
   'oral-surgery-drafts:authorize', 'oral-surgery-drafts:read', 'oral-surgery-drafts:write', 'oral-surgery-drafts:close', 'oral-surgery-drafts:grade',
-  'oral-surgery-subjects:read', 'oral-surgery-subjects:write', 'hygiene-preventive-subjects:read', 'hygiene-preventive-subjects:write', 'hygiene-preventive-drafts:approve', 'hygiene-preventive-drafts:read', 'hygiene-preventive-drafts:write',
+  'oral-surgery-subjects:read', 'oral-surgery-subjects:write', 'hygiene-preventive-subjects:read', 'hygiene-preventive-subjects:write', 'endodontics-subjects:read', 'endodontics-subjects:write', 'hygiene-preventive-drafts:approve', 'hygiene-preventive-drafts:read', 'hygiene-preventive-drafts:write',
   'users:write', 'students:write', 'teachers:write', 'patients:write', 'profile:read',
   'materias:read', 'turnos:read', 'subjects:write', 'subjects:read', 'groups:write', 'groups:read',
   'subject-groups:write', 'subject-groups:read', 'teacher-habilitations:write', 'teacher-habilitations:revoke', 'student-habilitations:write',
@@ -54,7 +54,7 @@ const EXPECTED_PERMISSIONS = new Set([
 const EXPECTED_GRANTS = new Set([
   'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close', 'teacher:oral-surgery-drafts:grade',
   'estudiante:oral-surgery-drafts:read', 'estudiante:oral-surgery-drafts:write',
-  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write', 'admin:hygiene-preventive-subjects:read', 'admin:hygiene-preventive-subjects:write', 'admin:hygiene-preventive-drafts:read', 'teacher:hygiene-preventive-drafts:approve', 'teacher:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:write',
+  'admin:oral-surgery-subjects:read', 'admin:oral-surgery-subjects:write', 'admin:hygiene-preventive-subjects:read', 'admin:hygiene-preventive-subjects:write', 'admin:endodontics-subjects:read', 'admin:endodontics-subjects:write', 'admin:hygiene-preventive-drafts:read', 'teacher:hygiene-preventive-drafts:approve', 'teacher:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:read', 'estudiante:hygiene-preventive-drafts:write',
   'estudiante:profile:read', 'estudiante:materias:read', 'estudiante:turnos:read',
   'teacher:profile:read', 'teacher:materias:read', 'teacher:turnos:read',
   'admin:users:write', 'admin:students:write', 'admin:teachers:write',
@@ -223,7 +223,7 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('046_create_reception_patient_enrollments.sql'), 'migration 046 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('047_seed_reception_availability_permissions.sql'), 'migration 047 must already be applied; this suite never migrates');
   for (const name of ['054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql',
-    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql']) {
+    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql', '065_create_endodontics_subjects.sql', '066_seed_endodontics_subject_permissions.sql']) {
     assert.ok(ledgerNamesBefore.has(name), `migration ${name.slice(0, 3)} must already be applied; this suite never migrates`);
   }
 

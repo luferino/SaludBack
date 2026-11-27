@@ -15,6 +15,7 @@ import { PgOralSurgeryDraftRepository } from '../modules/oral-surgery-drafts/ind
 import { PgOralSurgerySubjectRepository } from '../modules/oral-surgery-subjects/index.js';
 import { PgHygienePreventiveDraftRepository } from '../modules/hygiene-preventive-drafts/index.js';
 import { PgHygienePreventiveSubjectRepository } from '../modules/hygiene-preventive-subjects/index.js';
+import { PgEndodonticsSubjectRepository } from '../modules/endodontics-subjects/index.js';
 import { PgCareerRepository } from '../modules/careers/infrastructure/repositories/pg-career.repository.js';
 import { PgSubjectRepository } from '../modules/subjects/infrastructure/repositories/pg-subject.repository.js';
 import { PgGroupRepository } from '../modules/groups/infrastructure/repositories/pg-group.repository.js';
@@ -43,6 +44,7 @@ export function createDependencies(pool: Pool) {
   const careerRepository = new PgCareerRepository(pool);
   const oralSurgerySubjectRepository = new PgOralSurgerySubjectRepository(pool);
   const hygienePreventiveSubjectRepository = new PgHygienePreventiveSubjectRepository(pool);
+  const endodonticsSubjectRepository = new PgEndodonticsSubjectRepository(pool);
   const subjectRepository = new PgSubjectRepository(pool);
   const groupRepository = new PgGroupRepository(pool);
   const subjectGroupRepository = new PgSubjectGroupRepository(pool);
@@ -81,7 +83,7 @@ export function createDependencies(pool: Pool) {
       userRepository: repository, hasher, unitOfWork, tokenService, matrixReader, roleGrantRepository,
     },
     academic: {
-      careerRepository, oralSurgerySubjectRepository, hygienePreventiveSubjectRepository, subjectRepository, groupRepository, subjectGroupRepository,
+      careerRepository, oralSurgerySubjectRepository, hygienePreventiveSubjectRepository, endodonticsSubjectRepository, subjectRepository, groupRepository, subjectGroupRepository,
       studentHabilitationRepository, teacherHabilitationRepository,
       tokenService, matrixReader, roleGrantRepository,
     },

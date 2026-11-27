@@ -159,7 +159,7 @@ test('an author can edit an existing draft after reactivation through a new acti
   const updated = { ...draft, content: { revised: true }, version: '2' };
   const fake = transactionDouble([
     [draft], [{ id: 'student-profile' }], [{ id: reactivatedPeriod }], [{ id: ids.patient }],
-    [{ student_habilitation_id: reactivatedPeriod }], [{ version: '1' }], [updated],
+    [{ student_habilitation_id: reactivatedPeriod }], [{ version: '1' }], [], [updated],
   ]);
   const result = await new PgEndodonticsDraftRepository(fake.uow, {}).edit(draft.id, '1', { revised: true }, { id: ids.user, role: 'estudiante' });
   assert.equal(result.version, '2');
@@ -183,7 +183,7 @@ test('a different student cannot edit an author-owned draft or mutate storage', 
 test('edit locks and revalidates before version check/update; stale version cannot write', async () => {
   const fake = transactionDouble([
     [draft], [{ id: 'student-profile' }], [{ id: ids.period }], [{ id: ids.patient }],
-    [{ student_habilitation_id: ids.period }], [{ version: '2' }],
+    [{ student_habilitation_id: ids.period }], [{ version: '2' }], [],
   ]);
   const repo = new PgEndodonticsDraftRepository(fake.uow, {});
   await assert.rejects(repo.edit(draft.id, '1', { changed: true }, { id: ids.user, role: 'estudiante' }), /draft version changed/);

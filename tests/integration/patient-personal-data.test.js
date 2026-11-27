@@ -31,12 +31,12 @@ test('patient personal data is available only through the authorized public pati
       address: norm(target.identity.serverAddress), port: target.identity.serverPort,
     });
     const ledger = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(ledger.rowCount, 68);
+    assert.equal(ledger.rowCount, 70);
     const ledgerNames = ledger.rows.map(row => row.name);
     const first = ledgerNames.indexOf('061_add_patient_personal_data.sql');
     assert.notEqual(first, -1, 'migration 061 must be recorded');
     assert.deepEqual(ledgerNames.slice(first, first + 2), ['061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql'], '061 must be followed in order by 062');
-    assert.equal(ledger.rows.at(-1).name, '068_seed_endodontics_draft_permissions.sql');
+    assert.equal(ledger.rows.at(-1).name, '070_seed_endodontics_treatment_report_permissions.sql');
 
     await pool.query(`INSERT INTO users(id,username,password_hash,role) VALUES
       ($1,$2,'synthetic','admin'),($3,$4,'synthetic','reception'),($5,$6,'synthetic','estudiante'),

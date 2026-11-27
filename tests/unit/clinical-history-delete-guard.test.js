@@ -30,7 +30,8 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
     calls.push(text);
     return { rows: [] };
   } });
-  const truncates = calls.filter(sql => sql.startsWith('TRUNCATE ') && !sql.includes('role_permissions') && !sql.includes('hygiene_preventive_procedures') && !sql.includes('hygiene_preventive_consent_declarations'));
+  // endodontics_treatment_reports is a separate, non-history table truncated before its draft; it is not part of the closure.
+  const truncates = calls.filter(sql => sql.startsWith('TRUNCATE ') && !sql.includes('role_permissions') && !sql.includes('hygiene_preventive_procedures') && !sql.includes('hygiene_preventive_consent_declarations') && !sql.includes('endodontics_treatment_reports'));
   assert.equal(truncates.length, 1);
   const truncated = truncates[0].replace(/^TRUNCATE /, '').split(',').map(name => name.trim());
   assert.deepEqual([...truncated].sort(), [...TRUNCATE_CLOSURE].sort());
@@ -39,5 +40,5 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
   assert.equal(truncateAt, 0);
   assert.ok(truncateAt < calls.indexOf('DELETE FROM oral_surgery_drafts'));
   assert.ok(truncateAt < calls.indexOf('DELETE FROM patient_assignments'));
-  assert.equal(calls.length, 57);
+  assert.equal(calls.length, 59);
 });

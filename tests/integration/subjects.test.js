@@ -50,6 +50,7 @@ const EXPECTED_PERMISSIONS = new Set([
   'careers:read', 'reception:accounts:write', 'reception:careers:write', 'reception:careers:read', 'reception:patients:manage', 'reception:availability:manage', 'reception:availability:read',
   'patient-personal-data:read', 'patient-personal-data:write',
   'assignment-reports:read',
+  'endodontics-treatment-reports:close',
 ]);
 const EXPECTED_GRANTS = new Set([
   'admin:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:authorize', 'teacher:oral-surgery-drafts:read', 'teacher:oral-surgery-drafts:close', 'teacher:oral-surgery-drafts:grade',
@@ -69,6 +70,7 @@ const EXPECTED_GRANTS = new Set([
   'reception:profile:read', 'reception:reception:careers:read', 'reception:reception:patients:manage', 'reception:reception:availability:manage', 'reception:reception:availability:read',
   'estudiante:patient-personal-data:read', 'estudiante:patient-personal-data:write', 'teacher:patient-personal-data:read',
   'admin:assignment-reports:read',
+  'teacher:endodontics-treatment-reports:close',
 ]);
 
 let pool;
@@ -223,7 +225,7 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   assert.ok(ledgerNamesBefore.has('046_create_reception_patient_enrollments.sql'), 'migration 046 must already be applied; this suite never migrates');
   assert.ok(ledgerNamesBefore.has('047_seed_reception_availability_permissions.sql'), 'migration 047 must already be applied; this suite never migrates');
   for (const name of ['054_create_hygiene_preventive_subjects.sql', '055_seed_hygiene_preventive_subject_permissions.sql',
-    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql', '065_create_endodontics_subjects.sql', '066_seed_endodontics_subject_permissions.sql', '067_create_endodontics_drafts.sql', '068_seed_endodontics_draft_permissions.sql']) {
+    '056_create_hygiene_preventive_drafts.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '058_create_hygiene_preventive_procedures.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '060_create_hygiene_preventive_consent_declarations.sql', '061_add_patient_personal_data.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql', '065_create_endodontics_subjects.sql', '066_seed_endodontics_subject_permissions.sql', '067_create_endodontics_drafts.sql', '068_seed_endodontics_draft_permissions.sql', '069_create_endodontics_treatment_reports.sql', '070_seed_endodontics_treatment_report_permissions.sql']) {
     assert.ok(ledgerNamesBefore.has(name), `migration ${name.slice(0, 3)} must already be applied; this suite never migrates`);
   }
 
@@ -311,10 +313,10 @@ test('migrations 011–046 are present before cleanup and cleanup restores the c
   await cleanDb(pool);
   const { rows: permissions } = await pool.query('SELECT permission FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 61);
+  assert.equal(permissions.length, 62);
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 80);
+  assert.equal(grants.length, 81);
   const { rows: ledgerAfter } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
   assert.deepEqual(new Set(ledgerAfter.map(({ name }) => name)), ledgerNamesBefore, 'cleanup must not change migration history');
 

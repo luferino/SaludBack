@@ -10,7 +10,7 @@
  * (every kinesiology_* table plus oral_surgery_practical_evaluations, oral_surgery_operative_reports,
  * oral_surgery_authorizations and oral_surgery_consent_declarations; migration 053 rejects DELETE on the
  * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
- * oral_surgery_drafts -> hygiene_preventive_procedures -> hygiene_preventive_consent_declarations -> hygiene_preventive_drafts -> endodontics_drafts -> patient_assignments -> patient_context_availabilities ->
+ * oral_surgery_drafts -> hygiene_preventive_procedures -> hygiene_preventive_consent_declarations -> hygiene_preventive_drafts -> endodontics_treatment_reports -> endodontics_drafts -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> oral_surgery_subjects -> hygiene_preventive_subjects ->
  * subjects -> clinical_records -> patients ->
@@ -18,7 +18,7 @@
  *
  * After FK-safe deletes, TRUNCATE the permission-matrix tables
  * (role_permissions, permissions), then re-execute permission seeds 007,
- * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, 059, 062–064, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
+ * 011–016, 018–019, 021, 027–028, 030, 032, 034, 037, 039, 041, 044, 050, 052, 055, 057, 059, 062–064, 066, 068, 070, and the permission/grant INSERT sections of 045–047 so every suite starts from the canonical permission state. Migrations 035 and 036 add no grants.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,9 @@ const endodonticsSubjectPermissionSeedSql = readFileSync(
 const endodonticsDraftPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/068_seed_endodontics_draft_permissions.sql'), 'utf8',
 );
+const endodonticsTreatmentReportPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/070_seed_endodontics_treatment_report_permissions.sql'), 'utf8',
+);
 const hygienePreventiveDraftPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/057_seed_hygiene_preventive_draft_permissions.sql'), 'utf8',
 );
@@ -154,6 +157,7 @@ export async function cleanDb(pool) {
   await pool.query('TRUNCATE hygiene_preventive_procedures');
   await pool.query('TRUNCATE hygiene_preventive_consent_declarations');
   await pool.query('DELETE FROM hygiene_preventive_drafts');
+  await pool.query('TRUNCATE endodontics_treatment_reports');
   await pool.query('DELETE FROM endodontics_drafts');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');
@@ -208,4 +212,5 @@ export async function cleanDb(pool) {
   await pool.query(receptionAvailabilityReadPermissionSeedSql);
   await pool.query(endodonticsSubjectPermissionSeedSql);
   await pool.query(endodonticsDraftPermissionSeedSql);
+  await pool.query(endodonticsTreatmentReportPermissionSeedSql);
 }

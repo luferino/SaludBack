@@ -117,12 +117,12 @@ async function readonlyPreflight() {
     const { rows: ledger } = await client.query('SELECT name FROM public.schema_migrations ORDER BY name');
     assert.deepEqual(ledger.map(row => row.name), MIGRATIONS, 'exact migration ledger 001–066 required before cleanup');
     const { rows: permissions } = await client.query('SELECT permission,enforced FROM public.permissions ORDER BY permission');
-    assert.equal(permissions.length, 57, 'exact 57-permission canonical baseline required');
+    assert.equal(permissions.length, 59, 'exact 59-permission canonical baseline required');
     assert.deepEqual(permissions.map(row=>row.permission),[...EXPECTED_PERMISSIONS].sort(),'unknown or missing permissions are unsafe');
     assert.ok(permissions.every(row => row.enforced === true || ['materias:read','turnos:read'].includes(row.permission)));
     assert.deepEqual(permissions.filter(row => CLINICAL_PERMISSIONS.includes(row.permission)), CLINICAL_PERMISSIONS.map(permission => ({ permission, enforced:true })).sort((a,b) => a.permission.localeCompare(b.permission)));
     const { rows: grants } = await client.query('SELECT role,permission FROM public.role_permissions ORDER BY role,permission');
-    assert.equal(grants.length, 74, 'exact 74-grant canonical baseline required');
+    assert.equal(grants.length, 76, 'exact 76-grant canonical baseline required');
     assert.deepEqual(grants.map(row=>`${row.role}:${row.permission}`),[...EXPECTED_GRANTS].sort(),'unknown or missing grants are unsafe');
     assert.deepEqual(grants.filter(row => row.permission.startsWith('kinesiology-evaluations:')).map(row => `${row.role}:${row.permission}`).sort(), [...CLINICAL_GRANTS].sort());
     assert.deepEqual(grants.filter(row => row.permission.startsWith('patient-assignments:')).map(row => `${row.role}:${row.permission}`).sort(), [

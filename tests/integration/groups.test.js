@@ -240,7 +240,7 @@ async function verifyDestructivePreflight() {
 
   const { rows: permissions } = await pool.query('SELECT permission, enforced FROM permissions ORDER BY permission');
   assert.deepEqual(new Set(permissions.map(({ permission }) => permission)), EXPECTED_PERMISSIONS);
-  assert.equal(permissions.length, 57, 'Expected the full 57-permission baseline before cleanup.');
+  assert.equal(permissions.length, 59, 'Expected the full 59-permission baseline before cleanup.');
   for (const permission of ['materias:read', 'turnos:read']) {
     assert.equal(permissions.find((row) => row.permission === permission).enforced, false,
       `${permission} is a legacy permission and must remain unenforced.`);
@@ -249,7 +249,7 @@ async function verifyDestructivePreflight() {
     .every(({ enforced }) => enforced === true), 'Every other canonical permission must be enforced.');
   const { rows: grants } = await pool.query('SELECT role, permission FROM role_permissions ORDER BY role, permission');
   assert.deepEqual(new Set(grants.map(({ role, permission }) => `${role}:${permission}`)), EXPECTED_GRANTS);
-  assert.equal(grants.length, 74, 'Expected the full 74-grant baseline before cleanup.');
+  assert.equal(grants.length, 76, 'Expected the full 76-grant baseline before cleanup.');
 
   // Check every privilege used by cleanup and this fixture before its first
   // DELETE/TRUNCATE, reducing known failures for restricted roles without

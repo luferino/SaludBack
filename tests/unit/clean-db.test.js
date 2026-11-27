@@ -24,6 +24,10 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   const hygieneLinks = calls.indexOf('DELETE FROM hygiene_preventive_subjects');
   assert.ok(hygieneLinks > 0 && hygieneLinks < calls.indexOf('DELETE FROM subjects'));
   assert.match(calls.find(sql => sql.includes('hygiene-preventive-subjects:write')), /\('admin', 'hygiene-preventive-subjects:write'\)/);
+  const endodonticsLinks = calls.indexOf('DELETE FROM endodontics_subjects');
+  assert.ok(endodonticsLinks > 0 && endodonticsLinks < calls.indexOf('DELETE FROM subjects'));
+  assert.match(calls.find(sql => sql.includes('endodontics-subjects:write')), /\('admin', 'endodontics-subjects:write'\)/);
+  assert.ok(calls.find(sql => sql.includes('endodontics-subjects:read')));
   const hygieneDrafts = calls.indexOf('DELETE FROM hygiene_preventive_drafts');
   assert.ok(hygieneDrafts > calls.indexOf('DELETE FROM oral_surgery_drafts') && hygieneDrafts < calls.indexOf('DELETE FROM student_academic_habilitations'));
   assert.ok(hygieneDrafts < calls.indexOf('DELETE FROM clinical_records') && hygieneDrafts < calls.indexOf('DELETE FROM hygiene_preventive_subjects'));
@@ -36,9 +40,10 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.equal(reportSeeds.length, 1);
   assert.match(reportSeeds[0], /\('assignment-reports:read', true\)/);
   assert.match(reportSeeds[0], /\('admin', 'assignment-reports:read'\)/);
-  const [manageSeed, readSeed] = calls.slice(-2);
+  const manageSeed = calls.find(sql => sql.includes('reception:availability:manage'));
+  const readSeed = calls.find(sql => sql.includes('reception:availability:read'));
   assert.match(manageSeed, /\('reception', 'reception:availability:manage'\)/);
   assert.match(readSeed, /\('reception:availability:read', true\)/);
   assert.match(readSeed, /WHERE permission = 'reception:availability:manage'/);
-  assert.equal(calls.length, 53);
+  assert.equal(calls.length, 55);
 });

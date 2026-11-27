@@ -111,6 +111,9 @@ const oralSurgeryGradePermissionSeedSql = readFileSync(
 const hygienePreventiveSubjectPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/055_seed_hygiene_preventive_subject_permissions.sql'), 'utf8',
 );
+const endodonticsSubjectPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/066_seed_endodontics_subject_permissions.sql'), 'utf8',
+);
 const hygienePreventiveDraftPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/057_seed_hygiene_preventive_draft_permissions.sql'), 'utf8',
 );
@@ -158,6 +161,7 @@ export async function cleanDb(pool) {
   await pool.query('DELETE FROM academic_groups');
   await pool.query('DELETE FROM oral_surgery_subjects');
   await pool.query('DELETE FROM hygiene_preventive_subjects');
+  await pool.query('DELETE FROM endodontics_subjects');
   await pool.query('DELETE FROM subjects');
   await pool.query('DELETE FROM clinical_records');
   await pool.query('DELETE FROM reception_patient_enrollments');
@@ -198,4 +202,5 @@ export async function cleanDb(pool) {
   await pool.query(receptionPatientPermissionSeedSql);
   await pool.query(receptionAvailabilityPermissionSeedSql);
   await pool.query(receptionAvailabilityReadPermissionSeedSql);
+  await pool.query(endodonticsSubjectPermissionSeedSql);
 }

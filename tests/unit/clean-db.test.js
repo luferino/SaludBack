@@ -49,5 +49,5 @@ test('cleanDb truncates clinical history first, before drafts, and replays close
   assert.match(manageSeed, /\('reception', 'reception:availability:manage'\)/);
   assert.match(readSeed, /\('reception:availability:read', true\)/);
   assert.match(readSeed, /WHERE permission = 'reception:availability:manage'/);
-  assert.equal(calls.length, 57);
+  assert.equal(calls.length, 59);
 });

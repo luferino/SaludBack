@@ -15,3 +15,7 @@ This command is separate from the regular development and integration commands. 
 Without `--smoke`, wait for `QA_READY`. Use the displayed API URL with the frontend bound to `http://127.0.0.1:4610`. Open the displayed `QA_LOCAL_LOGIN_FILE` locally for manual login only; do not copy its contents into logs, screenshots, or chat. The window closes after 24 minutes. To end it sooner, create the empty file at the printed `QA_FINISH_MARKER` path or press Ctrl+C once and let the runner shut down. Do not forcibly terminate the process during cleanup.
 
 If startup or a check fails, the command exits nonzero. If it cannot verify the cluster stopped, it reports `QA_STOP_UNVERIFIED` and leaves the restricted directory in place for operator inspection. Do not delete it or stop any other PostgreSQL service by guesswork. A hard process kill may prevent cleanup; inspect the exact temporary cluster identity before any manual intervention. No real data should be added to this environment.
+
+## Running the API against a local QA environment file
+
+`npm run qa` starts the SaludBack API with `tsx --env-file=.env.qa src/index.ts`. It is unrelated to `scripts/local-qa.mjs`: it reads a local, untracked `.env.qa` that you prepare yourself and points the API at whatever database that file names. Never commit `.env.qa`, and never point it at a database holding real data.

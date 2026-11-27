@@ -35,7 +35,7 @@ const permissionSeeds = ['007_seed_permission_matrix.sql', '011_seed_subject_per
   '030_seed_patient_availability_permissions.sql', '032_seed_kinesiology_evolution_permissions.sql',
   '034_seed_kinesiology_evolution_review_permissions.sql', '037_seed_career_permissions.sql',
   '039_seed_oral_surgery_subject_permissions.sql', '041_seed_oral_surgery_draft_permissions.sql', '044_seed_oral_surgery_authorization_permission.sql', '045_create_reception_access.sql', '046_create_reception_patient_enrollments.sql', '047_seed_reception_availability_permissions.sql', '050_seed_oral_surgery_operative_report_permissions.sql',
-  '052_seed_oral_surgery_grade_permission.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql', '066_seed_endodontics_subject_permissions.sql'];
+  '052_seed_oral_surgery_grade_permission.sql', '055_seed_hygiene_preventive_subject_permissions.sql', '057_seed_hygiene_preventive_draft_permissions.sql', '059_seed_hygiene_preventive_procedure_approval_permission.sql', '062_seed_patient_personal_data_permissions.sql', '063_seed_assignment_report_permission.sql', '064_seed_reception_availability_read_permission.sql', '066_seed_endodontics_subject_permissions.sql', '068_seed_endodontics_draft_permissions.sql'];
 const permissions = new Set(), grants = new Set();
 for (const seed of permissionSeeds) {
   const sql = readFileSync(`src/db/migrations/${seed}`, 'utf8');
@@ -87,7 +87,7 @@ for (const suite of ['groups', 'subjects', 'subject-groups', 'kinesiology-evalua
       const declared = vm.runInNewContext(declaration[1], Object.create(null), { timeout: 1000 });
       assert.deepEqual([...declared].sort(), [...expected].sort(), name);
     }
-    assert.equal(permissions.size, 59);
-    assert.equal(grants.size, 76);
+    assert.equal(permissions.size, 61);
+    assert.equal(grants.size, 80);
   });
 }

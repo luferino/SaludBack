@@ -10,7 +10,7 @@ const PROTECTED = [
   'kinesiology_evolution_amendment_links', 'oral_surgery_consent_declarations', 'oral_surgery_authorizations',
   'oral_surgery_practical_evaluations',
 ];
-const MUTABLE = ['kinesiology_evaluations', 'kinesiology_evolutions', 'oral_surgery_drafts', 'hygiene_preventive_drafts', 'oral_surgery_operative_reports', 'clinical_records'];
+const MUTABLE = ['kinesiology_evaluations', 'kinesiology_evolutions', 'oral_surgery_drafts', 'hygiene_preventive_drafts', 'endodontics_drafts', 'oral_surgery_operative_reports', 'clinical_records'];
 const TRUNCATE_CLOSURE = [...PROTECTED, 'kinesiology_evaluations', 'kinesiology_evolutions', 'oral_surgery_operative_reports'];
 
 test('S1/S2: migration 053 rejects every DELETE statement on exactly the append-only clinical history tables', () => {
@@ -39,5 +39,5 @@ test('S3: cleanDb truncates the guarded history closure in one statement and nev
   assert.equal(truncateAt, 0);
   assert.ok(truncateAt < calls.indexOf('DELETE FROM oral_surgery_drafts'));
   assert.ok(truncateAt < calls.indexOf('DELETE FROM patient_assignments'));
-  assert.equal(calls.length, 55);
+  assert.equal(calls.length, 57);
 });

@@ -30,4 +30,17 @@ export class PgEndodonticsSubjectRepository implements EndodonticsSubjectReposit
     );
     return result.rows;
   }
+
+  async listMine(actorId: string, role: 'estudiante' | 'teacher') {
+    const result = role === 'estudiante'
+      ? await this.pool.query(`SELECT DISTINCT h.subject_id, h.academic_group_id FROM students s
+          JOIN student_academic_habilitations h ON h.student_id=s.id
+          JOIN endodontics_subjects e ON e.subject_id=h.subject_id
+          WHERE s.user_id=$1 AND h.revoked_at IS NULL ORDER BY h.subject_id,h.academic_group_id`, [actorId])
+      : await this.pool.query(`SELECT DISTINCT h.subject_id, h.academic_group_id FROM teachers t
+          JOIN teacher_academic_habilitations h ON h.teacher_id=t.id
+          JOIN endodontics_subjects e ON e.subject_id=h.subject_id
+          WHERE t.user_id=$1 AND h.revoked_at IS NULL ORDER BY h.subject_id,h.academic_group_id`, [actorId]);
+    return result.rows;
+  }
 }

@@ -10,7 +10,7 @@
  * (every kinesiology_* table plus oral_surgery_practical_evaluations, oral_surgery_operative_reports,
  * oral_surgery_authorizations and oral_surgery_consent_declarations; migration 053 rejects DELETE on the
  * append-only history tables, and TRUNCATE needs every table whose foreign keys reach them) ->
- * oral_surgery_drafts -> hygiene_preventive_procedures -> hygiene_preventive_consent_declarations -> hygiene_preventive_drafts -> patient_assignments -> patient_context_availabilities ->
+ * oral_surgery_drafts -> hygiene_preventive_procedures -> hygiene_preventive_consent_declarations -> hygiene_preventive_drafts -> endodontics_drafts -> patient_assignments -> patient_context_availabilities ->
  * student_academic_habilitations -> teacher_academic_habilitations -> students -> teachers ->
  * subject_academic_groups -> academic_groups -> oral_surgery_subjects -> hygiene_preventive_subjects ->
  * subjects -> clinical_records -> patients ->
@@ -114,6 +114,9 @@ const hygienePreventiveSubjectPermissionSeedSql = readFileSync(
 const endodonticsSubjectPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/066_seed_endodontics_subject_permissions.sql'), 'utf8',
 );
+const endodonticsDraftPermissionSeedSql = readFileSync(
+  join(__dirname, '../../../src/db/migrations/068_seed_endodontics_draft_permissions.sql'), 'utf8',
+);
 const hygienePreventiveDraftPermissionSeedSql = readFileSync(
   join(__dirname, '../../../src/db/migrations/057_seed_hygiene_preventive_draft_permissions.sql'), 'utf8',
 );
@@ -151,6 +154,7 @@ export async function cleanDb(pool) {
   await pool.query('TRUNCATE hygiene_preventive_procedures');
   await pool.query('TRUNCATE hygiene_preventive_consent_declarations');
   await pool.query('DELETE FROM hygiene_preventive_drafts');
+  await pool.query('DELETE FROM endodontics_drafts');
   await pool.query('DELETE FROM patient_assignments');
   await pool.query('DELETE FROM patient_context_availabilities');
   await pool.query('DELETE FROM student_academic_habilitations');
@@ -203,4 +207,5 @@ export async function cleanDb(pool) {
   await pool.query(receptionAvailabilityPermissionSeedSql);
   await pool.query(receptionAvailabilityReadPermissionSeedSql);
   await pool.query(endodonticsSubjectPermissionSeedSql);
+  await pool.query(endodonticsDraftPermissionSeedSql);
 }
